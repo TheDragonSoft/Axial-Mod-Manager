@@ -1,6 +1,6 @@
 [package]
 name = "axial"
-version = "0.1.0"
+version = "0.2.0"
 description = "Axial — a desktop mod manager for Factorio"
 authors = ["TheDragonSoft"]
 edition = "2021"
