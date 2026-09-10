@@ -3,7 +3,9 @@ name: Build
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]jobs:
+    tags: ["v*"]
+
+jobs:
   build:
     strategy:
       fail-fast: false
