@@ -3,9 +3,7 @@ name: Build
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
-
-jobs:
+    tags: ["v*"]jobs:
   build:
     strategy:
       fail-fast: false
@@ -42,3 +40,20 @@ jobs:
             src-tauri/target/release/bundle/macos/*
             src-tauri/target/release/bundle/appimage/*
             src-tauri/target/release/bundle/deb/*
+
+  release:
+    # Publish a GitHub release with all bundles when a v* tag is pushed.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundles
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: bundles/**
+          generate_release_notes: true

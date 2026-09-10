@@ -18,7 +18,7 @@ use crate::models::{
 use crate::state::AppState;
 
 #[allow(dead_code)]
-pub const EXPORT_FORMAT: &str = "fmm-pack/1";
+pub const EXPORT_FORMAT: &str = "axial-pack/1";
 
 /// Set while a pack activation is waiting for its downloads to land.
 #[derive(Debug)]

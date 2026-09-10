@@ -9,7 +9,7 @@ use crate::error::AppError;
 use crate::models::{IndexHealth, ModDetails, SearchResult};
 
 /// Identifies our client to every server we talk to (politeness + diagnostics).
-pub const USER_AGENT: &str = "FactorioModManager/0.1 (personal use)";
+pub const USER_AGENT: &str = "Axial/0.1 (personal use)";
 
 /// Official mod portal read API (search + metadata). Public, no auth for reads.
 pub const PORTAL_API_BASE: &str = "https://mods.factorio.com/api";

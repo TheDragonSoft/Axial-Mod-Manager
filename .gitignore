@@ -11,6 +11,13 @@ node_modules
 dist
 dist-ssr
 *.local
+src-tauri/target
+src-tauri/gen/schemas
+
+# Build outputs — never track these
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
 
 # Editor directories and files
 .vscode/*

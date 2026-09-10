@@ -235,7 +235,7 @@ export default function SettingsPage() {
             <option value="error">error</option>
           </select>
           <p className="mt-1 text-xs text-zinc-500">
-            Written to app-data/logs/fmm.log — level applies after restart.
+            Written to app-data/logs/axial.log — level applies after restart.
           </p>
         </div>
 

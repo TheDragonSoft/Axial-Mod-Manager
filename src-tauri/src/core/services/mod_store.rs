@@ -83,7 +83,7 @@ pub fn dir_status(path: &str) -> ModsDirStatus {
 }
 
 fn probe_writable(dir: &Path) -> bool {
-    let probe = dir.join(".fmm_write_probe");
+    let probe = dir.join(".axial_write_probe");
     match fs::File::create(&probe) {
         Ok(_) => {
             let _ = fs::remove_file(&probe);

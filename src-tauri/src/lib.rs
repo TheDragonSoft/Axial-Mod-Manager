@@ -15,16 +15,16 @@ use core::services::index_client::USER_AGENT;
 use core::services::portal_client::PortalClient;
 use state::AppState;
 
-/// File logging to <app-data>/logs/fmm.log with a single 5 MB rotation.
+/// File logging to <app-data>/logs/axial.log with a single 5 MB rotation.
 fn init_logging(data_dir: &Path, level: &str) {
     let dir = data_dir.join("logs");
     if std::fs::create_dir_all(&dir).is_err() {
         return; // no usable data dir — run without file logging
     }
-    let log_path = dir.join("fmm.log");
+    let log_path = dir.join("axial.log");
     if let Ok(meta) = std::fs::metadata(&log_path) {
         if meta.len() > 5 * 1024 * 1024 {
-            let _ = std::fs::rename(&log_path, dir.join("fmm.log.1"));
+            let _ = std::fs::rename(&log_path, dir.join("axial.log.1"));
         }
     }
     let Ok(file) = std::fs::OpenOptions::new()
