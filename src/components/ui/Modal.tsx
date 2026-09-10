@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 
 /**
  * Module-level stack of currently open modals so Escape only closes the
- * topmost one (DependencyPlanModal stacks above ModDetailsModal).
+ * topmost one (e.g. if a modal ever stacks above the InstallModal).
  */
 const openStack: symbol[] = [];
 
@@ -133,7 +133,7 @@ export default function Modal({
         )}
         <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-4">
+          <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-4">
             {footer}
           </div>
         )}

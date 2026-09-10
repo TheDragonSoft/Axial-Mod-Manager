@@ -12,15 +12,17 @@ interface ModCardProps {
   mod: ModSummary;
   /** Settings target the compat badge compares against. */
   targetVersion?: string;
+  /** Opens the install dialog (card click and the Details button). */
   onOpen?: (mod: ModSummary) => void;
-  onDownload?: (mod: ModSummary) => void;
+  /** The Install button never queues directly — it opens the install dialog. */
+  onInstall?: (mod: ModSummary) => void;
 }
 
 export default function ModCard({
   mod,
   targetVersion = "2.0",
   onOpen,
-  onDownload,
+  onInstall,
 }: ModCardProps) {
   const favorite = useFavoritesStore((s) => s.favorites.includes(mod.name));
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
@@ -92,13 +94,13 @@ export default function ModCard({
               Details
             </Button>
           )}
-          {onDownload && (
+          {onInstall && (
             <Button
               variant="primary"
               size="sm"
               onClick={(e) => {
                 e.stopPropagation();
-                onDownload(mod);
+                onInstall(mod);
               }}
             >
               Install

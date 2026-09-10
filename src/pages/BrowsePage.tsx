@@ -9,18 +9,16 @@ import {
   SearchX,
 } from "lucide-react";
 import {
-  enqueueDownload,
   getModDetails,
   getSettings,
   indexHealthCheck,
   searchMods,
   toAppError,
 } from "../lib/api";
-import { useQueueStore } from "../store/useQueueStore";
 import { useFavoritesStore } from "../store/useFavoritesStore";
 import { useThumbnails } from "../lib/thumbnails";
 import ModCard from "../components/ModCard";
-import ModDetailsModal from "../components/ModDetailsModal";
+import InstallModal from "../components/InstallModal";
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
@@ -105,11 +103,11 @@ function DiagnosticsPanel() {
 function FavoritesView({
   targetVersion,
   onOpen,
-  onDownload,
+  onInstall,
 }: {
   targetVersion: string;
   onOpen: (mod: ModSummary) => void;
-  onDownload: (mod: ModSummary) => void;
+  onInstall: (mod: ModSummary) => void;
 }) {
   const favorites = useFavoritesStore((s) => s.favorites);
   const [details, setDetails] = useState<ModDetails[]>([]);
@@ -171,7 +169,7 @@ function FavoritesView({
           mod={toSummary(d)}
           targetVersion={targetVersion}
           onOpen={onOpen}
-          onDownload={onDownload}
+          onInstall={onInstall}
         />
       ))}
     </div>
@@ -187,7 +185,7 @@ export default function BrowsePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<AppError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [selected, setSelected] = useState<ModSummary | null>(null);
+  const [installTarget, setInstallTarget] = useState<ModSummary | null>(null);
   const [targetVersion, setTargetVersion] = useState("2.0");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -225,11 +223,6 @@ export default function BrowsePage() {
 
   const results = data?.results ?? [];
   useThumbnails(favoritesOnly ? [] : results.map((m) => m.name));
-
-  const openAndDownload = (mod: ModSummary) => {
-    void enqueueDownload(mod.name, mod.latestVersion);
-    useQueueStore.getState().open();
-  };
 
   const showSkeletons = !favoritesOnly && data === null && loading;
 
@@ -372,8 +365,8 @@ export default function BrowsePage() {
                       key={mod.name}
                       mod={mod}
                       targetVersion={targetVersion}
-                      onOpen={setSelected}
-                      onDownload={openAndDownload}
+                      onOpen={setInstallTarget}
+                      onInstall={setInstallTarget}
                     />
                   ))
                 )}
@@ -386,13 +379,16 @@ export default function BrowsePage() {
       {favoritesOnly && (
         <FavoritesView
           targetVersion={targetVersion}
-          onOpen={setSelected}
-          onDownload={openAndDownload}
+          onOpen={setInstallTarget}
+          onInstall={setInstallTarget}
         />
       )}
 
-      {selected && (
-        <ModDetailsModal mod={selected} onClose={() => setSelected(null)} />
+      {installTarget && (
+        <InstallModal
+          mod={installTarget}
+          onClose={() => setInstallTarget(null)}
+        />
       )}
     </div>
   );
