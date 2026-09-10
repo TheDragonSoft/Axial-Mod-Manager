@@ -7,11 +7,14 @@ use crate::state::AppState;
 
 #[tauri::command]
 pub async fn validate_mods_dir(path: String) -> Result<ModsDirStatus, AppError> {
-    let trimmed = path.trim();
+    let trimmed = path.trim().to_string();
     if trimmed.is_empty() {
         return Err(AppError::Config("mods directory path is empty".into()));
     }
-    Ok(mod_store::dir_status(trimmed))
+    // dir_status probes writability with a scratch file — blocking IO.
+    tauri::async_runtime::spawn_blocking(move || Ok(mod_store::dir_status(&trimmed)))
+        .await
+        .map_err(|e| AppError::Parse(format!("background task failed: {e}")))?
 }
 
 /// Heavy work (zip reads) runs on the blocking thread pool, served from the
