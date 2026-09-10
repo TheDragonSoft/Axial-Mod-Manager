@@ -12,6 +12,23 @@ export interface Settings {
   targetFactorioVersion: string;
 }
 
+// ---- Mods directory detection/validation (Phase 3) ----
+
+export interface DetectedDir {
+  path: string;
+  exists: boolean;
+}
+
+export interface ModsDirStatus {
+  path: string;
+  exists: boolean;
+  isDir: boolean;
+  writable: boolean;
+  creatable: boolean;
+  zipCount: number;
+  hasModList: boolean;
+}
+
 // ---- Index types (mocked in Phase 2, live from backend in Phase 4) ----
 
 export interface ModSummary {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Toggle from "../components/Toggle";
 import { getSettings } from "../lib/api";
+import { onSettingsChanged } from "../lib/events";
 import { MOCK_INSTALLED } from "../mock";
 import type { InstalledMod } from "../types";
 
@@ -8,11 +9,16 @@ export default function InstalledPage() {
   const [mods, setMods] = useState<InstalledMod[]>(MOCK_INSTALLED);
   const [modsDir, setModsDir] = useState<string | null>(null);
 
-  // Real backend call (Phase 1) — shows the configured path once it exists.
   useEffect(() => {
+    // Initial fetch + live updates whenever settings are saved elsewhere.
     getSettings()
       .then((s) => setModsDir(s.modsDir))
       .catch(() => setModsDir(null));
+
+    const unlisten = onSettingsChanged((s) => setModsDir(s.modsDir));
+    return () => {
+      void unlisten.then((f) => f());
+    };
   }, []);
 
   // Local state only — replaced by toggle_mod/uninstall_mod commands in Phase 6.
@@ -27,7 +33,7 @@ export default function InstalledPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-zinc-100">Installed</h2>
         <p className="font-mono text-xs text-zinc-500">
-          {modsDir ?? "mods path — auto-detect arrives in Phase 3"}
+          {modsDir ?? "mods path — not set (configure it in Settings)"}
         </p>
       </div>
       <p className="mt-2 text-xs text-zinc-600">
