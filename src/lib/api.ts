@@ -3,6 +3,7 @@ import type {
   AppError,
   DetectedDir,
   IndexHealth,
+  InstalledSnapshot,
   ModDetails,
   ModsDirStatus,
   QueueItem,
@@ -23,7 +24,7 @@ export async function ping(name: string): Promise<string> {
   return invoke<string>("ping", { name });
 }
 
-// ---- Settings (Phase 3) ----
+// ---- Settings ----
 
 export async function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
@@ -42,7 +43,7 @@ export async function validateModsDir(path: string): Promise<ModsDirStatus> {
   return invoke<ModsDirStatus>("validate_mods_dir", { path });
 }
 
-// ---- Index (Phase 4) ----
+// ---- Index ----
 
 export async function searchMods(
   query: string,
@@ -60,10 +61,26 @@ export async function indexHealthCheck(): Promise<IndexHealth> {
   return invoke<IndexHealth>("index_health_check");
 }
 
+// ---- Downloads ----
+
 export async function enqueueDownload(modName: string, version: string): Promise<QueueItem> {
   return invoke<QueueItem>("enqueue_download", { modName, version });
 }
 
 export async function cancelDownload(id: number): Promise<void> {
   return invoke<void>("cancel_download", { id });
+}
+
+// ---- Installed ----
+
+export async function listInstalled(): Promise<InstalledSnapshot> {
+  return invoke<InstalledSnapshot>("list_installed");
+}
+
+export async function toggleMod(name: string, enabled: boolean): Promise<void> {
+  return invoke<void>("toggle_mod", { name, enabled });
+}
+
+export async function uninstallMod(fileName: string): Promise<void> {
+  return invoke<void>("uninstall_mod", { fileName });
 }

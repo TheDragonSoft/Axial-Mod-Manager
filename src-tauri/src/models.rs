@@ -82,3 +82,28 @@ pub struct IndexHealth {
     pub byte_length: usize,
     pub excerpt: String,
 }
+
+// ---- Installed mods (Phase 6) ----
+
+/// One zip in the mods folder. `name`/`version` come from the zip's own
+/// info.json (authoritative); `problem` flags unreadable or duplicate files.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledMod {
+    pub file_name: String,
+    pub name: String,
+    pub version: String,
+    pub factorio_version: String,
+    pub enabled: bool,
+    /// Raw dependency strings ("mod >= 1.2.0", "? opt", "(!) bad") — parsed in Phase 7.
+    pub dependencies: Vec<String>,
+    pub problem: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledSnapshot {
+    pub mods_dir: String,
+    pub mod_list_exists: bool,
+    pub mods: Vec<InstalledMod>,
+}

@@ -62,6 +62,15 @@ impl DownloadQueue {
         }
     }
 
+    /// True if any queued or active job targets this mod name (any version).
+    pub fn is_busy(&self, mod_name: &str) -> bool {
+        self.in_flight
+            .lock()
+            .expect("queue lock poisoned")
+            .iter()
+            .any(|key| key.split('|').next() == Some(mod_name))
+    }
+
     /// Register a download and return immediately with its queued item.
     /// Progress/completion is delivered via "download-updated" events.
     pub async fn enqueue(
@@ -179,6 +188,7 @@ async fn run_job(
                     item.status = "completed";
                     item.received = total;
                     item.total = total;
+                    let _ = app.emit("installed-changed", ());
                 }
                 Err(e) => {
                     item.status = "failed";

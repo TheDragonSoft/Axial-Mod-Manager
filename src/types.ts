@@ -79,10 +79,19 @@ export interface IndexHealth {
 // ---- Installed mods (mocked in Phase 2, live in Phase 6) ----
 
 export interface InstalledMod {
+  fileName: string;
   name: string;
   version: string;
-  enabled: boolean;
   factorioVersion: string;
+  enabled: boolean;
+  dependencies: string[];
+  problem: string | null;
+}
+
+export interface InstalledSnapshot {
+  modsDir: string;
+  modListExists: boolean;
+  mods: InstalledMod[];
 }
 
 // ---- Download queue (mocked in Phase 2, fed by Rust events in Phase 5) ----
