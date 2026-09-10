@@ -4,9 +4,10 @@ import { formatCount } from "../lib/format";
 interface ModCardProps {
   mod: ModSummary;
   onOpen?: (mod: ModSummary) => void;
+  onDownload?: (mod: ModSummary) => void;
 }
 
-export default function ModCard({ mod, onOpen }: ModCardProps) {
+export default function ModCard({ mod, onOpen, onDownload }: ModCardProps) {
   return (
     <div
       onClick={() => onOpen?.(mod)}
@@ -42,9 +43,16 @@ export default function ModCard({ mod, onOpen }: ModCardProps) {
           v{mod.latestVersion}
         </div>
         <button
-          disabled
-          title="Downloads arrive in Phase 5"
-          className="cursor-not-allowed rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-500"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownload?.(mod);
+          }}
+          disabled={!onDownload}
+          className={
+            onDownload
+              ? "rounded bg-amber-500 px-3 py-1.5 text-xs font-medium text-zinc-950 hover:bg-amber-400"
+              : "cursor-not-allowed rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-500"
+          }
         >
           Download
         </button>

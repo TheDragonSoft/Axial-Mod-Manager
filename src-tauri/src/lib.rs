@@ -5,10 +5,11 @@ mod error;
 mod models;
 mod state;
 
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use tauri::Manager;
 
+use core::services::downloader::DownloadQueue;
 use core::services::index_client::USER_AGENT;
 use core::services::portal_client::PortalClient;
 use state::AppState;
@@ -25,12 +26,13 @@ pub fn run() {
             let http = reqwest::Client::builder()
                 .user_agent(USER_AGENT)
                 .build()?;
-            let index = PortalClient::new(http);
+            let index = PortalClient::new(http.clone());
 
             app.manage(AppState {
                 config: RwLock::new(config),
                 config_path,
                 index: Box::new(index),
+                queue: Arc::new(DownloadQueue::new(http)),
             });
             Ok(())
         })
@@ -43,6 +45,8 @@ pub fn run() {
             commands::index::search_mods,
             commands::index::get_mod_details,
             commands::index::index_health_check,
+            commands::downloads::enqueue_download,
+            commands::downloads::cancel_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

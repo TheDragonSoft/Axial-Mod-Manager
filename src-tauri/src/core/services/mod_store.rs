@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::config::Config;
+use crate::error::AppError;
 use crate::models::{DetectedDir, ModsDirStatus};
 
 // ---------------------------------------------------------------------------
@@ -122,4 +124,18 @@ fn count_zips(dir: &Path) -> u32 {
         }
     }
     count
+}
+
+/// Resolve the effective mods directory: configured path, else platform detect.
+pub fn resolve_dir(config: &Config) -> Result<PathBuf, AppError> {
+    if let Some(p) = &config.mods_dir {
+        if !p.trim().is_empty() {
+            return Ok(PathBuf::from(p));
+        }
+    }
+    detect()
+        .map(|d| PathBuf::from(d.path))
+        .ok_or_else(|| {
+            AppError::Config("could not determine the Factorio mods directory — set it in Settings".into())
+        })
 }

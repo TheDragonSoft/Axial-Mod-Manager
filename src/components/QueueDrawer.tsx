@@ -1,3 +1,4 @@
+import { enqueueDownload, cancelDownload, toAppError } from "../lib/api";
 import { useQueueStore } from "../store/useQueueStore";
 import ProgressBar from "./ProgressBar";
 import { formatBytes, percent } from "../lib/format";
@@ -12,11 +13,27 @@ const STATUS_STYLES: Record<QueueStatus, { label: string; className: string }> =
 };
 
 function QueueRow({ item }: { item: QueueItem }) {
-  const setStatus = useQueueStore((s) => s.setStatus);
+  const upsert = useQueueStore((s) => s.upsert);
   const dismiss = useQueueStore((s) => s.dismiss);
   const isActive = item.status === "queued" || item.status === "downloading";
   const status = STATUS_STYLES[item.status];
   const pct = percent(item.received, item.total);
+
+  async function cancel() {
+    try {
+      await cancelDownload(item.id);
+    } catch {
+      /* already finished — ignore */
+    }
+  }
+
+  async function retry() {
+    try {
+      await enqueueDownload(item.modName, item.version);
+    } catch (e) {
+      upsert({ ...item, status: "failed", error: toAppError(e).message });
+    }
+  }
 
   return (
     <div className="border-b border-zinc-800 px-4 py-3">
@@ -30,29 +47,36 @@ function QueueRow({ item }: { item: QueueItem }) {
         </span>
       </div>
 
-      <div className="mt-2">
-        <ProgressBar value={pct} />
-        <div className="mt-1 flex justify-between text-[11px] text-zinc-500">
-          <span>
-            {formatBytes(item.received)} / {formatBytes(item.total)}
-          </span>
-          <span>{pct}%</span>
+      {item.status !== "failed" && (
+        <div className="mt-2">
+          <ProgressBar value={pct} />
+          <div className="mt-1 flex justify-between text-[11px] text-zinc-500">
+            <span>
+              {formatBytes(item.received)}
+              {item.total > 0 && ` / ${formatBytes(item.total)}`}
+            </span>
+            <span>{item.total > 0 ? `${pct}%` : "…"}</span>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="mt-2 text-right">
-        {isActive ? (
-          <button
-            onClick={() => setStatus(item.id, "cancelled")}
-            className="text-xs text-zinc-500 hover:text-red-400"
-          >
+      {item.status === "failed" && item.error && (
+        <p className="mt-2 text-xs text-red-400">{item.error}</p>
+      )}
+
+      <div className="mt-2 flex justify-end gap-4">
+        {isActive && (
+          <button onClick={cancel} className="text-xs text-zinc-500 hover:text-red-400">
             Cancel
           </button>
-        ) : (
-          <button
-            onClick={() => dismiss(item.id)}
-            className="text-xs text-zinc-500 hover:text-zinc-300"
-          >
+        )}
+        {item.status === "failed" && (
+          <button onClick={retry} className="text-xs text-zinc-400 hover:text-amber-400">
+            Retry
+          </button>
+        )}
+        {!isActive && (
+          <button onClick={() => dismiss(item.id)} className="text-xs text-zinc-500 hover:text-zinc-300">
             Dismiss
           </button>
         )}

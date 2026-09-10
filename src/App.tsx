@@ -7,6 +7,7 @@ import PacksPage from "./pages/PacksPage";
 import SettingsPage from "./pages/SettingsPage";
 import { useAppStore, type Tab } from "./store/useAppStore";
 import { useQueueStore } from "./store/useQueueStore";
+import { onDownloadUpdated } from "./lib/events";
 import { ping, toAppError } from "./lib/api";
 
 type BridgeState =
@@ -34,6 +35,7 @@ function QueueFab() {
   const activeCount = items.filter(
     (i) => i.status === "queued" || i.status === "downloading",
   ).length;
+  const failedCount = items.filter((i) => i.status === "failed").length;
 
   return (
     <button
@@ -46,25 +48,11 @@ function QueueFab() {
           {activeCount}
         </span>
       )}
-    </button>
-  );
-}
-
-/** DEV-ONLY — deleted in Phase 5 when real backend events feed the store. */
-function DevSimButton() {
-  const simulate = useQueueStore((s) => s.simulateDownload);
-  const open = useQueueStore((s) => s.open);
-
-  return (
-    <button
-      onClick={() => {
-        simulate();
-        open();
-      }}
-      title="DEV ONLY: pushes a fake queue item and animates progress"
-      className="rounded border border-dashed border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-500 hover:border-amber-500 hover:text-amber-400"
-    >
-      ⚡ Simulate download
+      {failedCount > 0 && (
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-zinc-950">
+          {failedCount}
+        </span>
+      )}
     </button>
   );
 }
@@ -77,6 +65,14 @@ export default function App() {
     ping("world")
       .then((message) => setBridge({ status: "online", message }))
       .catch((e) => setBridge({ status: "error", message: toAppError(e).message }));
+  }, []);
+
+  // Single global listener: every backend queue update flows into the store.
+  useEffect(() => {
+    const unlisten = onDownloadUpdated((item) => useQueueStore.getState().upsert(item));
+    return () => {
+      void unlisten.then((f) => f());
+    };
   }, []);
 
   return (
@@ -94,7 +90,6 @@ export default function App() {
           {bridge.status === "error" && (
             <span className="text-red-500">● Backend error — {bridge.message}</span>
           )}
-          {import.meta.env.DEV && <DevSimButton />}
         </footer>
       </div>
       <QueueFab />

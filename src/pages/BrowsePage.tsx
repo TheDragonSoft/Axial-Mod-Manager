@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { enqueueDownload, getSettings, indexHealthCheck, searchMods, toAppError } from "../lib/api";
+import { useQueueStore } from "../store/useQueueStore";
 import ModCard from "../components/ModCard";
 import ModDetailsModal from "../components/ModDetailsModal";
-import { getSettings, indexHealthCheck, searchMods, toAppError } from "../lib/api";
 import type { AppError, IndexHealth, ModSummary, SearchResult, SortKey } from "../types";
 
 function SkeletonCard() {
@@ -146,11 +147,6 @@ export default function BrowsePage() {
               Retry
             </button>
           </div>
-          {error.kind === "not_implemented" && (
-            <p className="mt-2 text-xs text-amber-500/80">
-              Expected in Phase 4A — the adapter is wired once the discovery report is provided.
-            </p>
-          )}
           <DiagnosticsPanel />
         </div>
       )}
@@ -200,7 +196,15 @@ export default function BrowsePage() {
               </div>
             ) : (
               results.map((mod) => (
-                <ModCard key={mod.name} mod={mod} onOpen={setSelected} />
+                <ModCard
+                  key={mod.name}
+                  mod={mod}
+                  onOpen={setSelected}
+                  onDownload={(m) => {
+                    void enqueueDownload(m.name, m.latestVersion);
+                    useQueueStore.getState().open();
+                  }}
+                />
               ))
             )}
           </div>

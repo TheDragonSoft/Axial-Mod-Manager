@@ -95,10 +95,11 @@ export type QueueStatus =
   | "cancelled";
 
 export interface QueueItem {
-  id: string;
+  id: number;
   modName: string;
   version: string;
   status: QueueStatus;
   received: number;
   total: number;
+  error?: string | null;
 }

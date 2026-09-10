@@ -14,11 +14,6 @@ pub const USER_AGENT: &str = "FactorioModManager/0.1 (personal use)";
 /// Official mod portal read API (search + metadata). Public, no auth for reads.
 pub const PORTAL_API_BASE: &str = "https://mods.factorio.com/api";
 
-/// Third-party download mirror (Phase 5). Serves mod zips that would otherwise
-/// require portal authentication. Isolated behind a resolver so it can be
-/// swapped or removed without touching metadata code.
-#[allow(dead_code)]
-pub const RE146_BASE: &str = "https://re146.dev/factorio/mods/en";
 
 /// Cache entries older than this are re-fetched.
 const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
@@ -44,6 +39,7 @@ impl SortKey {
     /// Portal API query params for this sort order.
     /// ASSUMPTION (verified via the Phase 4B checklist / diagnostics probe):
     /// the API accepts `sort` = downloads|title and `order` = asc|desc.
+    #[allow(dead_code)]
     pub fn query_params(self) -> [(&'static str, &'static str); 2] {
         match self {
             SortKey::Downloads => [("sort", "downloads"), ("order", "desc")],

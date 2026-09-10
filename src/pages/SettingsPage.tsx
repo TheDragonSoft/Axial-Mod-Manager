@@ -179,6 +179,7 @@ export default function SettingsPage() {
             }}
             className="mt-1.5 w-40 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-amber-500"
           >
+            <option value="2.1">2.1</option>
             <option value="2.0">2.0</option>
             <option value="1.1">1.1</option>
           </select>

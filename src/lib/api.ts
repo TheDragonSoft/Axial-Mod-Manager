@@ -5,6 +5,7 @@ import type {
   IndexHealth,
   ModDetails,
   ModsDirStatus,
+  QueueItem,
   SearchResult,
   Settings,
   SortKey,
@@ -57,4 +58,12 @@ export async function getModDetails(name: string): Promise<ModDetails> {
 
 export async function indexHealthCheck(): Promise<IndexHealth> {
   return invoke<IndexHealth>("index_health_check");
+}
+
+export async function enqueueDownload(modName: string, version: string): Promise<QueueItem> {
+  return invoke<QueueItem>("enqueue_download", { modName, version });
+}
+
+export async function cancelDownload(id: number): Promise<void> {
+  return invoke<void>("cancel_download", { id });
 }

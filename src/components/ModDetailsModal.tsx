@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { getModDetails, getSettings, toAppError } from "../lib/api";
+import { enqueueDownload, getModDetails, getSettings, toAppError } from "../lib/api";
+import { useQueueStore } from "../store/useQueueStore";
 import { compareVersions, formatBytes, formatCount } from "../lib/format";
 import type { AppError, ModDetails, ModRelease, ModSummary } from "../types";
 
@@ -8,7 +9,17 @@ interface Props {
   onClose: () => void;
 }
 
-function ReleaseRow({ release, isLatest, target }: { release: ModRelease; isLatest: boolean; target: string }) {
+function ReleaseRow({
+  release,
+  isLatest,
+  target,
+  onDownload,
+}: {
+  release: ModRelease;
+  isLatest: boolean;
+  target: string;
+  onDownload: (version: string) => void;
+}) {
   const compatible = release.factorioVersion === target;
   return (
     <tr className="border-b border-zinc-800/60">
@@ -41,9 +52,8 @@ function ReleaseRow({ release, isLatest, target }: { release: ModRelease; isLate
       </td>
       <td className="py-2 text-right">
         <button
-          disabled
-          title="Downloads arrive in Phase 5"
-          className="cursor-not-allowed rounded bg-zinc-800 px-2.5 py-1 text-xs text-zinc-500"
+          onClick={() => onDownload(release.version)}
+          className="rounded bg-amber-500 px-2.5 py-1 text-xs font-medium text-zinc-950 hover:bg-amber-400"
         >
           Download
         </button>
@@ -81,6 +91,11 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
   const releases = details
     ? [...details.releases].sort((a, b) => compareVersions(b.version, a.version))
     : [];
+
+  const startDownload = (version: string) => {
+    void enqueueDownload(mod.name, version);
+    useQueueStore.getState().open();
+  };
 
   return (
     <div
@@ -144,7 +159,7 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
             </thead>
             <tbody>
               {releases.map((r, i) => (
-                <ReleaseRow key={r.version} release={r} isLatest={i === 0} target={target} />
+                <ReleaseRow key={r.version} release={r} isLatest={i === 0} target={target} onDownload={startDownload} />
               ))}
             </tbody>
           </table>
