@@ -7,6 +7,7 @@ import type {
   ModDetails,
   ModsDirStatus,
   QueueItem,
+  ResolutionPlan,
   SearchResult,
   Settings,
   SortKey,
@@ -83,4 +84,10 @@ export async function toggleMod(name: string, enabled: boolean): Promise<void> {
 
 export async function uninstallMod(fileName: string): Promise<void> {
   return invoke<void>("uninstall_mod", { fileName });
+}
+
+// ---- Dependencies (Phase 7) ----
+
+export async function resolveInstallPlan(name: string, version?: string): Promise<ResolutionPlan> {
+  return invoke<ResolutionPlan>("resolve_install_plan", { name, version: version ?? null });
 }

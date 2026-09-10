@@ -69,6 +69,7 @@ pub struct ModDetails {
     pub owner: Option<String>,
     pub summary: String,
     pub downloads: Option<u64>,
+    pub dependencies: Vec<String>,
     pub releases: Vec<ModRelease>,
 }
 
@@ -106,4 +107,35 @@ pub struct InstalledSnapshot {
     pub mods_dir: String,
     pub mod_list_exists: bool,
     pub mods: Vec<InstalledMod>,
+}
+
+// ---- Dependency resolution (Phase 7) ----
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanEntry {
+    pub name: String,
+    pub title: String,
+    pub version: String,
+    pub factorio_version: String,
+    /// "" for the root mod (the one you asked for); parent mod name otherwise.
+    pub required_by: String,
+    /// False when no dependency info was available (⚠ in the UI).
+    pub deps_known: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolutionPlan {
+    pub root_name: String,
+    pub target: String,
+    pub to_install: Vec<PlanEntry>,
+    /// Already installed at suitable versions — will be left alone.
+    pub satisfied: Vec<String>,
+    /// Optional dependencies, informational; installable via checkboxes.
+    pub optional: Vec<String>,
+    /// Hard problems (incompatibilities, fetch failures) — confirm is blocked.
+    pub conflicts: Vec<String>,
+    /// Soft problems (constraint best-effort, unknown deps) — confirm allowed.
+    pub warnings: Vec<String>,
 }

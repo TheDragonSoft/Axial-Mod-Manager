@@ -1,3 +1,4 @@
+pub mod deps;
 pub mod downloads;
 pub mod index;
 pub mod installed;

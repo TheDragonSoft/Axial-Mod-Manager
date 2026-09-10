@@ -1,4 +1,6 @@
+pub mod deps;
 pub mod downloader;
 pub mod index_client;
 pub mod mod_store;
 pub mod portal_client;
+pub mod resolver;

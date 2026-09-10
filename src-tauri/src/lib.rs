@@ -50,6 +50,7 @@ pub fn run() {
             commands::index::index_health_check,
             commands::downloads::enqueue_download,
             commands::downloads::cancel_download,
+            commands::deps::resolve_install_plan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
+use crate::core::services::deps::cmp_versions;
 use crate::core::services::index_client::{CachedHttp, IndexClient, SortKey, PORTAL_API_BASE};
 use crate::error::AppError;
 use crate::models::{IndexHealth, ModDetails, ModRelease, ModSummary, SearchResult};
@@ -45,6 +46,8 @@ pub struct PortalRelease {
     #[serde(default)]
     #[allow(dead_code)]
     pub download_url: Option<String>,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -82,6 +85,8 @@ pub struct PortalModDetails {
     #[serde(default, alias = "downloads")]
     pub downloads_count: Option<u64>,
     #[serde(default)]
+    pub dependencies: Vec<String>,
+    #[serde(default)]
     pub releases: Vec<PortalRelease>,
 }
 
@@ -114,12 +119,23 @@ fn map_summary(item: PortalModListItem) -> ModSummary {
 pub(crate) fn parse_details(raw: &str) -> Result<ModDetails, AppError> {
     let dto: PortalModDetails = serde_json::from_str(raw)
         .map_err(|e| AppError::Parse(format!("portal details response: {e}")))?;
+    let dependencies = if !dto.dependencies.is_empty() {
+        dto.dependencies
+    } else {
+        // Fallback: take deps from the newest release, if the API exposes them there.
+        dto.releases
+            .iter()
+            .max_by(|a, b| cmp_versions(&a.version, &b.version))
+            .map(|r| r.dependencies.clone())
+            .unwrap_or_default()
+    };
     Ok(ModDetails {
         name: dto.name,
         title: dto.title,
         owner: dto.owner,
         summary: dto.summary,
         downloads: dto.downloads_count,
+        dependencies,
         releases: dto.releases.into_iter().map(map_release).collect(),
     })
 }
@@ -377,6 +393,7 @@ mod tests {
         "name": "krastorio2", "title": "Krastorio 2", "owner": "Krastor and Darkfrei",
         "summary": "A major overhaul.", "downloads_count": 1842000,
         "category": "overhaul",
+        "dependencies": ["base", "? optional-mod >= 1.0", "! rival"],
         "releases": [
             { "version": "1.8.1", "factorio_version": "2.0", "file_size": 12345678 },
             { "version": "1.3.0", "factorio_version": "1.1", "downloads": 90000 }
@@ -406,6 +423,7 @@ mod tests {
         assert_eq!(d.releases.len(), 2);
         assert_eq!(d.releases[0].file_size, Some(12_345_678));
         assert_eq!(d.releases[1].downloads_count, Some(90_000));
+        assert_eq!(d.dependencies.len(), 3);
     }
 
     #[test]

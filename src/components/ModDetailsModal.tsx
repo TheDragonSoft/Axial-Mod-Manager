@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import DependencyPlanModal from "./DependencyPlanModal";
 import { enqueueDownload, getModDetails, getSettings, toAppError } from "../lib/api";
 import { useQueueStore } from "../store/useQueueStore";
 import { compareVersions, formatBytes, formatCount } from "../lib/format";
@@ -67,6 +68,7 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
   const [error, setError] = useState<AppError | null>(null);
   const [loading, setLoading] = useState(true);
   const [target, setTarget] = useState("2.0");
+  const [showPlan, setShowPlan] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -127,6 +129,29 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
           </p>
         )}
 
+        {details && (
+          <p className="mt-2 text-xs text-zinc-500">
+            Dependencies:{" "}
+            {details.dependencies.length > 0 ? (
+              <span
+                className="cursor-help font-mono text-zinc-400 underline decoration-dotted"
+                title={details.dependencies.join("\n")}
+              >
+                {details.dependencies.length} declared
+              </span>
+            ) : (
+              "none reported by the index"
+            )}
+          </p>
+        )}
+
+        <button
+          onClick={() => setShowPlan(true)}
+          className="mt-4 rounded bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-400"
+        >
+          Install with dependencies
+        </button>
+
         <h4 className="mt-5 border-t border-zinc-800 pt-4 text-xs font-medium uppercase tracking-wide text-zinc-500">
           Releases {details && `(${details.releases.length})`}
           <span className="ml-2 normal-case text-zinc-600">
@@ -165,6 +190,18 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
           </table>
         )}
       </div>
+      {showPlan && (
+        <DependencyPlanModal
+          name={mod.name}
+          title={mod.title}
+          onClose={() => setShowPlan(false)}
+          onDone={() => {
+            setShowPlan(false);
+            onClose();
+            useQueueStore.getState().open();
+          }}
+        />
+      )}
     </div>
   );
 }

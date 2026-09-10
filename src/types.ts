@@ -65,6 +65,7 @@ export interface ModDetails {
   owner: string | null;
   summary: string;
   downloads: number | null;
+  dependencies: string[];
   releases: ModRelease[];
 }
 
@@ -111,4 +112,25 @@ export interface QueueItem {
   received: number;
   total: number;
   error?: string | null;
+}
+
+// ---- Dependency resolution (Phase 7) ----
+
+export interface PlanEntry {
+  name: string;
+  title: string;
+  version: string;
+  factorioVersion: string;
+  requiredBy: string;
+  depsKnown: boolean;
+}
+
+export interface ResolutionPlan {
+  rootName: string;
+  target: string;
+  toInstall: PlanEntry[];
+  satisfied: string[];
+  optional: string[];
+  conflicts: string[];
+  warnings: string[];
 }
