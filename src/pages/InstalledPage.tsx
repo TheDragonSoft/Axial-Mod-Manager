@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Toggle from "../components/Toggle";
 import VersionsModal from "../components/VersionsModal";
 import {
@@ -48,9 +48,7 @@ function ModRow({
       </td>
       <td className="py-2.5 pr-4 text-zinc-400">v{mod.version}</td>
       <td className="py-2.5 pr-4">
-        <span className={mod.factorioVersion === "2.0" ? "text-green-400" : "text-zinc-500"}>
-          {mod.factorioVersion}
-        </span>
+        <GameVersionBadge factorioVersion={mod.factorioVersion} />
       </td>
       <td className="py-2.5 pr-4">
         <Toggle checked={mod.enabled} onChange={(v) => onToggle(mod, v)} label={`Enable ${mod.name}`} />
@@ -90,6 +88,16 @@ function ModRow({
   );
 }
 
+/** Green when the mod targets the configured game version (not a hardcoded
+ * "2.0" — gray until the real target is loaded). */
+function GameVersionBadge({ factorioVersion }: { factorioVersion: string }) {
+  const target = useAppStore((s) => s.targetFactorioVersion);
+  const compatible = target !== null && factorioVersion === target;
+  return (
+    <span className={compatible ? "text-green-400" : "text-zinc-500"}>{factorioVersion}</span>
+  );
+}
+
 export default function InstalledPage() {
   const [snapshot, setSnapshot] = useState<Awaited<ReturnType<typeof listInstalled>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,9 +108,16 @@ export default function InstalledPage() {
   const [checking, setChecking] = useState(false);
   const [versionsFor, setVersionsFor] = useState<InstalledMod | null>(null);
 
+  /** Mods dir of the last snapshot — a settings save that changes it needs a
+   * hard reload; any other save just refreshes quietly. */
+  const modsDirRef = useRef<string | null>(null);
+  const refreshTimer = useRef<number | null>(null);
+
   const refresh = useCallback(async () => {
     try {
-      setSnapshot(await listInstalled());
+      const snap = await listInstalled();
+      modsDirRef.current = snap.modsDir;
+      setSnapshot(snap);
       setError(null);
     } catch (e) {
       setError(toAppError(e).message);
@@ -111,23 +126,36 @@ export default function InstalledPage() {
     }
   }, []);
 
+  /** Coalesce bursts (every completed download emits installed-changed) into
+   * one rescan instead of N back-to-back ones. */
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+    refreshTimer.current = window.setTimeout(() => {
+      refreshTimer.current = null;
+      void refresh();
+    }, 500);
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    const u1 = onInstalledChanged(() => void refresh());
-    const u2 = onSettingsChanged(() => {
-      setLoading(true);
-      void refresh();
+    const u1 = onInstalledChanged(() => scheduleRefresh());
+    const u2 = onSettingsChanged((settings) => {
+      if (settings.modsDir !== null && modsDirRef.current !== null && settings.modsDir !== modsDirRef.current) {
+        setLoading(true); // different folder — the stale list is meaningless
+      }
+      scheduleRefresh();
     });
     return () => {
+      if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
       void Promise.all([u1, u2]).then(([f1, f2]) => {
         f1();
         f2();
       });
     };
-  }, [refresh]);
+  }, [scheduleRefresh]);
 
   const updateByName = useMemo(() => {
     const m = new Map<string, string>();
@@ -211,8 +239,9 @@ export default function InstalledPage() {
     setConfirming(null);
     setBusyFile(mod.fileName);
     try {
+      // No manual refresh here: the backend emits installed-changed, which
+      // triggers the (debounced) rescan.
       await uninstallMod(mod.fileName);
-      await refresh();
     } catch (e) {
       setError(toAppError(e).message);
     } finally {

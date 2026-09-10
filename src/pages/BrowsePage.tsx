@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { enqueueDownload, getSettings, indexHealthCheck, searchMods, toAppError } from "../lib/api";
+import { enqueueDownload, indexHealthCheck, searchMods, toAppError } from "../lib/api";
+import { useAppStore } from "../store/useAppStore";
 import { useQueueStore } from "../store/useQueueStore";
 import ModCard from "../components/ModCard";
 import ModDetailsModal from "../components/ModDetailsModal";
@@ -64,6 +65,7 @@ function DiagnosticsPanel() {
 }
 
 export default function BrowsePage() {
+  const targetVersion = useAppStore((s) => s.targetFactorioVersion);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("downloads");
@@ -73,24 +75,16 @@ export default function BrowsePage() {
   const [error, setError] = useState<AppError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [selected, setSelected] = useState<ModSummary | null>(null);
-  const [_gameVersion, setGameVersion] = useState("2.0");
-  void _gameVersion;
 
-  // Debounce the search input (350ms).
+  // Debounce the search input (350ms); committing a new search also resets
+  // pagination here (not via a separate effect, which fetched twice).
   useEffect(() => {
-    const t = setTimeout(() => setQuery(queryInput.trim()), 350);
+    const t = setTimeout(() => {
+      setQuery(queryInput.trim());
+      setPage(1);
+    }, 350);
     return () => clearTimeout(t);
   }, [queryInput]);
-
-  // Any query/sort change resets pagination.
-  useEffect(() => setPage(1), [query, sort]);
-
-  // Target game version (for compat badges) + live updates.
-  useEffect(() => {
-    getSettings()
-      .then((s) => setGameVersion(s.targetFactorioVersion))
-      .catch(() => undefined);
-  }, []);
 
   // Fetch — the one effect that talks to the backend.
   useEffect(() => {
@@ -122,7 +116,10 @@ export default function BrowsePage() {
           />
           <select
             value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
+            onChange={(e) => {
+              setSort(e.target.value as SortKey);
+              setPage(1);
+            }}
             className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-300 outline-none focus:border-amber-500"
           >
             <option value="downloads">Most downloads</option>
@@ -199,6 +196,7 @@ export default function BrowsePage() {
                 <ModCard
                   key={mod.name}
                   mod={mod}
+                  targetVersion={targetVersion}
                   onOpen={setSelected}
                   onDownload={(m) => {
                     void enqueueDownload(m.name, m.latestVersion);

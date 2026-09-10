@@ -3,11 +3,13 @@ import { formatCount } from "../lib/format";
 
 interface ModCardProps {
   mod: ModSummary;
+  /** Configured target game version — compatible mods get a green badge. */
+  targetVersion?: string | null;
   onOpen?: (mod: ModSummary) => void;
   onDownload?: (mod: ModSummary) => void;
 }
 
-export default function ModCard({ mod, onOpen, onDownload }: ModCardProps) {
+export default function ModCard({ mod, targetVersion, onOpen, onDownload }: ModCardProps) {
   return (
     <div
       onClick={() => onOpen?.(mod)}
@@ -23,7 +25,7 @@ export default function ModCard({ mod, onOpen, onDownload }: ModCardProps) {
         </div>
         <span
           className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${
-            mod.factorioVersion === "2.0"
+            targetVersion !== null && mod.factorioVersion === targetVersion
               ? "bg-green-900/40 text-green-400"
               : "bg-zinc-800 text-zinc-400"
           }`}
