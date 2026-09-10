@@ -249,9 +249,12 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
     let mods_dir = mod_store::resolve_dir(&config)?;
 
     let scan_dir = mods_dir.clone();
-    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&scan_dir))
-        .await
-        .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
+    let zip_cache = state.zip_cache.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        mod_store::scan_installed(&scan_dir, &zip_cache)
+    })
+    .await
+    .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
 
     let disk_names: HashSet<String> = snapshot.mods.iter().map(|m| m.name.clone()).collect();
     let disk_versions: HashMap<String, String> = snapshot
@@ -410,10 +413,12 @@ async fn finalize_now(app: &AppHandle, pack_id: &str) -> Result<(), AppError> {
     };
     let pack = load_pack(&profiles_dir, pack_id)?;
     let scan_dir = mod_store::resolve_dir(&config)?;
-    let snapshot =
-        tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&scan_dir))
-            .await
-            .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
+    let zip_cache = state.zip_cache.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        mod_store::scan_installed(&scan_dir, &zip_cache)
+    })
+    .await
+    .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
     let disk_names: HashSet<String> = snapshot.mods.iter().map(|m| m.name.clone()).collect();
 
     mod_store::replace_mod_list(

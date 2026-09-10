@@ -9,8 +9,8 @@ import SettingsPage from "./pages/SettingsPage";
 import { useAppStore, type Tab } from "./store/useAppStore";
 import { useQueueStore } from "./store/useQueueStore";
 import { useActivityStore } from "./store/useActivityStore";
-import { onDownloadUpdated, onPackActivated } from "./lib/events";
-import { ping } from "./lib/api";
+import { onDownloadUpdated, onPackActivated, onSettingsChanged } from "./lib/events";
+import { getSettings, ping } from "./lib/api";
 
 export type BridgeStatus = "connecting" | "online" | "error";
 
@@ -67,6 +67,20 @@ export default function App() {
         p.missing.length > 0 ? `${p.missing.length} download(s) failed` : "all mods ready",
       );
     });
+    return () => {
+      void unlisten.then((f) => f());
+    };
+  }, []);
+
+  // Target game version for the compat badges — loaded once, kept fresh by
+  // settings-changed so badge coloring survives a settings save.
+  useEffect(() => {
+    getSettings()
+      .then((s) => useAppStore.getState().setTargetFactorioVersion(s.targetFactorioVersion))
+      .catch(() => undefined);
+    const unlisten = onSettingsChanged((s) =>
+      useAppStore.getState().setTargetFactorioVersion(s.targetFactorioVersion),
+    );
     return () => {
       void unlisten.then((f) => f());
     };

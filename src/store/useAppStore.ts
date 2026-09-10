@@ -17,6 +17,10 @@ interface AppState {
   /** Pack the Quick Access sidebar wants expanded when PacksPage mounts. */
   openPackId: string | null;
   setOpenPackId: (id: string | null) => void;
+  /** Configured target game version — loaded once at startup, kept fresh by
+   * settings-changed. Drives the compat badges; null = not loaded yet. */
+  targetFactorioVersion: string | null;
+  setTargetFactorioVersion: (v: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -30,4 +34,6 @@ export const useAppStore = create<AppState>((set) => ({
   bumpPacks: () => set((s) => ({ packsVersion: s.packsVersion + 1 })),
   openPackId: null,
   setOpenPackId: (id) => set({ openPackId: id }),
+  targetFactorioVersion: null,
+  setTargetFactorioVersion: (v) => set({ targetFactorioVersion: v }),
 }));

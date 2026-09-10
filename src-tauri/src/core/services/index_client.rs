@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -77,6 +77,9 @@ pub struct CachedHttp {
     http: reqwest::Client,
     permits: Semaphore,
     cache: Mutex<HashMap<String, (Instant, String)>>,
+    /// Insertion order side-list: HashMap iteration is arbitrary, so eviction
+    /// needs this to remove the oldest entry (FIFO) rather than a random one.
+    order: Mutex<VecDeque<String>>,
 }
 
 impl CachedHttp {
@@ -85,6 +88,7 @@ impl CachedHttp {
             http,
             permits: Semaphore::new(MAX_CONCURRENT_REQUESTS),
             cache: Mutex::new(HashMap::new()),
+            order: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -146,14 +150,21 @@ impl CachedHttp {
 
     fn cache_put(&self, key: String, body: String) {
         let Ok(mut map) = self.cache.lock() else { return };
+        let Ok(mut order) = self.order.lock() else { return };
         if map.len() >= CACHE_MAX_ENTRIES {
+            // Drop expired entries first; their order slots become dangling
+            // and are skipped during eviction below.
             map.retain(|_, (at, _)| at.elapsed() < CACHE_TTL);
         }
         if map.len() >= CACHE_MAX_ENTRIES {
-            if let Some(oldest) = map.keys().next().cloned() {
-                map.remove(&oldest);
+            while let Some(oldest) = order.pop_front() {
+                if map.remove(&oldest).is_some() {
+                    break;
+                }
             }
         }
+        order.retain(|k| k != &key); // re-inserting refreshes the position
+        order.push_back(key.clone());
         map.insert(key, (Instant::now(), body));
     }
 }

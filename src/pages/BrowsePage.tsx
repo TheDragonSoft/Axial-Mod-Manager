@@ -10,11 +10,11 @@ import {
 } from "lucide-react";
 import {
   getModDetails,
-  getSettings,
   indexHealthCheck,
   searchMods,
   toAppError,
 } from "../lib/api";
+import { useAppStore } from "../store/useAppStore";
 import { useFavoritesStore } from "../store/useFavoritesStore";
 import { useThumbnails } from "../lib/thumbnails";
 import ModCard from "../components/ModCard";
@@ -105,7 +105,7 @@ function FavoritesView({
   onOpen,
   onInstall,
 }: {
-  targetVersion: string;
+  targetVersion: string | null;
   onOpen: (mod: ModSummary) => void;
   onInstall: (mod: ModSummary) => void;
 }) {
@@ -177,6 +177,7 @@ function FavoritesView({
 }
 
 export default function BrowsePage() {
+  const targetVersion = useAppStore((s) => s.targetFactorioVersion);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("downloads");
@@ -186,25 +187,18 @@ export default function BrowsePage() {
   const [error, setError] = useState<AppError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [installTarget, setInstallTarget] = useState<ModSummary | null>(null);
-  const [targetVersion, setTargetVersion] = useState("2.0");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-  // Debounce the search input (350ms).
+  // Debounce the search input (350ms); committing a new search also resets
+  // pagination here (not via a separate effect, which fetched twice).
   useEffect(() => {
-    const t = setTimeout(() => setQuery(queryInput.trim()), 350);
+    const t = setTimeout(() => {
+      setQuery(queryInput.trim());
+      setPage(1);
+    }, 350);
     return () => clearTimeout(t);
   }, [queryInput]);
-
-  // Any query/sort change resets pagination.
-  useEffect(() => setPage(1), [query, sort]);
-
-  // Target game version (for compat badges).
-  useEffect(() => {
-    getSettings()
-      .then((s) => setTargetVersion(s.targetFactorioVersion))
-      .catch(() => undefined);
-  }, []);
 
   // Fetch — the one effect that talks to the backend.
   useEffect(() => {
@@ -269,7 +263,10 @@ export default function BrowsePage() {
             </div>
             <Select
               value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
+              onChange={(e) => {
+                setSort(e.target.value as SortKey);
+                setPage(1); // sort change resets pagination (no separate reset effect)
+              }}
               className="w-44"
             >
               <option value="downloads">Most downloads</option>

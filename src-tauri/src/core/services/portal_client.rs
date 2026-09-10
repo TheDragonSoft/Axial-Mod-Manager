@@ -322,6 +322,9 @@ struct Dump {
 pub struct PortalClient {
     http: CachedHttp,
     dump: Mutex<Option<Arc<Dump>>>,
+    /// Held across dump refreshes (single-flight): concurrent callers share
+    /// one fetch of the multi-MB listing instead of each downloading it.
+    dump_refresh: Mutex<()>,
 }
 
 impl PortalClient {
@@ -329,6 +332,7 @@ impl PortalClient {
         Self {
             http: CachedHttp::new(http),
             dump: Mutex::new(None),
+            dump_refresh: Mutex::new(()),
         }
     }
 
@@ -378,14 +382,15 @@ impl PortalClient {
     }
 
     /// Fresh dump, or stale dump if refresh fails, or the error.
+    /// Refreshes are single-flight: one caller downloads while the rest wait
+    /// on `dump_refresh`, then re-check and pick up the fresh (or stale) dump.
     async fn load_dump(&self) -> Result<Arc<Dump>, AppError> {
-        {
-            let cached = self.dump.lock().await;
-            if let Some(d) = cached.as_ref() {
-                if d.fetched_at.elapsed() < DUMP_TTL {
-                    return Ok(Arc::clone(d));
-                }
-            }
+        if let Some(d) = self.fresh_dump().await {
+            return Ok(d);
+        }
+        let _guard = self.dump_refresh.lock().await;
+        if let Some(d) = self.fresh_dump().await {
+            return Ok(d); // someone else refreshed while we waited
         }
         match self.fetch_dump().await {
             Ok(d) => {
@@ -401,6 +406,14 @@ impl PortalClient {
                 Err(e)
             }
         }
+    }
+
+    async fn fresh_dump(&self) -> Option<Arc<Dump>> {
+        let cached = self.dump.lock().await;
+        cached
+            .as_ref()
+            .filter(|d| d.fetched_at.elapsed() < DUMP_TTL)
+            .map(Arc::clone)
     }
 }
 

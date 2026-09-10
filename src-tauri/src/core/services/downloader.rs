@@ -92,7 +92,10 @@ impl DownloadQueue {
             return Err(AppError::Config(format!("invalid version: {version:?}")));
         }
 
-        std::fs::create_dir_all(&mods_dir)?;
+        let ensure_dir = mods_dir.clone();
+        tauri::async_runtime::spawn_blocking(move || std::fs::create_dir_all(&ensure_dir))
+            .await
+            .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;
 
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         tracing::info!(id, mod = %mod_name, %version, "download enqueued");
@@ -228,7 +231,15 @@ async fn run_job(
         Ok(total) => {
             // One zip per mod name: remove other versions before the rename.
             let dest_name = format!("{}_{}.zip", item.mod_name, item.version);
-            let _ = remove_other_versions(&mods_dir, &dest_name, &item.mod_name);
+            let rm = (
+                mods_dir.clone(),
+                dest_name.clone(),
+                item.mod_name.clone(),
+            );
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                remove_other_versions(&rm.0, &rm.1, &rm.2)
+            })
+            .await;
             let dest = mods_dir.join(dest_name);
             match tokio::fs::rename(&part, &dest).await {
                 Ok(()) => {
@@ -326,16 +337,31 @@ async fn download_and_verify(
     }
     drop(file);
 
-    if let Err(e) = verify_mod_zip(part, &item.mod_name, &item.version) {
+    if let Err(e) = verify_mod_zip(part, &item.mod_name, &item.version).await {
         return Err(JobFail::Error(e.to_string(), false));
     }
 
     Ok(if total == 0 { received } else { total })
 }
 
+/// Sync zip verification moved off the async runtime (TOC parse of a large
+/// zip stalls a tokio worker).
+async fn verify_mod_zip(
+    path: &Path,
+    expected_name: &str,
+    expected_version: &str,
+) -> Result<(), AppError> {
+    let path = path.to_path_buf();
+    let expected_name = expected_name.to_string();
+    let expected_version = expected_version.to_string();
+    tauri::async_runtime::spawn_blocking(move || verify_mod_zip_sync(&path, &expected_name, &expected_version))
+        .await
+        .map_err(|e| AppError::Parse(format!("verification task failed: {e}")))?
+}
+
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
-fn verify_mod_zip(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
+fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Parse(format!("downloaded file is not a valid zip: {e}")))?;

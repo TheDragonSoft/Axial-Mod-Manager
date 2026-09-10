@@ -22,7 +22,8 @@ pub async fn create_pack_from_installed(
 ) -> Result<Pack, AppError> {
     let config = state.config.read().expect("config lock poisoned").clone();
     let dir = mod_store::resolve_dir(&config)?;
-    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir))
+    let cache = state.zip_cache.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir, &cache))
         .await
         .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
     let mods = snapshot

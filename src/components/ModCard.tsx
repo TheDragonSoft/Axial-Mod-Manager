@@ -10,8 +10,9 @@ import ModTile from "./ui/ModTile";
 
 interface ModCardProps {
   mod: ModSummary;
-  /** Settings target the compat badge compares against. */
-  targetVersion?: string;
+  /** Configured target game version — compatible mods get a green badge;
+   * null = not loaded yet (badge stays gray). */
+  targetVersion?: string | null;
   /** Opens the install dialog (card click and the Details button). */
   onOpen?: (mod: ModSummary) => void;
   /** The Install button never queues directly — it opens the install dialog. */
@@ -20,15 +21,14 @@ interface ModCardProps {
 
 export default function ModCard({
   mod,
-  targetVersion = "2.0",
+  targetVersion = null,
   onOpen,
   onInstall,
 }: ModCardProps) {
   const favorite = useFavoritesStore((s) => s.favorites.includes(mod.name));
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
   const thumbnail = useThumbnailUrl(mod.name);
-  const compatible = mod.factorioVersion === targetVersion;
-
+  const compatible = targetVersion !== null && mod.factorioVersion === targetVersion;
   return (
     <Card
       onClick={() => onOpen?.(mod)}

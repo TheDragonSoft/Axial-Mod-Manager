@@ -26,10 +26,24 @@ export default function VersionsModal({
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
+    let cancelled = false;
     getModDetails(mod.name)
-      .then(setDetails)
-      .catch((e) => setError(toAppError(e)))
-      .finally(() => setLoading(false));
+      .then((d) => {
+        if (cancelled) return;
+        setDetails(d);
+        setError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(toAppError(e));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true; // a closed/retried load must not overwrite fresh state
+    };
   }, [mod.name]);
   useEffect(load, [load]);
 

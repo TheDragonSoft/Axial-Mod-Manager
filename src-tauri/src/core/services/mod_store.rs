@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use serde_json::json;
 
@@ -228,6 +230,122 @@ fn fallback_name_version(file_name: &str) -> (String, String) {
 }
 
 // ---------------------------------------------------------------------------
+// Zip info cache
+// ---------------------------------------------------------------------------
+
+/// info.json payload for one zip, as cached between scans.
+#[derive(Debug, Clone)]
+struct CachedZipInfo {
+    name: String,
+    version: String,
+    factorio_version: String,
+    dependencies: Vec<String>,
+    /// Set when the zip could not be read (corrupt or locked): the scan falls
+    /// back to the filename and surfaces this as the mod's problem.
+    problem: Option<String>,
+}
+
+impl CachedZipInfo {
+    fn from_read(file_name: &str, read: Result<InfoJson, AppError>) -> Self {
+        match read {
+            Ok(i) => Self {
+                name: i.name,
+                version: i.version,
+                factorio_version: i.factorio_version,
+                dependencies: i.dependencies,
+                problem: None,
+            },
+            Err(e) => {
+                let (n, v) = fallback_name_version(file_name);
+                Self {
+                    name: n,
+                    version: v,
+                    factorio_version: "?".into(),
+                    dependencies: vec![],
+                    problem: Some(e.to_string()),
+                }
+            }
+        }
+    }
+}
+
+/// In-memory cache of per-zip info.json reads. A full scan opens every zip
+/// (central directory + info.json decompress), which on Windows is
+/// AV-amplified; this makes repeat scans (every installed-changed event, tab
+/// visit, pack operation) cost one metadata check per zip instead. Entries
+/// are keyed per mods directory and validated by (mtime, len), so a replaced
+/// or re-downloaded zip is re-read; each scan prunes deleted zips.
+#[derive(Default)]
+pub struct ZipInfoCache {
+    dirs: Mutex<HashMap<PathBuf, HashMap<String, (SystemTime, u64, CachedZipInfo)>>>,
+}
+
+/// Upper bound on cached directories (changing the setting creates new keys).
+const CACHE_MAX_DIRS: usize = 8;
+
+impl ZipInfoCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn lookup(
+        &self,
+        dir: &Path,
+        file_name: &str,
+        mtime: SystemTime,
+        len: u64,
+    ) -> Option<CachedZipInfo> {
+        let dirs = self.dirs.lock().ok()?;
+        let (cached_at, cached_len, info) = dirs.get(dir)?.get(file_name)?;
+        (*cached_at == mtime && *cached_len == len).then(|| info.clone())
+    }
+
+    fn store(&self, dir: &Path, file_name: &str, mtime: SystemTime, len: u64, info: CachedZipInfo) {
+        let mut dirs = match self.dirs.lock() {
+            Ok(d) => d,
+            Err(_) => return, // poisoned: scans still work, just uncached
+        };
+        if !dirs.contains_key(dir) {
+            if dirs.len() >= CACHE_MAX_DIRS {
+                dirs.clear();
+            }
+            dirs.insert(dir.to_path_buf(), HashMap::new());
+        }
+        if let Some(per_dir) = dirs.get_mut(dir) {
+            per_dir.insert(file_name.to_string(), (mtime, len, info));
+        }
+    }
+
+    /// Drop entries for zips no longer on disk (called after each scan).
+    fn prune(&self, dir: &Path, live: &HashSet<String>) {
+        if let Ok(mut dirs) = self.dirs.lock() {
+            if let Some(per_dir) = dirs.get_mut(dir) {
+                per_dir.retain(|name, _| live.contains(name));
+            }
+        }
+    }
+}
+
+/// Open one zip and extract its info.json, falling back to the filename.
+fn read_zip_info(path: &Path, file_name: &str) -> CachedZipInfo {
+    CachedZipInfo::from_read(file_name, read_info_json(path))
+}
+
+/// Cached info for one zip: lookup by current metadata, else read and store.
+fn zip_info_cached(dir: &Path, cache: &ZipInfoCache, path: &Path, file_name: &str) -> CachedZipInfo {
+    if let Ok(meta) = fs::metadata(path) {
+        let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        if let Some(info) = cache.lookup(dir, file_name, mtime, meta.len()) {
+            return info;
+        }
+        let info = read_zip_info(path, file_name);
+        cache.store(dir, file_name, mtime, meta.len(), info.clone());
+        return info;
+    }
+    read_zip_info(path, file_name)
+}
+
+// ---------------------------------------------------------------------------
 // mod-list.json (Phase 6)
 // ---------------------------------------------------------------------------
 
@@ -336,7 +454,9 @@ pub fn remove_mod_entry(dir: &Path, name: &str) -> Result<(), AppError> {
 
 /// Scan the mods folder: every *.zip becomes an InstalledMod with metadata
 /// read in-memory from its info.json, merged with mod-list.json enable flags.
-pub fn scan_installed(dir: &Path) -> InstalledSnapshot {
+/// Zip reads are served from `cache` when the file's (mtime, len) is
+/// unchanged; cache misses are read on parallel worker threads.
+pub fn scan_installed(dir: &Path, cache: &ZipInfoCache) -> InstalledSnapshot {
     let mods_dir = dir.to_string_lossy().into_owned();
     let mut mods = Vec::new();
     let mod_list_exists = mod_list_exists(dir);
@@ -352,53 +472,63 @@ pub fn scan_installed(dir: &Path) -> InstalledSnapshot {
         }
     };
 
-    let mut zip_paths: Vec<PathBuf> = entries
+    // (path, file_name, mtime, len) — DirEntry metadata avoids a stat per file.
+    let mut zip_paths: Vec<(PathBuf, String, SystemTime, u64)> = entries
         .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.is_file()
-                && p.extension()
-                    .map(|x| x.eq_ignore_ascii_case("zip"))
-                    .unwrap_or(false)
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            if !meta.is_file() {
+                return None;
+            }
+            let path = e.path();
+            let is_zip = path
+                .extension()
+                .map(|x| x.eq_ignore_ascii_case("zip"))
+                .unwrap_or(false);
+            if !is_zip {
+                return None;
+            }
+            let file_name = e.file_name().to_string_lossy().into_owned();
+            let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            Some((path, file_name, mtime, meta.len()))
         })
         .collect();
-    zip_paths.sort();
+    zip_paths.sort_by(|a, b| a.0.cmp(&b.0));
 
     let disabled = disabled_names(dir);
 
-    for path in zip_paths {
-        let file_name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-
-        let (info, problem) = match read_info_json(&path) {
-            Ok(i) => (i, None),
-            Err(e) => {
-                let (n, v) = fallback_name_version(&file_name);
-                (
-                    InfoJson {
-                        name: n,
-                        version: v,
-                        factorio_version: "?".into(),
-                        dependencies: vec![],
-                    },
-                    Some(e.to_string()),
-                )
+    // Serve hits from the cache; read misses (in parallel when numerous).
+    let mut infos: Vec<Option<CachedZipInfo>> = Vec::with_capacity(zip_paths.len());
+    let mut misses: Vec<usize> = Vec::new();
+    for (i, (_, file_name, mtime, len)) in zip_paths.iter().enumerate() {
+        match cache.lookup(dir, file_name, *mtime, *len) {
+            Some(info) => infos.push(Some(info)),
+            None => {
+                infos.push(None);
+                misses.push(i);
             }
-        };
+        }
+    }
+    for (i, info) in read_misses(dir, cache, &zip_paths, &misses) {
+        infos[i] = Some(info);
+    }
 
+    let mut live_names: HashSet<String> = HashSet::new();
+    for ((path, file_name, _, _), info) in zip_paths.iter().zip(infos.into_iter()) {
+        live_names.insert(file_name.clone());
+        let info = info.unwrap_or_else(|| read_zip_info(path, file_name));
         let enabled = !disabled.contains(&info.name);
         mods.push(InstalledMod {
-            file_name,
+            file_name: file_name.clone(),
             name: info.name,
             version: info.version,
             factorio_version: info.factorio_version,
             enabled,
             dependencies: info.dependencies,
-            problem,
+            problem: info.problem,
         });
     }
+    cache.prune(dir, &live_names);
 
     // Factorio refuses to load when two zips share a mod name — flag them all.
     let mut counts: HashMap<String, usize> = HashMap::new();
@@ -423,6 +553,51 @@ pub fn scan_installed(dir: &Path) -> InstalledSnapshot {
     }
 }
 
+/// Read cache-miss zips — on worker threads when there are several, since each
+/// is an independent file open (the first scan of a big library is otherwise N
+/// sequential opens, each potentially AV-amplified). Results are stored into
+/// the cache and returned in `misses` order.
+fn read_misses(
+    dir: &Path,
+    cache: &ZipInfoCache,
+    zip_paths: &[(PathBuf, String, SystemTime, u64)],
+    misses: &[usize],
+) -> Vec<(usize, CachedZipInfo)> {
+    if misses.is_empty() {
+        return Vec::new();
+    }
+    let read_one = |i: usize| {
+        let (path, file_name, mtime, len) = &zip_paths[i];
+        let info = read_zip_info(path, file_name);
+        cache.store(dir, file_name, *mtime, *len, info.clone());
+        (i, info)
+    };
+
+    if misses.len() < 4 {
+        return misses.iter().copied().map(read_one).collect();
+    }
+
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(8)
+        .min(misses.len());
+    let chunk_size = misses.len().div_ceil(workers);
+    std::thread::scope(|s| {
+        let handles: Vec<_> = misses
+            .chunks(chunk_size)
+            .map(|chunk| {
+                let read_one = &read_one;
+                s.spawn(move || chunk.iter().copied().map(|i| read_one(i)).collect::<Vec<_>>())
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("zip info reader panicked"))
+            .collect()
+    })
+}
+
 fn validated_zip_path(dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
     if file_name.is_empty()
         || file_name.contains('/')
@@ -444,22 +619,23 @@ fn validated_zip_path(dir: &Path, file_name: &str) -> Result<PathBuf, AppError> 
 }
 
 /// Authoritative mod name for a zip (info.json, filename fallback).
-pub fn mod_name_of(dir: &Path, file_name: &str) -> Result<String, AppError> {
+pub fn mod_name_of(dir: &Path, file_name: &str, cache: &ZipInfoCache) -> Result<String, AppError> {
     let path = validated_zip_path(dir, file_name)?;
-    if let Ok(info) = read_info_json(&path) {
-        if !info.name.is_empty() {
-            return Ok(info.name);
-        }
+    let info = zip_info_cached(dir, cache, &path, file_name);
+    if !info.name.is_empty() && info.problem.is_none() {
+        return Ok(info.name);
     }
     Ok(fallback_name_version(file_name).0)
 }
 
 /// Delete a mod zip; clean its mod-list.json entry if it was the last copy.
-pub fn uninstall(dir: &Path, file_name: &str) -> Result<String, AppError> {
+pub fn uninstall(dir: &Path, file_name: &str, cache: &ZipInfoCache) -> Result<String, AppError> {
     let path = validated_zip_path(dir, file_name)?;
-    let name = mod_name_of(dir, file_name)?;
+    let name = mod_name_of(dir, file_name, cache)?;
     fs::remove_file(&path)?;
-    let still_present = scan_installed(dir).mods.iter().any(|m| m.name == name);
+    // With a warm cache this re-scan is metadata-only; it also prunes the
+    // deleted zip's cache entry.
+    let still_present = scan_installed(dir, cache).mods.iter().any(|m| m.name == name);
     if !still_present {
         remove_mod_entry(dir, &name)?;
     }
@@ -489,7 +665,11 @@ pub fn replace_mod_list(dir: &Path, entries: &[(String, bool)]) -> Result<(), Ap
 
 #[cfg(test)]
 mod tests {
-    use super::fallback_name_version;
+    use super::{fallback_name_version, scan_installed, ZipInfoCache};
+    use std::fs;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn parses_standard_zip_names() {
@@ -505,5 +685,141 @@ mod tests {
             fallback_name_version("weird.zip"),
             ("weird".into(), "?".into())
         );
+    }
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("axial-modstore-{tag}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_zip(path: &Path, info_json: &str) {
+        let file = fs::File::create(path).unwrap();
+        let mut w = zip::ZipWriter::new(file);
+        w.start_file("ModDir/info.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        w.write_all(info_json.as_bytes()).unwrap();
+        w.finish().unwrap();
+    }
+
+    /// Pin mtime far into the past so a rewritten zip is guaranteed to have a
+    /// fresh, distinct timestamp (rewrites within the same clock tick would
+    /// otherwise keep the old one).
+    fn set_mtime(path: &Path, secs: u64) {
+        let f = fs::OpenOptions::new().write(true).open(path).unwrap();
+        f.set_modified(UNIX_EPOCH + Duration::from_secs(secs))
+            .unwrap();
+    }
+
+    fn cached_len(cache: &ZipInfoCache, dir: &Path) -> usize {
+        cache
+            .dirs
+            .lock()
+            .unwrap()
+            .get(dir)
+            .map(|m| m.len())
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn scan_serves_from_cache_and_revalidates_replaced_zip() {
+        let dir = unique_dir("revalidate");
+        let zip = dir.join("ModA_1.0.0.zip");
+        write_zip(&zip, r#"{"name":"ModA","version":"1.0.0","factorio_version":"2.0"}"#);
+        set_mtime(&zip, 1_700_000_000);
+        let cache = ZipInfoCache::new();
+
+        let s1 = scan_installed(&dir, &cache);
+        assert_eq!(s1.mods.len(), 1);
+        assert_eq!(s1.mods[0].version, "1.0.0");
+        assert_eq!(cached_len(&cache, &dir), 1, "first scan populates the cache");
+
+        // Warm cache: same file, nothing changed.
+        let s2 = scan_installed(&dir, &cache);
+        assert_eq!(s2.mods[0].version, "1.0.0");
+
+        // Replace the zip (same name, different content) with a bumped mtime:
+        // the (mtime, len) key must invalidate the entry.
+        write_zip(&zip, r#"{"name":"ModA","version":"9.9.9","factorio_version":"2.0"}"#);
+        set_mtime(&zip, 1_700_000_100);
+        let s3 = scan_installed(&dir, &cache);
+        assert_eq!(s3.mods[0].version, "9.9.9", "replaced zip must be re-read");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_prunes_entries_of_deleted_zips() {
+        let dir = unique_dir("prune");
+        let a = dir.join("ModA_1.0.0.zip");
+        let b = dir.join("ModB_1.0.0.zip");
+        write_zip(&a, r#"{"name":"ModA","version":"1.0.0","factorio_version":"2.0"}"#);
+        write_zip(&b, r#"{"name":"ModB","version":"1.0.0","factorio_version":"2.0"}"#);
+        let cache = ZipInfoCache::new();
+
+        assert_eq!(scan_installed(&dir, &cache).mods.len(), 2);
+        fs::remove_file(&a).unwrap();
+        let s = scan_installed(&dir, &cache);
+        assert_eq!(s.mods.len(), 1);
+        assert_eq!(s.mods[0].name, "ModB");
+        assert_eq!(cached_len(&cache, &dir), 1, "deleted zip's entry pruned");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_falls_back_for_corrupt_zip_and_caches_the_problem() {
+        let dir = unique_dir("corrupt");
+        let zip = dir.join("BrokenMod_1.2.3.zip");
+        fs::write(&zip, b"this is not a zip file").unwrap();
+        let cache = ZipInfoCache::new();
+
+        for _ in 0..2 {
+            let s = scan_installed(&dir, &cache);
+            assert_eq!(s.mods[0].name, "BrokenMod");
+            assert_eq!(s.mods[0].version, "1.2.3");
+            let problem = s.mods[0].problem.as_deref().unwrap_or_default();
+            assert!(problem.contains("not a valid zip"), "problem surfaced: {problem}");
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parallel_scan_matches_expected_mods() {
+        let dir = unique_dir("parallel");
+        for i in 0..12 {
+            let zip = dir.join(format!("Mod{i:02}_1.0.{i}.zip"));
+            write_zip(
+                &zip,
+                &format!(
+                    r#"{{"name":"Mod{i:02}","version":"1.0.{i}","factorio_version":"2.0"}}"#
+                ),
+            );
+        }
+        let cache = ZipInfoCache::new();
+
+        // 12 misses ⇒ takes the threaded path; results stay deterministic.
+        let s1 = scan_installed(&dir, &cache);
+        assert_eq!(s1.mods.len(), 12);
+        let names: Vec<&str> = s1.mods.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, (0..12).map(|i| format!("Mod{i:02}")).collect::<Vec<_>>());
+        for (i, m) in s1.mods.iter().enumerate() {
+            assert_eq!(m.version, format!("1.0.{i}"));
+        }
+
+        // Second scan (warm cache) must agree exactly (Debug for field-wise
+        // equality; InstalledMod deliberately doesn't derive PartialEq).
+        let s2 = scan_installed(&dir, &cache);
+        let debug = |s: &super::InstalledSnapshot| {
+            s.mods.iter().map(|m| format!("{m:?}")).collect::<Vec<_>>()
+        };
+        assert_eq!(debug(&s1), debug(&s2));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
