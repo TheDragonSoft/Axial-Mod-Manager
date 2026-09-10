@@ -18,3 +18,14 @@ export function percent(received: number, total: number): number {
   if (total <= 0) return 0;
   return Math.min(100, Math.round((received / total) * 100));
 }
+
+/** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
+  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}

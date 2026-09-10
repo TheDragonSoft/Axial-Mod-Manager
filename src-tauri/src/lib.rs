@@ -9,6 +9,7 @@ use std::sync::RwLock;
 
 use tauri::Manager;
 
+use core::services::index_client::{Re146Client, USER_AGENT};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,9 +21,15 @@ pub fn run() {
             let config_path = data_dir.join("settings.json");
             let config = config::Config::load(&config_path).unwrap_or_default();
 
+            let http = reqwest::Client::builder()
+                .user_agent(USER_AGENT)
+                .build()?;
+            let index = Re146Client::new(http);
+
             app.manage(AppState {
                 config: RwLock::new(config),
                 config_path,
+                index: Box::new(index),
             });
             Ok(())
         })
@@ -32,6 +39,9 @@ pub fn run() {
             commands::settings::set_settings,
             commands::settings::detect_mods_dir,
             commands::installed::validate_mods_dir,
+            commands::index::search_mods,
+            commands::index::get_mod_details,
+            commands::index::index_health_check,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

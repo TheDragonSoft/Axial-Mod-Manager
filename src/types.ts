@@ -40,6 +40,42 @@ export interface ModSummary {
   summary: string;
 }
 
+// ---- Index (Phase 4) ----
+
+export type SortKey = "downloads" | "name";
+
+export interface SearchResult {
+  results: ModSummary[];
+  page: number;
+  pageCount: number;
+  totalCount: number;
+}
+
+export interface ModRelease {
+  version: string;
+  factorioVersion: string;
+  releasedAt: string | null;
+  downloadsCount: number | null;
+  fileSize: number | null;
+}
+
+export interface ModDetails {
+  name: string;
+  title: string;
+  owner: string | null;
+  summary: string;
+  downloads: number | null;
+  releases: ModRelease[];
+}
+
+export interface IndexHealth {
+  url: string;
+  ok: boolean;
+  httpStatus: number | null;
+  byteLength: number;
+  excerpt: string;
+}
+
 // ---- Installed mods (mocked in Phase 2, live in Phase 6) ----
 
 export interface InstalledMod {

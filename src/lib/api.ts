@@ -2,8 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppError,
   DetectedDir,
+  IndexHealth,
+  ModDetails,
   ModsDirStatus,
+  SearchResult,
   Settings,
+  SortKey,
 } from "../types";
 
 /** Normalize any rejection into a known AppError shape. */
@@ -35,4 +39,22 @@ export async function detectModsDir(): Promise<DetectedDir | null> {
 
 export async function validateModsDir(path: string): Promise<ModsDirStatus> {
   return invoke<ModsDirStatus>("validate_mods_dir", { path });
+}
+
+// ---- Index (Phase 4) ----
+
+export async function searchMods(
+  query: string,
+  page: number,
+  sort: SortKey,
+): Promise<SearchResult> {
+  return invoke<SearchResult>("search_mods", { query, page, sort });
+}
+
+export async function getModDetails(name: string): Promise<ModDetails> {
+  return invoke<ModDetails>("get_mod_details", { name });
+}
+
+export async function indexHealthCheck(): Promise<IndexHealth> {
+  return invoke<IndexHealth>("index_health_check");
 }

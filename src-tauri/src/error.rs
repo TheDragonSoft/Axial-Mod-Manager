@@ -7,21 +7,21 @@ pub enum AppError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    /// Reserved for Phase 4+ (index/download HTTP errors). No reqwest dep yet.
-    #[allow(dead_code)]
     #[error("HTTP error: {0}")]
     Http(String),
 
     #[error("Parse error: {0}")]
     Parse(String),
 
-    #[allow(dead_code)]
     #[error("Not found: {0}")]
     NotFound(String),
 
-    #[allow(dead_code)]
     #[error("Config error: {0}")]
     Config(String),
+
+    /// Used while a subsystem is scaffolded but not wired (e.g. index adapter in 4A).
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
 }
 
 impl AppError {
@@ -32,6 +32,7 @@ impl AppError {
             AppError::Parse(_) => "parse",
             AppError::NotFound(_) => "not_found",
             AppError::Config(_) => "config",
+            AppError::NotImplemented(_) => "not_implemented",
         }
     }
 }
