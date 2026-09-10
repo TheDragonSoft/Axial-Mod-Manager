@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import Sidebar from "./components/Sidebar";
+import QueueDrawer from "./components/QueueDrawer";
 import BrowsePage from "./pages/BrowsePage";
 import InstalledPage from "./pages/InstalledPage";
 import PacksPage from "./pages/PacksPage";
 import SettingsPage from "./pages/SettingsPage";
 import { useAppStore, type Tab } from "./store/useAppStore";
+import { useQueueStore } from "./store/useQueueStore";
 import { ping, toAppError } from "./lib/api";
 
 type BridgeState =
@@ -25,6 +27,48 @@ function renderPage(tab: Tab) {
   }
 }
 
+/** Floating button that opens the queue drawer. */
+function QueueFab() {
+  const toggle = useQueueStore((s) => s.toggle);
+  const items = useQueueStore((s) => s.items);
+  const activeCount = items.filter(
+    (i) => i.status === "queued" || i.status === "downloading",
+  ).length;
+
+  return (
+    <button
+      onClick={toggle}
+      className="fixed bottom-12 right-6 z-30 flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm text-zinc-200 shadow-lg hover:border-amber-500"
+    >
+      ⬇ Downloads
+      {activeCount > 0 && (
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-zinc-950">
+          {activeCount}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** DEV-ONLY — deleted in Phase 5 when real backend events feed the store. */
+function DevSimButton() {
+  const simulate = useQueueStore((s) => s.simulateDownload);
+  const open = useQueueStore((s) => s.open);
+
+  return (
+    <button
+      onClick={() => {
+        simulate();
+        open();
+      }}
+      title="DEV ONLY: pushes a fake queue item and animates progress"
+      className="rounded border border-dashed border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-500 hover:border-amber-500 hover:text-amber-400"
+    >
+      ⚡ Simulate download
+    </button>
+  );
+}
+
 export default function App() {
   const activeTab = useAppStore((s) => s.activeTab);
   const [bridge, setBridge] = useState<BridgeState>({ status: "connecting" });
@@ -40,7 +84,7 @@ export default function App() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="flex-1 overflow-y-auto p-6">{renderPage(activeTab)}</main>
-        <footer className="border-t border-zinc-800 px-4 py-2 text-xs">
+        <footer className="flex items-center justify-between border-t border-zinc-800 px-4 py-2 text-xs">
           {bridge.status === "connecting" && (
             <span className="text-zinc-500">● Connecting to backend…</span>
           )}
@@ -50,8 +94,11 @@ export default function App() {
           {bridge.status === "error" && (
             <span className="text-red-500">● Backend error — {bridge.message}</span>
           )}
+          {import.meta.env.DEV && <DevSimButton />}
         </footer>
       </div>
+      <QueueFab />
+      <QueueDrawer />
     </div>
   );
 }
