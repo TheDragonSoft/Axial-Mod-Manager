@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::core::services::deps::cmp_versions;
 use crate::core::services::index_client::{
-    CachedHttp, IndexClient, SortKey, PORTAL_API_BASE, PORTAL_SITE_BASE,
+    CachedHttp, IndexClient, SortKey, PORTAL_API_BASE, PORTAL_ASSETS_BASE,
 };
 use crate::error::AppError;
 use crate::models::{IndexHealth, ModDetails, ModRelease, ModSummary, SearchResult};
@@ -174,8 +174,9 @@ fn map_summary(item: PortalModListItem) -> ModSummary {
     }
 }
 
-/// The portal serves thumbnails as site-relative paths ("/assets/<hash>.thumb.png");
-/// make them absolute so the webview can load them directly. Absent/empty -> None.
+/// The portal serves thumbnails as site-relative paths ("/assets/<hash>.thumb.png")
+/// from the assets host (see PORTAL_ASSETS_BASE); make them absolute so the
+/// webview can load them directly. Absent/empty -> None.
 fn absolutize_thumbnail(raw: Option<String>) -> Option<String> {
     let t = raw?.trim().to_string();
     if t.is_empty() {
@@ -184,7 +185,7 @@ fn absolutize_thumbnail(raw: Option<String>) -> Option<String> {
     if t.starts_with("http://") || t.starts_with("https://") {
         Some(t)
     } else if t.starts_with('/') {
-        Some(format!("{PORTAL_SITE_BASE}{t}"))
+        Some(format!("{PORTAL_ASSETS_BASE}{t}"))
     } else {
         None
     }
@@ -540,7 +541,7 @@ mod tests {
         let d = parse_details(THUMBNAIL_FIXTURE).expect("fixture must parse");
         assert_eq!(
             d.thumbnail.as_deref(),
-            Some("https://mods.factorio.com/assets/0bbd7809fe9151ac3f7cd1c3c604e13d4c8598d9.thumb.png")
+            Some("https://assets-mod.factorio.com/assets/0bbd7809fe9151ac3f7cd1c3c604e13d4c8598d9.thumb.png")
         );
     }
 
