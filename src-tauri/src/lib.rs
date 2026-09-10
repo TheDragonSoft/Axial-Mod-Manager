@@ -79,6 +79,7 @@ pub fn run() {
                 profiles_dir,
                 index: Box::new(index),
                 queue: Arc::new(DownloadQueue::new(http)),
+                zip_cache: Arc::new(core::services::mod_store::ZipInfoCache::new()),
                 pending_activation: std::sync::Mutex::new(None),
             });
 
