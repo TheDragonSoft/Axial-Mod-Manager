@@ -13,7 +13,10 @@ export default function Input({
   icon?: ComponentType<{ className?: string }>;
 }) {
   const control = (
-    <input className={clsx(INPUT_CLASS, className)} {...props} />
+    <input
+      className={clsx(INPUT_CLASS, Icon && "pl-9", className)}
+      {...props}
+    />
   );
   if (!Icon) return control;
   return (
