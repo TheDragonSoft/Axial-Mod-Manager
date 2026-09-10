@@ -1,21 +1,59 @@
 import { useCallback, useEffect, useState } from "react";
-import { enqueueDownload, getSettings, indexHealthCheck, searchMods, toAppError } from "../lib/api";
+import {
+  Activity,
+  ChevronLeft,
+  ChevronRight,
+  Compass,
+  Heart,
+  Search,
+  SearchX,
+} from "lucide-react";
+import {
+  enqueueDownload,
+  getModDetails,
+  getSettings,
+  indexHealthCheck,
+  searchMods,
+  toAppError,
+} from "../lib/api";
 import { useQueueStore } from "../store/useQueueStore";
+import { useFavoritesStore } from "../store/useFavoritesStore";
+import { useThumbnails } from "../lib/thumbnails";
 import ModCard from "../components/ModCard";
 import ModDetailsModal from "../components/ModDetailsModal";
-import type { AppError, IndexHealth, ModSummary, SearchResult, SortKey } from "../types";
+import Badge from "../components/ui/Badge";
+import Button from "../components/ui/Button";
+import EmptyState from "../components/ui/EmptyState";
+import Input from "../components/ui/Input";
+import PageHeader from "../components/ui/PageHeader";
+import Select from "../components/ui/Select";
+import Spinner from "../components/ui/Spinner";
+import type {
+  AppError,
+  IndexHealth,
+  ModDetails,
+  ModSummary,
+  SearchResult,
+  SortKey,
+} from "../types";
 
 function SkeletonCard() {
   return (
-    <div className="animate-pulse rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-      <div className="h-4 w-2/3 rounded bg-zinc-800" />
-      <div className="mt-2 h-3 w-1/3 rounded bg-zinc-800" />
-      <div className="mt-4 space-y-2">
-        <div className="h-3 w-full rounded bg-zinc-800" />
-        <div className="h-3 w-full rounded bg-zinc-800" />
-        <div className="h-3 w-3/4 rounded bg-zinc-800" />
+    <div className="animate-pulse rounded-xl border border-line bg-surface p-5">
+      <div className="flex items-start gap-3">
+        <div className="h-11 w-11 rounded-lg bg-surface-2" />
+        <div className="flex-1 space-y-2">
+          <div className="h-4 w-2/3 rounded bg-surface-2" />
+          <div className="h-3 w-1/3 rounded bg-surface-2" />
+        </div>
       </div>
-      <div className="mt-4 h-7 w-24 self-end rounded bg-zinc-800" />
+      <div className="mt-4 space-y-2">
+        <div className="h-3 w-full rounded bg-surface-2" />
+        <div className="h-3 w-3/4 rounded bg-surface-2" />
+      </div>
+      <div className="mt-4 flex justify-end">
+        <div className="h-8 w-24 rounded-lg bg-surface-2" />
+      </div>
     </div>
   );
 }
@@ -40,25 +78,102 @@ function DiagnosticsPanel() {
   }, []);
 
   return (
-    <div className="mt-3">
-      <button
-        onClick={run}
-        disabled={running}
-        className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-amber-500 hover:text-amber-400 disabled:opacity-50"
-      >
-        {running ? "Probing…" : "Run index diagnostics"}
-      </button>
+    <div>
+      <Button variant="secondary" size="sm" onClick={run} disabled={running}>
+        {running && <Spinner />} Run index diagnostics
+      </Button>
       {error && <p className="mt-2 font-mono text-xs text-red-400">{error}</p>}
       {health && (
-        <div className="mt-2 rounded border border-green-900/60 bg-green-950/30 p-3 text-xs">
+        <div className="mt-2 rounded-lg border border-green-900/60 bg-green-950/30 p-3 text-xs">
           <p className="text-green-400">
-            OK · HTTP {health.httpStatus} · {health.byteLength.toLocaleString()} bytes
+            OK · HTTP {health.httpStatus} · {health.byteLength.toLocaleString()}{" "}
+            bytes
           </p>
           <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-zinc-500">
             {health.excerpt}
           </pre>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Favorites-only view: the portal search can't filter by name list here, so
+ * each favorite's card is built from its (cached) details response.
+ */
+function FavoritesView({
+  targetVersion,
+  onOpen,
+  onDownload,
+}: {
+  targetVersion: string;
+  onOpen: (mod: ModSummary) => void;
+  onDownload: (mod: ModSummary) => void;
+}) {
+  const favorites = useFavoritesStore((s) => s.favorites);
+  const [details, setDetails] = useState<ModDetails[]>([]);
+  const [loading, setLoading] = useState(true);
+  useThumbnails(favorites);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all(favorites.map((n) => getModDetails(n).catch(() => null))).then(
+      (rs) => {
+        if (cancelled) return;
+        setDetails(rs.filter((d): d is ModDetails => d !== null));
+        setLoading(false);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [favorites]);
+
+  const toSummary = (d: ModDetails): ModSummary => {
+    const latest = d.releases[0];
+    return {
+      name: d.name,
+      title: d.title,
+      downloads: d.downloads ?? 0,
+      latestVersion: latest?.version ?? "?",
+      factorioVersion: latest?.factorioVersion ?? "",
+      summary: d.summary,
+    };
+  };
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: Math.max(3, Math.min(favorites.length, 9)) }, (_, i) => (
+          <SkeletonCard key={i} />
+        ))}
+      </div>
+    );
+  }
+
+  if (details.length === 0) {
+    return (
+      <EmptyState
+        icon={Heart}
+        title="No favorites yet"
+        hint="Click the heart on any mod card to keep it here."
+      />
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {details.map((d) => (
+        <ModCard
+          key={d.name}
+          mod={toSummary(d)}
+          targetVersion={targetVersion}
+          onOpen={onOpen}
+          onDownload={onDownload}
+        />
+      ))}
     </div>
   );
 }
@@ -73,8 +188,9 @@ export default function BrowsePage() {
   const [error, setError] = useState<AppError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [selected, setSelected] = useState<ModSummary | null>(null);
-  const [_gameVersion, setGameVersion] = useState("2.0");
-  void _gameVersion;
+  const [targetVersion, setTargetVersion] = useState("2.0");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   // Debounce the search input (350ms).
   useEffect(() => {
@@ -85,15 +201,16 @@ export default function BrowsePage() {
   // Any query/sort change resets pagination.
   useEffect(() => setPage(1), [query, sort]);
 
-  // Target game version (for compat badges) + live updates.
+  // Target game version (for compat badges).
   useEffect(() => {
     getSettings()
-      .then((s) => setGameVersion(s.targetFactorioVersion))
+      .then((s) => setTargetVersion(s.targetFactorioVersion))
       .catch(() => undefined);
   }, []);
 
   // Fetch — the one effect that talks to the backend.
   useEffect(() => {
+    if (favoritesOnly) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -104,114 +221,179 @@ export default function BrowsePage() {
     return () => {
       cancelled = true;
     };
-  }, [query, page, sort, reloadKey]);
+  }, [query, page, sort, reloadKey, favoritesOnly]);
 
-  const showSkeletons = data === null && loading;
   const results = data?.results ?? [];
+  useThumbnails(favoritesOnly ? [] : results.map((m) => m.name));
+
+  const openAndDownload = (mod: ModSummary) => {
+    void enqueueDownload(mod.name, mod.latestVersion);
+    useQueueStore.getState().open();
+  };
+
+  const showSkeletons = !favoritesOnly && data === null && loading;
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-zinc-100">Browse</h2>
-        <div className="flex items-center gap-2">
-          <input
-            value={queryInput}
-            onChange={(e) => setQueryInput(e.target.value)}
-            placeholder="Search mods…"
-            className="w-64 rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-500"
-          />
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-            className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-300 outline-none focus:border-amber-500"
-          >
-            <option value="downloads">Most downloads</option>
-            <option value="name">Name A–Z</option>
-          </select>
-        </div>
-      </div>
-
-      {error && (
-        <div className="mt-4 rounded border border-red-900/60 bg-red-950/40 p-4">
-          <p className="text-sm text-red-400">
-            <span className="mr-2 rounded bg-red-900/60 px-1.5 py-0.5 font-mono text-[10px] uppercase">
-              {error.kind}
-            </span>
-            {error.message}
-          </p>
-          <div className="mt-2 flex items-center gap-4">
-            <button
-              onClick={() => setReloadKey((k) => k + 1)}
-              className="text-xs text-zinc-400 underline hover:text-zinc-200"
+      <PageHeader
+        icon={Compass}
+        title="Browse"
+        subtitle="Discover mods from the official Factorio portal"
+        actions={
+          <>
+            <Button
+              variant={favoritesOnly ? "primary" : "secondary"}
+              onClick={() => setFavoritesOnly((v) => !v)}
             >
-              Retry
-            </button>
-          </div>
-          <DiagnosticsPanel />
-        </div>
-      )}
+              <Heart className={`h-4 w-4 ${favoritesOnly ? "fill-current" : ""}`} />
+              Favorites
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Diagnostics"
+              title="Run index diagnostics"
+              onClick={() => setShowDiagnostics((v) => !v)}
+              className={showDiagnostics ? "text-zinc-200" : ""}
+            >
+              <Activity className="h-4 w-4" />
+            </Button>
+          </>
+        }
+      />
 
-      {showSkeletons && (
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 9 }, (_, i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </div>
-      )}
-
-      {data && (
+      {!favoritesOnly && (
         <>
-          <div className="mt-4 flex items-center justify-between">
-            <p className="text-xs text-zinc-600">
-              {data.totalCount.toLocaleString()} mods · page {data.page} of {data.pageCount}
-            </p>
-            {data.pageCount > 1 && (
-              <div className="flex items-center gap-2 text-xs">
-                <button
-                  disabled={page <= 1 || loading}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="rounded border border-zinc-700 px-2.5 py-1 text-zinc-300 hover:border-amber-500 disabled:opacity-40"
-                >
-                  ← Prev
-                </button>
-                <button
-                  disabled={page >= data.pageCount || loading}
-                  onClick={() => setPage((p) => Math.min(data.pageCount, p + 1))}
-                  className="rounded border border-zinc-700 px-2.5 py-1 text-zinc-300 hover:border-amber-500 disabled:opacity-40"
-                >
-                  Next →
-                </button>
-              </div>
-            )}
+          {/* Toolbar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="min-w-64 flex-1">
+              <Input
+                icon={Search}
+                value={queryInput}
+                onChange={(e) => setQueryInput(e.target.value)}
+                placeholder="Search mods…"
+              />
+            </div>
+            <Select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="w-44"
+            >
+              <option value="downloads">Most downloads</option>
+              <option value="name">Name A–Z</option>
+            </Select>
+            <Button variant="primary" onClick={() => setQuery(queryInput.trim())}>
+              <Search className="h-4 w-4" />
+              Search
+            </Button>
           </div>
 
-          <div
-            className={`mt-3 grid grid-cols-1 gap-4 transition-opacity md:grid-cols-2 xl:grid-cols-3 ${
-              loading ? "opacity-50" : ""
-            }`}
-          >
-            {results.length === 0 && !loading ? (
-              <div className="col-span-full mt-16 text-center text-sm text-zinc-500">
-                No mods match “{query}”.
+          {showDiagnostics && (
+            <div className="mt-3 rounded-xl border border-line bg-surface p-4">
+              <DiagnosticsPanel />
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-4 rounded-xl border border-red-900/60 bg-red-950/40 p-4">
+              <p className="text-sm text-red-400">
+                <Badge tone="red" className="mr-2 font-mono uppercase">
+                  {error.kind}
+                </Badge>
+                {error.message}
+              </p>
+              <div className="mt-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setReloadKey((k) => k + 1)}
+                >
+                  Retry
+                </Button>
               </div>
-            ) : (
-              results.map((mod) => (
-                <ModCard
-                  key={mod.name}
-                  mod={mod}
-                  onOpen={setSelected}
-                  onDownload={(m) => {
-                    void enqueueDownload(m.name, m.latestVersion);
-                    useQueueStore.getState().open();
-                  }}
-                />
-              ))
-            )}
-          </div>
+            </div>
+          )}
+
+          {showSkeletons && (
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 9 }, (_, i) => (
+                <SkeletonCard key={i} />
+              ))}
+            </div>
+          )}
+
+          {data && (
+            <>
+              <div className="mt-4 flex items-center justify-between">
+                <p className="text-xs text-zinc-600">
+                  {data.totalCount.toLocaleString()} mods · page {data.page} of{" "}
+                  {data.pageCount}
+                </p>
+                {data.pageCount > 1 && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={page <= 1 || loading}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                      Prev
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={page >= data.pageCount || loading}
+                      onClick={() => setPage((p) => Math.min(data.pageCount, p + 1))}
+                    >
+                      Next
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div
+                className={`mt-3 grid grid-cols-1 gap-4 transition-opacity md:grid-cols-2 xl:grid-cols-3 ${
+                  loading ? "opacity-50" : ""
+                }`}
+              >
+                {results.length === 0 && !loading ? (
+                  <div className="col-span-full">
+                    <EmptyState
+                      icon={SearchX}
+                      title={`No mods match “${query}”`}
+                      hint="Try a different search."
+                    />
+                  </div>
+                ) : (
+                  results.map((mod) => (
+                    <ModCard
+                      key={mod.name}
+                      mod={mod}
+                      targetVersion={targetVersion}
+                      onOpen={setSelected}
+                      onDownload={openAndDownload}
+                    />
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </>
       )}
 
-      {selected && <ModDetailsModal mod={selected} onClose={() => setSelected(null)} />}
+      {favoritesOnly && (
+        <FavoritesView
+          targetVersion={targetVersion}
+          onOpen={setSelected}
+          onDownload={openAndDownload}
+        />
+      )}
+
+      {selected && (
+        <ModDetailsModal mod={selected} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 }
