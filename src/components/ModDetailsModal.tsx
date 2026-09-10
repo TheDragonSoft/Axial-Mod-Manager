@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import DependencyPlanModal from "./DependencyPlanModal";
-import { enqueueDownload, getModDetails, getSettings, toAppError } from "../lib/api";
+import { enqueueDownload, getModDetails, toAppError } from "../lib/api";
+import { useAppStore } from "../store/useAppStore";
 import { useQueueStore } from "../store/useQueueStore";
 import { compareVersions, formatBytes, formatCount } from "../lib/format";
 import type { AppError, ModDetails, ModRelease, ModSummary } from "../types";
@@ -67,19 +68,31 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
   const [details, setDetails] = useState<ModDetails | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [loading, setLoading] = useState(true);
-  const [target, setTarget] = useState("2.0");
   const [showPlan, setShowPlan] = useState(false);
+  // From the app store (loaded at startup) instead of a per-open getSettings.
+  const target = useAppStore((s) => s.targetFactorioVersion) ?? "?";
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([getModDetails(mod.name), getSettings()])
-      .then(([d, s]) => {
+    let cancelled = false;
+    getModDetails(mod.name)
+      .then((d) => {
+        if (cancelled) return;
         setDetails(d);
-        setTarget(s.targetFactorioVersion);
+        setError(null);
       })
-      .catch((e) => setError(toAppError(e)))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (cancelled) return;
+        setError(toAppError(e));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true; // a closed/retried load must not overwrite fresh state
+    };
   }, [mod.name]);
 
   useEffect(load, [load]);
