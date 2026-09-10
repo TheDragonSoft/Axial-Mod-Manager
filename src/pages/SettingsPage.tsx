@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
+  Check,
+  Cpu,
+  FolderOpen,
+  HardDrive,
+  RefreshCw,
+  Settings as SettingsIcon,
+  SlidersHorizontal,
+} from "lucide-react";
+import {
   detectGameInstall,
   detectModsDir,
   getSettings,
@@ -10,8 +19,16 @@ import {
   validateModsDir,
 } from "../lib/api";
 import type { DetectedGame, GameDirStatus, ModsDirStatus } from "../types";
+import Button from "../components/ui/Button";
+import Input from "../components/ui/Input";
+import PageHeader from "../components/ui/PageHeader";
+import Panel from "../components/ui/Panel";
+import SegmentedTabs from "../components/ui/SegmentedTabs";
+import Select from "../components/ui/Select";
+import Spinner from "../components/ui/Spinner";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+type Section = "storage" | "game" | "general";
 
 const SOURCE_LABELS: Record<string, string> = {
   steam: "Steam",
@@ -20,6 +37,9 @@ const SOURCE_LABELS: Record<string, string> = {
   "game-log": "Found via game log",
   custom: "Selected manually",
 };
+
+const ADOPT_LINK =
+  "text-xs text-accent hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-accent";
 
 /** Detected game install summary with one-click adoption of its facts. */
 function GameInstallInfo({
@@ -40,12 +60,12 @@ function GameInstallInfo({
   return (
     <div className="mt-1.5 space-y-1">
       <p
-        className="truncate font-mono text-xs text-zinc-300"
+        className="truncate font-mono text-xs text-stone-300"
         title={game.exePath ?? game.installDir}
       >
         {game.installDir}
       </p>
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-stone-500">
         {source}
         {game.version ? ` · game version ${game.version}` : " · version unknown"}
       </p>
@@ -54,12 +74,12 @@ function GameInstallInfo({
           <button
             type="button"
             onClick={() => onUseTargetVersion(targetVersion)}
-            className="text-xs text-amber-400 hover:text-amber-300"
+            className={ADOPT_LINK}
           >
             Use detected version ({targetVersion}) for compatibility filtering
           </button>
         ) : (
-          <p className="text-xs text-green-400/80">
+          <p className="text-xs text-accent/80">
             Target version matches the installed game ✓
           </p>
         )
@@ -68,7 +88,7 @@ function GameInstallInfo({
         <button
           type="button"
           onClick={() => onUsePortableModsDir(portableModsDir)}
-          className="block text-xs text-amber-400 hover:text-amber-300"
+          className={`block ${ADOPT_LINK}`}
         >
           Use the portable mods folder inside the game installation
         </button>
@@ -122,7 +142,7 @@ function GameDirStatusLine({
 
 /** Human-readable summary of a ModsDirStatus, styled by severity. */
 function DirStatusLine({ status }: { status: ModsDirStatus }) {
-  let tone = "text-zinc-500";
+  let tone = "text-stone-500";
   let text: string;
 
   if (status.exists && !status.isDir) {
@@ -132,7 +152,7 @@ function DirStatusLine({ status }: { status: ModsDirStatus }) {
     tone = "text-red-400";
     text = "Directory is not writable by this app.";
   } else if (status.exists) {
-    tone = "text-green-400";
+    tone = "text-accent";
     text = `Writable directory · ${status.zipCount} zip${status.zipCount === 1 ? "" : "s"} found` +
       (status.hasModList ? " · mod-list.json present ✓" : "");
   } else if (status.creatable) {
@@ -147,6 +167,7 @@ function DirStatusLine({ status }: { status: ModsDirStatus }) {
 }
 
 export default function SettingsPage() {
+  const [section, setSection] = useState<Section>("storage");
   const [modsDirInput, setModsDirInput] = useState("");
   const [gameDirInput, setGameDirInput] = useState("");
   const [gameVersion, setGameVersion] = useState("2.0");
@@ -334,184 +355,240 @@ export default function SettingsPage() {
     }
   }
 
-  if (loading) return <p className="text-sm text-zinc-500">Loading…</p>;
-  if (loadError) return <p className="text-sm text-red-400">Error: {loadError}</p>;
+  if (loading)
+    return (
+      <div>
+        <PageHeader
+          icon={SettingsIcon}
+          title="Settings"
+          subtitle="Configure Axial and your Factorio integration"
+        />
+        <p className="flex items-center gap-2 text-sm text-stone-500">
+          <Spinner /> Loading…
+        </p>
+      </div>
+    );
+  if (loadError)
+    return (
+      <div>
+        <PageHeader
+          icon={SettingsIcon}
+          title="Settings"
+          subtitle="Configure Axial and your Factorio integration"
+        />
+        <p className="text-sm text-red-400">Error: {loadError}</p>
+      </div>
+    );
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-zinc-100">Settings</h2>
+      <PageHeader
+        icon={SettingsIcon}
+        title="Settings"
+        subtitle="Configure Axial and your Factorio integration"
+      />
 
-      <form className="mt-6 max-w-lg space-y-5" onSubmit={handleSave}>
-        <div>
-          <label
-            htmlFor="mods-dir"
-            className="block text-xs font-medium uppercase tracking-wide text-zinc-500"
-          >
-            Mods directory
-          </label>
-          <div className="mt-1.5 flex gap-2">
-            <input
-              id="mods-dir"
-              type="text"
-              value={modsDirInput}
-              onChange={(e) => {
-                setModsDirInput(e.target.value);
-                markDirty();
-              }}
-              onBlur={() => refreshStatus(modsDirInput)}
-              placeholder="Leave empty to auto-detect on launch"
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-500"
-            />
-            <button
-              type="button"
-              onClick={() => void handleBrowse()}
-              className="shrink-0 rounded border border-zinc-700 px-3 text-sm text-zinc-300 hover:border-amber-500 hover:text-amber-400"
-            >
-              Browse…
-            </button>
-          </div>
-          {status && <DirStatusLine status={status} />}
-          {modsDirWasAutoDetected && (
-            <p className="mt-1 text-xs text-amber-500/80">
-              Auto-detected — click Save to keep it.
-            </p>
+      <form onSubmit={handleSave}>
+        <SegmentedTabs
+          tabs={[
+            { id: "storage", label: "Storage", icon: HardDrive },
+            { id: "game", label: "Game Install", icon: Cpu },
+            { id: "general", label: "General", icon: SlidersHorizontal },
+          ]}
+          active={section}
+          onChange={setSection}
+          className="mb-4"
+        />
+
+        <div className="max-w-2xl">
+          {section === "storage" && (
+            <Panel flat icon={HardDrive} title="Mods directory" subtitle="Where mod zips are downloaded and enabled">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
+                  Mods directory
+                </span>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={modsDirInput}
+                    onChange={(e) => {
+                      setModsDirInput(e.target.value);
+                      markDirty();
+                    }}
+                    onBlur={() => refreshStatus(modsDirInput)}
+                    placeholder="Leave empty to auto-detect on launch"
+                    className="font-mono"
+                  />
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    onClick={() => void handleBrowse()}
+                    className="shrink-0"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    Browse…
+                  </Button>
+                </div>
+              </label>
+              {status && <DirStatusLine status={status} />}
+              {modsDirWasAutoDetected && (
+                <p className="mt-1 text-xs text-accent/80">
+                  Auto-detected — click Save to keep it.
+                </p>
+              )}
+            </Panel>
           )}
-        </div>
 
-        <div>
-          <label
-            htmlFor="game-dir"
-            className="block text-xs font-medium uppercase tracking-wide text-zinc-500"
-          >
-            Factorio installation
-          </label>
-          <div className="mt-1.5 flex gap-2">
-            <input
-              id="game-dir"
-              type="text"
-              value={gameDirInput}
-              onChange={(e) => {
-                setGameDirInput(e.target.value);
-                markDirty();
-              }}
-              onBlur={() => void refreshGameStatus(gameDirInput)}
-              placeholder="Leave empty to auto-detect on launch"
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-500"
-            />
-            <button
-              type="button"
-              onClick={() => void handleGameBrowse()}
-              className="shrink-0 rounded border border-zinc-700 px-3 text-sm text-zinc-300 hover:border-amber-500 hover:text-amber-400"
-            >
-              Browse…
-            </button>
-          </div>
-          {scanningGame ? (
-            <p className="mt-1.5 text-xs text-zinc-500">Scanning…</p>
-          ) : gameDirInput.trim() ? (
-            gameStatus && (
-              <GameDirStatusLine
-                status={gameStatus}
-                gameVersion={gameVersion}
-                modsDirInput={modsDirInput}
-                onUseTargetVersion={(v) => {
-                  setGameVersion(v);
-                  markDirty();
-                }}
-                onUsePortableModsDir={(p) => {
-                  setModsDirInput(p);
-                  markDirty();
-                  void refreshStatus(p);
-                }}
-              />
-            )
-          ) : (
-            <div className="mt-1.5">
-              <p className="text-xs text-zinc-500">
-                No Factorio installation detected — browse to the game folder,
-                or leave empty to keep auto-detecting.
-              </p>
-              <button
-                type="button"
-                onClick={() => void scanForGame()}
-                className="mt-1 text-xs text-amber-400 hover:text-amber-300"
-              >
-                Scan again
-              </button>
+          {section === "game" && (
+            <Panel flat icon={Cpu} title="Factorio installation" subtitle="Used for install detection and the game version">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
+                  Installation folder
+                </span>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={gameDirInput}
+                    onChange={(e) => {
+                      setGameDirInput(e.target.value);
+                      markDirty();
+                    }}
+                    onBlur={() => void refreshGameStatus(gameDirInput)}
+                    placeholder="Leave empty to auto-detect on launch"
+                    className="font-mono"
+                  />
+                  <Button
+                    variant="secondary"
+                    type="button"
+                    onClick={() => void handleGameBrowse()}
+                    className="shrink-0"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    Browse…
+                  </Button>
+                </div>
+              </label>
+              {scanningGame ? (
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-stone-500">
+                  <Spinner /> Scanning…
+                </p>
+              ) : gameDirInput.trim() ? (
+                gameStatus && (
+                  <GameDirStatusLine
+                    status={gameStatus}
+                    gameVersion={gameVersion}
+                    modsDirInput={modsDirInput}
+                    onUseTargetVersion={(v) => {
+                      setGameVersion(v);
+                      markDirty();
+                    }}
+                    onUsePortableModsDir={(p) => {
+                      setModsDirInput(p);
+                      markDirty();
+                      void refreshStatus(p);
+                    }}
+                  />
+                )
+              ) : (
+                <div className="mt-1.5">
+                  <p className="text-xs text-stone-500">
+                    No Factorio installation detected — browse to the game
+                    folder, or leave empty to keep auto-detecting.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void scanForGame()}
+                    className={`mt-1 inline-flex items-center gap-1 ${ADOPT_LINK}`}
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Scan again
+                  </button>
+                </div>
+              )}
+              {gameDirWasAutoDetected && (
+                <p className="mt-1 text-xs text-accent/80">
+                  Auto-detected — click Save to keep it.
+                </p>
+              )}
+            </Panel>
+          )}
+
+          {section === "general" && (
+            <div className="space-y-4">
+              <Panel flat icon={SlidersHorizontal} title="Compatibility" subtitle="Which game version mods are filtered against">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
+                    Target Factorio version
+                  </span>
+                  <Select
+                    value={gameVersion}
+                    onChange={(e) => {
+                      setGameVersion(e.target.value);
+                      markDirty();
+                    }}
+                    className="w-40"
+                  >
+                    <option value="2.1">2.1</option>
+                    <option value="2.0">2.0</option>
+                    <option value="1.1">1.1</option>
+                  </Select>
+                  <span className="mt-1.5 block text-xs text-stone-500">
+                    Used to tag mods as compatible/incompatible across Browse and
+                    update checks.
+                  </span>
+                </label>
+              </Panel>
+
+              <Panel flat icon={SlidersHorizontal} title="Logging" subtitle="File log verbosity">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
+                    Log level (file log)
+                  </span>
+                  <Select
+                    value={logLevel}
+                    onChange={(e) => {
+                      setLogLevel(e.target.value);
+                      markDirty();
+                    }}
+                    className="w-40"
+                  >
+                    <option value="debug">debug</option>
+                    <option value="info">info</option>
+                    <option value="warn">warn</option>
+                    <option value="error">error</option>
+                  </Select>
+                  <span className="mt-1.5 block text-xs text-stone-500">
+                    Written to app-data/logs/axial.log — level applies after
+                    restart.
+                  </span>
+                </label>
+              </Panel>
             </div>
           )}
-          {gameDirWasAutoDetected && (
-            <p className="mt-1 text-xs text-amber-500/80">
-              Auto-detected — click Save to keep it.
-            </p>
-          )}
-        </div>
 
-        <div>
-          <label
-            htmlFor="game-version"
-            className="block text-xs font-medium uppercase tracking-wide text-zinc-500"
-          >
-            Target Factorio version
-          </label>
-          <select
-            id="game-version"
-            value={gameVersion}
-            onChange={(e) => {
-              setGameVersion(e.target.value);
-              markDirty();
-            }}
-            className="mt-1.5 w-40 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-amber-500"
-          >
-            <option value="2.1">2.1</option>
-            <option value="2.0">2.0</option>
-            <option value="1.1">1.1</option>
-          </select>
-          <p className="mt-1 text-xs text-zinc-500">
-            Used to tag mods as compatible/incompatible (Phase 4+).
-          </p>
-        </div>
-
-        <div>
-          <label
-            htmlFor="log-level"
-            className="block text-xs font-medium uppercase tracking-wide text-zinc-500"
-          >
-            Log level (file log)
-          </label>
-          <select
-            id="log-level"
-            value={logLevel}
-            onChange={(e) => {
-              setLogLevel(e.target.value);
-              markDirty();
-            }}
-            className="mt-1.5 w-40 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-amber-500"
-          >
-            <option value="debug">debug</option>
-            <option value="info">info</option>
-            <option value="warn">warn</option>
-            <option value="error">error</option>
-          </select>
-          <p className="mt-1 text-xs text-zinc-500">
-            Written to app-data/logs/axial.log — level applies after restart.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={saveState === "saving"}
-            className="rounded bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saveState === "saving" ? "Saving…" : "Save"}
-          </button>
-          {saveState === "saved" && (
-            <span className="text-xs text-green-400">Saved ✓</span>
-          )}
-          {saveState === "error" && saveError && (
-            <span className="text-xs text-red-400">{saveError}</span>
-          )}
+          {/* Save bar */}
+          <div className="mt-4 flex items-center gap-3 rounded-xl border border-line bg-surface px-5 py-4">
+            <Button variant="primary" type="submit" disabled={saveState === "saving"}>
+              {saveState === "saving" ? (
+                <>
+                  <Spinner className="text-stone-500" /> Saving…
+                </>
+              ) : (
+                "Save Settings"
+              )}
+            </Button>
+            {saveState === "saved" && (
+              <span className="flex items-center gap-1.5 text-xs text-accent">
+                <Check className="h-3.5 w-3.5" /> Saved
+              </span>
+            )}
+            {saveState === "error" && saveError && (
+              <span className="text-xs text-red-400">{saveError}</span>
+            )}
+            <span className="ml-auto text-xs text-stone-600">
+              Paths are validated before anything is saved.
+            </span>
+          </div>
         </div>
       </form>
     </div>

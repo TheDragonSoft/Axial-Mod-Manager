@@ -100,6 +100,8 @@ pub struct ModDetails {
     pub downloads: Option<u64>,
     pub dependencies: Vec<String>,
     pub releases: Vec<ModRelease>,
+    /// Absolute URL of the portal thumbnail; None when the mod has none.
+    pub thumbnail: Option<String>,
 }
 
 /// Result of the network-layer diagnostics probe (Phase 4A).

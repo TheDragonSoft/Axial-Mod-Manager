@@ -89,6 +89,8 @@ export interface ModDetails {
   downloads: number | null;
   dependencies: string[];
   releases: ModRelease[];
+  /** Absolute portal thumbnail URL; null when the mod has none. */
+  thumbnail: string | null;
 }
 
 export interface IndexHealth {

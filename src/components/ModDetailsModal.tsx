@@ -3,7 +3,13 @@ import DependencyPlanModal from "./DependencyPlanModal";
 import { enqueueDownload, getModDetails, toAppError } from "../lib/api";
 import { useAppStore } from "../store/useAppStore";
 import { useQueueStore } from "../store/useQueueStore";
+import { useThumbnailUrl } from "../lib/thumbnails";
 import { compareVersions, formatBytes, formatCount } from "../lib/format";
+import Badge from "./ui/Badge";
+import Button from "./ui/Button";
+import ModTile from "./ui/ModTile";
+import Modal from "./ui/Modal";
+import Spinner from "./ui/Spinner";
 import type { AppError, ModDetails, ModRelease, ModSummary } from "../types";
 
 interface Props {
@@ -24,41 +30,41 @@ function ReleaseRow({
 }) {
   const compatible = release.factorioVersion === target;
   return (
-    <tr className="border-b border-zinc-800/60">
-      <td className="py-2 pr-3 font-mono text-zinc-200">
+    <tr className="border-b border-line last:border-0">
+      <td className="py-2.5 pr-3 font-mono text-stone-200">
         v{release.version}
         {isLatest && (
-          <span className="ml-2 rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-400">
+          <Badge tone="violet" className="ml-2">
             latest
-          </span>
+          </Badge>
         )}
       </td>
-      <td className="py-2 pr-3">
+      <td className="py-2.5 pr-3">
         <span
-          className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
-            compatible ? "bg-green-900/40 text-green-400" : "bg-zinc-800 text-zinc-400"
-          }`}
-          title={compatible ? "Compatible with your target version" : `Targets game ${release.factorioVersion}`}
+          title={
+            compatible
+              ? "Compatible with your target version"
+              : `Targets game ${release.factorioVersion}`
+          }
         >
-          {compatible ? `✓ ${release.factorioVersion}` : `needs ${release.factorioVersion}`}
+          <Badge tone={compatible ? "green" : "neutral"}>
+            {compatible ? `✓ ${release.factorioVersion}` : `needs ${release.factorioVersion}`}
+          </Badge>
         </span>
       </td>
-      <td className="py-2 pr-3 text-xs text-zinc-500">
+      <td className="py-2.5 pr-3 text-xs text-stone-500">
         {release.releasedAt ? new Date(release.releasedAt).toLocaleDateString() : "—"}
       </td>
-      <td className="py-2 pr-3 text-xs text-zinc-500">
+      <td className="py-2.5 pr-3 text-xs text-stone-500">
         {release.fileSize !== null ? formatBytes(release.fileSize) : "—"}
       </td>
-      <td className="py-2 pr-3 text-xs text-zinc-500">
+      <td className="py-2.5 pr-3 text-xs text-stone-500">
         {release.downloadsCount !== null ? formatCount(release.downloadsCount) : "—"}
       </td>
-      <td className="py-2 text-right">
-        <button
-          onClick={() => onDownload(release.version)}
-          className="rounded bg-amber-500 px-2.5 py-1 text-xs font-medium text-zinc-950 hover:bg-amber-400"
-        >
+      <td className="py-2.5 text-right">
+        <Button variant="primary" size="sm" onClick={() => onDownload(release.version)}>
           Download
-        </button>
+        </Button>
       </td>
     </tr>
   );
@@ -69,6 +75,7 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
   const [error, setError] = useState<AppError | null>(null);
   const [loading, setLoading] = useState(true);
   const [showPlan, setShowPlan] = useState(false);
+  const searchThumbnail = useThumbnailUrl(mod.name);
   // From the app store (loaded at startup) instead of a per-open getSettings.
   const target = useAppStore((s) => s.targetFactorioVersion) ?? "?";
 
@@ -97,12 +104,6 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
 
   useEffect(load, [load]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const releases = details
     ? [...details.releases].sort((a, b) => compareVersions(b.version, a.version))
     : [];
@@ -113,41 +114,49 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900 p-6"
+    <>
+      <Modal
+        open
+        onClose={onClose}
+        size="lg"
+        title={mod.title}
+        subtitle={mod.name}
+        icon={
+          <ModTile
+            name={mod.name}
+            url={details?.thumbnail ?? searchThumbnail}
+            size="md"
+          />
+        }
+        footer={
+          <Button
+            variant="primary"
+            onClick={() => setShowPlan(true)}
+            disabled={loading || error !== null}
+          >
+            Install with dependencies
+          </Button>
+        }
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h3 className="text-base font-semibold text-zinc-100">{mod.title}</h3>
-            <p className="font-mono text-xs text-zinc-500">{mod.name}</p>
-          </div>
-          <button onClick={onClose} aria-label="Close" className="text-zinc-500 hover:text-zinc-200">
-            ✕
-          </button>
-        </div>
-
-        <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+        <p className="text-sm leading-relaxed text-stone-300">
           {details?.summary ?? mod.summary}
         </p>
 
         {details?.owner && (
-          <p className="mt-2 text-xs text-zinc-500">
-            by <span className="text-zinc-400">{details.owner}</span>
-            {details.downloads !== null && <> · {formatCount(details.downloads)} downloads</>}
+          <p className="mt-2 text-xs text-stone-500">
+            by <span className="text-stone-400">{details.owner}</span>
+            {details.downloads !== null && (
+              <> · {formatCount(details.downloads)} downloads</>
+            )}
           </p>
         )}
 
         {details && (
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-stone-500">
             Dependencies:{" "}
             {details.dependencies.length > 0 ? (
               <span
-                className="cursor-help font-mono text-zinc-400 underline decoration-dotted"
+                className="cursor-help font-mono text-stone-400 underline decoration-dotted"
                 title={details.dependencies.join("\n")}
               >
                 {details.dependencies.length} declared
@@ -158,35 +167,32 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
           </p>
         )}
 
-        <button
-          onClick={() => setShowPlan(true)}
-          className="mt-4 rounded bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-400"
-        >
-          Install with dependencies
-        </button>
-
-        <h4 className="mt-5 border-t border-zinc-800 pt-4 text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <h4 className="mt-5 border-t border-line pt-4 text-xs font-medium tracking-wide text-stone-500 uppercase">
           Releases {details && `(${details.releases.length})`}
-          <span className="ml-2 normal-case text-zinc-600">
+          <span className="ml-2 normal-case text-stone-600">
             · compatibility vs target {target}
           </span>
         </h4>
 
-        {loading && <p className="mt-4 text-sm text-zinc-500">Loading releases…</p>}
+        {loading && (
+          <p className="mt-4 flex items-center gap-2 text-sm text-stone-500">
+            <Spinner /> Loading releases…
+          </p>
+        )}
 
         {error && (
-          <div className="mt-4 rounded border border-red-900/60 bg-red-950/40 p-3">
+          <div className="mt-4 rounded-lg border border-red-900/60 bg-red-950/40 p-3">
             <p className="text-xs text-red-400">{error.message}</p>
-            <button onClick={load} className="mt-2 text-xs text-zinc-400 underline hover:text-zinc-200">
+            <Button variant="ghost" size="sm" onClick={load} className="mt-2">
               Retry
-            </button>
+            </Button>
           </div>
         )}
 
         {details && (
           <table className="mt-3 w-full text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-zinc-600">
+              <tr className="text-left text-[11px] tracking-wide text-stone-600 uppercase">
                 <th className="pb-1 pr-3 font-medium">Version</th>
                 <th className="pb-1 pr-3 font-medium">Game</th>
                 <th className="pb-1 pr-3 font-medium">Released</th>
@@ -197,12 +203,18 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
             </thead>
             <tbody>
               {releases.map((r, i) => (
-                <ReleaseRow key={r.version} release={r} isLatest={i === 0} target={target} onDownload={startDownload} />
+                <ReleaseRow
+                  key={r.version}
+                  release={r}
+                  isLatest={i === 0}
+                  target={target}
+                  onDownload={startDownload}
+                />
               ))}
             </tbody>
           </table>
         )}
-      </div>
+      </Modal>
       {showPlan && (
         <DependencyPlanModal
           name={mod.name}
@@ -215,6 +227,6 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
           }}
         />
       )}
-    </div>
+    </>
   );
 }

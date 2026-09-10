@@ -1,22 +1,28 @@
 import { enqueueDownload, cancelDownload, toAppError } from "../lib/api";
 import { useQueueStore } from "../store/useQueueStore";
-import ProgressBar from "./ProgressBar";
+import { useThumbnailUrl } from "../lib/thumbnails";
+import Badge from "./ui/Badge";
+import Button from "./ui/Button";
+import ModTile from "./ui/ModTile";
+import ProgressBar from "./ui/ProgressBar";
+import { X } from "lucide-react";
 import { formatBytes, percent } from "../lib/format";
 import type { QueueItem, QueueStatus } from "../types";
 
-const STATUS_STYLES: Record<QueueStatus, { label: string; className: string }> = {
-  queued: { label: "Queued", className: "bg-zinc-800 text-zinc-400" },
-  downloading: { label: "Downloading", className: "bg-amber-900/40 text-amber-400" },
-  completed: { label: "Done", className: "bg-green-900/40 text-green-400" },
-  failed: { label: "Failed", className: "bg-red-900/40 text-red-400" },
-  cancelled: { label: "Cancelled", className: "bg-zinc-800 text-zinc-500" },
+const STATUS_BADGES: Record<QueueStatus, { label: string; tone: "neutral" | "green" | "red" | "amber" }> = {
+  queued: { label: "Queued", tone: "neutral" },
+  downloading: { label: "Downloading", tone: "amber" },
+  completed: { label: "Done", tone: "green" },
+  failed: { label: "Failed", tone: "red" },
+  cancelled: { label: "Cancelled", tone: "neutral" },
 };
 
 function QueueRow({ item }: { item: QueueItem }) {
   const upsert = useQueueStore((s) => s.upsert);
   const dismiss = useQueueStore((s) => s.dismiss);
+  const thumbnail = useThumbnailUrl(item.modName);
   const isActive = item.status === "queued" || item.status === "downloading";
-  const status = STATUS_STYLES[item.status];
+  const status = STATUS_BADGES[item.status];
   const pct = percent(item.received, item.total);
 
   async function cancel() {
@@ -36,50 +42,60 @@ function QueueRow({ item }: { item: QueueItem }) {
   }
 
   return (
-    <div className="border-b border-zinc-800 px-4 py-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-zinc-200">{item.modName}</p>
-          <p className="text-xs text-zinc-500">v{item.version}</p>
-        </div>
-        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${status.className}`}>
-          {status.label}
-        </span>
-      </div>
+    <div className="border-b border-line px-4 py-3">
+      <div className="flex items-start gap-3">
+        <ModTile name={item.modName} url={thumbnail} size="sm" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-stone-200">
+                {item.modName}
+              </p>
+              <p className="text-xs text-stone-500">v{item.version}</p>
+            </div>
+            <Badge tone={status.tone} className="shrink-0">
+              {status.label}
+            </Badge>
+          </div>
 
-      {item.status !== "failed" && (
-        <div className="mt-2">
-          <ProgressBar value={pct} />
-          <div className="mt-1 flex justify-between text-[11px] text-zinc-500">
-            <span>
-              {formatBytes(item.received)}
-              {item.total > 0 && ` / ${formatBytes(item.total)}`}
-            </span>
-            <span>{item.total > 0 ? `${pct}%` : "…"}</span>
+          {item.status !== "failed" && (
+            <div className="mt-2">
+              <ProgressBar
+                value={pct}
+                tone={item.status === "cancelled" ? "white" : "green"}
+              />
+              <div className="mt-1 flex justify-between text-[11px] text-stone-500">
+                <span>
+                  {formatBytes(item.received)}
+                  {item.total > 0 && ` / ${formatBytes(item.total)}`}
+                </span>
+                <span>{item.total > 0 ? `${pct}%` : "…"}</span>
+              </div>
+            </div>
+          )}
+
+          {item.status === "failed" && item.error && (
+            <p className="mt-2 text-xs text-red-400">{item.error}</p>
+          )}
+
+          <div className="mt-2 flex justify-end gap-1">
+            {isActive && (
+              <Button variant="ghost" size="sm" onClick={cancel}>
+                Cancel
+              </Button>
+            )}
+            {item.status === "failed" && (
+              <Button variant="ghost" size="sm" onClick={retry}>
+                Retry
+              </Button>
+            )}
+            {!isActive && (
+              <Button variant="ghost" size="sm" onClick={() => dismiss(item.id)}>
+                Dismiss
+              </Button>
+            )}
           </div>
         </div>
-      )}
-
-      {item.status === "failed" && item.error && (
-        <p className="mt-2 text-xs text-red-400">{item.error}</p>
-      )}
-
-      <div className="mt-2 flex justify-end gap-4">
-        {isActive && (
-          <button onClick={cancel} className="text-xs text-zinc-500 hover:text-red-400">
-            Cancel
-          </button>
-        )}
-        {item.status === "failed" && (
-          <button onClick={retry} className="text-xs text-zinc-400 hover:text-amber-400">
-            Retry
-          </button>
-        )}
-        {!isActive && (
-          <button onClick={() => dismiss(item.id)} className="text-xs text-zinc-500 hover:text-zinc-300">
-            Dismiss
-          </button>
-        )}
       </div>
     </div>
   );
@@ -102,41 +118,38 @@ export default function QueueDrawer() {
         <div className="fixed inset-0 z-40 bg-black/50" onClick={close} />
       )}
       <aside
-        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-zinc-800 bg-zinc-900 transition-transform duration-200 ${
+        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-          <h3 className="text-sm font-semibold text-zinc-100">
+        <header className="flex items-center justify-between border-b border-line px-4 py-3">
+          <h3 className="text-sm font-semibold text-stone-100">
             Downloads{" "}
-            <span className="font-normal text-zinc-500">({activeCount} active)</span>
+            <span className="font-normal text-stone-500">
+              ({activeCount} active)
+            </span>
           </h3>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {finishedCount > 0 && (
-              <button
-                onClick={clearFinished}
-                className="text-xs text-zinc-500 hover:text-zinc-300"
-              >
+              <Button variant="ghost" size="sm" onClick={clearFinished}>
                 Clear done
-              </button>
+              </Button>
             )}
             <button
               onClick={close}
               aria-label="Close"
-              className="text-zinc-500 hover:text-zinc-200"
+              className="rounded-lg p-1.5 text-stone-500 transition-colors hover:bg-surface-2 hover:text-stone-200"
             >
-              ✕
+              <X className="h-4 w-4" />
             </button>
           </div>
         </header>
 
         <div className="flex-1 overflow-y-auto">
           {items.length === 0 ? (
-            <div className="p-6 text-center text-sm text-zinc-600">
+            <p className="p-6 text-center text-sm text-stone-600">
               No downloads yet.
-              <br />
-              (Dev: use ⚡ Simulate in the footer to test.)
-            </div>
+            </p>
           ) : (
             items.map((item) => <QueueRow key={item.id} item={item} />)
           )}

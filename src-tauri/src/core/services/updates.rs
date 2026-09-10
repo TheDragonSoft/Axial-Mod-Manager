@@ -147,6 +147,7 @@ mod tests {
                 name: name.to_string(),
                 title: name.to_string(),
                 owner: None,
+                thumbnail: None,
                 summary: String::new(),
                 downloads: None,
                 dependencies: vec![],

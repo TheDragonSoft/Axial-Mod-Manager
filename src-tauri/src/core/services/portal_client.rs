@@ -6,7 +6,9 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use crate::core::services::deps::cmp_versions;
-use crate::core::services::index_client::{CachedHttp, IndexClient, SortKey, PORTAL_API_BASE};
+use crate::core::services::index_client::{
+    CachedHttp, IndexClient, SortKey, PORTAL_API_BASE, PORTAL_ASSETS_BASE,
+};
 use crate::error::AppError;
 use crate::models::{IndexHealth, ModDetails, ModRelease, ModSummary, SearchResult};
 
@@ -92,6 +94,8 @@ pub struct PortalModDetails {
     pub dependencies: Vec<String>,
     #[serde(default)]
     pub releases: Vec<PortalRelease>,
+    #[serde(default)]
+    pub thumbnail: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +174,23 @@ fn map_summary(item: PortalModListItem) -> ModSummary {
     }
 }
 
+/// The portal serves thumbnails as site-relative paths ("/assets/<hash>.thumb.png")
+/// from the assets host (see PORTAL_ASSETS_BASE); make them absolute so the
+/// webview can load them directly. Absent/empty -> None.
+fn absolutize_thumbnail(raw: Option<String>) -> Option<String> {
+    let t = raw?.trim().to_string();
+    if t.is_empty() {
+        return None;
+    }
+    if t.starts_with("http://") || t.starts_with("https://") {
+        Some(t)
+    } else if t.starts_with('/') {
+        Some(format!("{PORTAL_ASSETS_BASE}{t}"))
+    } else {
+        None
+    }
+}
+
 pub(crate) fn parse_details(raw: &str) -> Result<ModDetails, AppError> {
     let dto: PortalModDetails = serde_json::from_str(raw)
         .map_err(|e| AppError::Parse(format!("portal details response: {e}")))?;
@@ -203,6 +224,7 @@ pub(crate) fn parse_details(raw: &str) -> Result<ModDetails, AppError> {
         downloads: dto.downloads_count,
         dependencies,
         releases: dto.releases.into_iter().map(map_release).collect(),
+        thumbnail: absolutize_thumbnail(dto.thumbnail),
     })
 }
 
@@ -480,6 +502,15 @@ mod tests {
         ]
     }"#;
 
+    const THUMBNAIL_FIXTURE: &str = r#"{
+        "name": "krastorio2", "title": "Krastorio 2", "summary": "",
+        "thumbnail": "/assets/0bbd7809fe9151ac3f7cd1c3c604e13d4c8598d9.thumb.png",
+        "releases": []
+    }"#;
+
+    const THUMBNAIL_LESS_FIXTURE: &str =
+        r#"{ "name": "x", "title": "X", "summary": "", "releases": [] }"#;
+
     #[test]
     fn search_parses_pagination_and_results() {
         let r = parse_search(SEARCH_FIXTURE).expect("fixture must parse");
@@ -516,6 +547,23 @@ mod tests {
         let d = parse_details(STRING_INFO_FIXTURE).expect("fixture must parse");
         assert_eq!(d.releases[0].factorio_version, "2.0");
         assert_eq!(d.dependencies.len(), 1);
+    }
+
+    #[test]
+    fn thumbnail_relative_url_becomes_absolute() {
+        let d = parse_details(THUMBNAIL_FIXTURE).expect("fixture must parse");
+        assert_eq!(
+            d.thumbnail.as_deref(),
+            Some("https://assets-mod.factorio.com/assets/0bbd7809fe9151ac3f7cd1c3c604e13d4c8598d9.thumb.png")
+        );
+    }
+
+    #[test]
+    fn thumbnail_absent_or_empty_is_none() {
+        let d = parse_details(THUMBNAIL_LESS_FIXTURE).expect("fixture must parse");
+        assert_eq!(d.thumbnail, None);
+        let empty = r#"{ "name": "x", "title": "X", "summary": "", "thumbnail": "", "releases": [] }"#;
+        assert_eq!(parse_details(empty).expect("fixture must parse").thumbnail, None);
     }
 
     #[test]

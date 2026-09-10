@@ -50,7 +50,7 @@ Rules:
 | File            | Responsibility                                                                                                          |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `index_client.rs` | `IndexClient` trait + `CachedHttp`: 5-min TTL response cache (200 entries), semaphore rate limit (2 concurrent). `PortalClient` implements the trait — anything upstream of it is testable with a fake. |
-| `portal_client.rs` | Official portal API (`https://mods.factorio.com/api`). Tolerant DTOs; validates mod names/versions with `plausible_name`/`plausible_version` before using them in file paths. |
+| `portal_client.rs` | Official portal API (`https://mods.factorio.com/api`). Tolerant DTOs; validates mod names/versions with `plausible_name`/`plausible_version` before using them in file paths. Parses the details response's `thumbnail` into an absolute URL (`ModDetails.thumbnail`) for the UI. |
 | `downloader.rs`   | Download queue: 3 concurrent, progress events, cancel flags, 3 retries with backoff on transient failures. Writes `<name>_<version>.zip.part`, renames on completion. **Zips come from the community mirror `mods-storage.re146.dev`** (official downloads need portal auth) — deliberate, documented in the README. |
 | `deps.rs`         | Factorio dependency-string parser + version math. Handles all prefixes: `?` optional, `!` incompatible, `~` hidden-required, `+` recommended, `(?)`/`(!)` hidden variants. Mod names can contain spaces — parsing is prefix-aware, not split-on-space. |
 | `resolver.rs`     | BFS install planning over the dep graph (cycle-guarded). Produces `InstallPlan` tiers: to_install / satisfied / optional / conflicts / warnings. Shown in `DependencyPlanModal.tsx`. |
@@ -63,11 +63,13 @@ Rules:
 
 ### Frontend (`src/`)
 
-- `pages/` — BrowsePage, InstalledPage, PacksPage, SettingsPage (sidebar tab switching via `useAppStore`).
-- `components/` — modals (`ModDetailsModal`, `DependencyPlanModal`, `VersionsModal`), `ModCard`, `QueueDrawer`, etc.
-- `store/` — Zustand: `useAppStore` (active tab), `useQueueStore` (mirror of the backend download queue, fed by events).
-- `lib/events.ts` — all backend event listeners in one place: `settings-changed`, `download-updated`, `installed-changed`, `pack-activated`. Registered once in `App.tsx`.
-- Styling: Tailwind 4, dark zinc theme with amber accent.
+- `pages/` — DashboardPage (home: stats, system status, session activity), BrowsePage (search + favorites view), InstalledPage, PacksPage, SettingsPage (Storage / Game Install / General sections). Sidebar tab switching via `useAppStore`.
+- `components/ui/` — the shared design system: `Button`, `Badge`, `Card`, `Panel`, `PageHeader`, `Input`, `Select`, `Modal` (portal + focus trap + Escape with topmost-stack handling), `StatCard`, `SegmentedTabs`, `SettingRow`, `EmptyState`, `Spinner`, `StatusDot`, `ProgressBar`, `Toggle`, `ModTile` (portal thumbnail w/ letter-tile fallback), `useConfirm` (two-step destructive confirm). **Build new UI from these instead of re-inlining class strings.**
+- `components/packs/` — `PackCard`, `NewPackModal`. Other components: `InstallModal` (Modrinth-style install dialog — version picker, dependency checklist, file facts; opened from mod cards instead of enqueueing directly), `VersionsModal` (switch version of an installed mod), `ModCard`, `QueueDrawer`, `Sidebar`.
+- `store/` — Zustand: `useAppStore` (active tab, update count, packs version + `openPackId` for Quick Access hand-off), `useQueueStore` (mirror of the backend download queue, fed by events), `useFavoritesStore` (frontend-only favorites, persisted to localStorage), `useActivityStore` (session-only activity log for the Dashboard), `useThumbnailStore` (portal thumbnail cache).
+- `lib/events.ts` — all backend event listeners in one place: `settings-changed`, `download-updated`, `installed-changed`, `pack-activated`. Registered once in `App.tsx` (which also feeds the activity store).
+- `lib/thumbnails.ts` — `useThumbnails(names)` resolves portal thumbnails (via the details command; backend caches) into `useThumbnailStore`.
+- Styling: Tailwind 4, CSS-first tokens in `src/index.css` (`@theme`) — palette pixel-sampled from the reference design: warm stone scale (`app` #0C0A09 page/modals, `surface` #1C1917 cards, `surface-2` #292524 hovers/active nav, `input` #161514 fields+secondary buttons, `line` borders) and a single swappable `accent` #00CC46 (status green). Icon tiles come in the reference hues blue `#0285EE` / green / violet `#BB3FF2` / orange `#F97316` (`ICON_TILE_TONES` in `Panel.tsx`). Primary buttons are warm off-white (stone-200); green is reserved for status/success. Don't introduce cool grays (zinc/slate) or new accent hues — match the sampled palette. Icons: `lucide-react`. Font: Inter (bundled via `@fontsource-variable/inter`).
 
 ## Recipes
 
@@ -95,6 +97,7 @@ Rules:
 ## Current state / known gaps
 
 - Phases 1–9 complete (see git history): browse → download/install → deps resolver → packs → updates/ops polish. v0.1.0.
+- `experiment/new-ui` branch: full UI redesign (DashboardPage, DiscoPanel-style dark theme with white primaries + green accent, thumbnails, favorites, Quick Access). Develop the new UI there; `main` is the stable pre-redesign app. Work happens in the `Axial-NewUI` git worktree.
 - No frontend tests; CI runs `cargo test` + `tsc` only.
 - Download mirror is third-party (see `downloader.rs`); official authenticated portal downloads are a possible future feature (would need user token handling in Settings).
 - CSP is configured in `tauri.conf.json` (allows `https:` images for portal thumbnails, `ipc:` for Tauri IPC). If you add remote resources the frontend loads, extend `img-src`/`connect-src` there.

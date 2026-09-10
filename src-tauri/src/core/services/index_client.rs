@@ -14,6 +14,13 @@ pub const USER_AGENT: &str = "Axial/0.1 (personal use)";
 /// Official mod portal read API (search + metadata). Public, no auth for reads.
 pub const PORTAL_API_BASE: &str = "https://mods.factorio.com/api";
 
+/// Site root the API lives under. ASSUMPTION (verified against the live
+/// portal): the details endpoint's `thumbnail` is a site-relative path, but
+/// the asset itself is served from the dedicated assets host —
+/// `https://mods.factorio.com/assets/x.thumb.png` is a 404 while the same
+/// path on `assets-mod.factorio.com` returns the image.
+pub const PORTAL_ASSETS_BASE: &str = "https://assets-mod.factorio.com";
+
 
 /// Cache entries older than this are re-fetched.
 const CACHE_TTL: Duration = Duration::from_secs(5 * 60);

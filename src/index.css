@@ -1,4 +1,27 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/*
+ * Design tokens (Tailwind v4 CSS-first theme) — sampled from the reference
+ * screenshots. Warm stone scale + one swappable accent:
+ *   app      #0C0A09  page background, modals            (stone-950)
+ *   surface  #1C1917  cards, sidebar, drawer             (stone-900)
+ *   surface-2#292524  active nav, hover fills            (stone-800)
+ *   input    #161514  text fields, secondary buttons
+ *   line     #292524  borders                            (stone-800)
+ *   accent   #00CC46  status green (dots, numbers, toggles, progress)
+ * Primary actions are the reference's warm off-white (stone-200).
+ */
+@theme {
+  --color-app: #0c0a09;
+  --color-surface: #1c1917;
+  --color-surface-2: #292524;
+  --color-input: #161514;
+  --color-line: #292524;
+  --color-accent: #00cc46;
+  --color-accent-strong: #34e273;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+}
 
 html,
 body,
@@ -7,6 +30,61 @@ body,
 }
 
 body {
-  @apply bg-zinc-950 text-zinc-200 antialiased;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  @apply bg-app text-stone-200 antialiased;
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: rgb(0 204 70 / 0.25);
+}
+
+/* Thin dark scrollbars everywhere. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #292524 transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #292524;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3532;
+  background-clip: content-box;
+}
+
+/* Subtle entrance for page switches (keyed remount in App.tsx). */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-page {
+  animation: page-in 160ms ease-out;
+}
+
+/* Fade used by thumbnails / modal content. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade-in {
+  animation: fade-in 180ms ease-out;
 }
