@@ -211,3 +211,25 @@ pub struct PackActivatedPayload {
     pub missing: Vec<String>,
 }
 
+// ---- Update detection (Phase 9) ----
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    pub name: String,
+    pub installed_version: String,
+    pub available_version: String,
+    pub factorio_version: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatesReport {
+    pub target: String,
+    pub updates: Vec<UpdateInfo>,
+    pub up_to_date: Vec<String>,
+    /// (mod name, reason) — details fetch failed or no target-compatible release.
+    pub errors: Vec<(String, String)>,
+}
+
+

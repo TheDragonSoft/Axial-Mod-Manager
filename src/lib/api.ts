@@ -15,6 +15,7 @@ import type {
   SearchResult,
   Settings,
   SortKey,
+  UpdatesReport,
 } from "../types";
 
 /** Normalize any rejection into a known AppError shape. */
@@ -129,4 +130,9 @@ export async function exportPack(id: string): Promise<string> {
 export async function activatePack(id: string): Promise<ActivationDiff> {
   return invoke<ActivationDiff>("activate_pack", { id });
 }
+
+export async function checkUpdates(): Promise<UpdatesReport> {
+  return invoke<UpdatesReport>("check_updates");
+}
+
 

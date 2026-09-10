@@ -17,6 +17,8 @@ use crate::error::AppError;
 const STORAGE_BASE: &str = "https://mods-storage.re146.dev";
 const MAX_CONCURRENT_DOWNLOADS: usize = 3;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
+/// Automatic retries for transient failures (network blips, 429, 5xx).
+const MAX_ATTEMPTS: u32 = 3;
 
 /// Event payload for "download-updated" — mirrors the frontend QueueItem.
 #[derive(Debug, Clone, Serialize)]
@@ -33,7 +35,8 @@ pub struct DownloadUpdate {
 
 enum JobFail {
     Cancelled,
-    Error(String),
+    /// (message, transient) — transient failures are retried with backoff.
+    Error(String, bool),
 }
 
 pub struct DownloadQueue {
@@ -92,6 +95,8 @@ impl DownloadQueue {
         std::fs::create_dir_all(&mods_dir)?;
 
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        tracing::info!(id, mod = %mod_name, %version, "download enqueued");
+
         let base = DownloadUpdate {
             id,
             mod_name: mod_name.clone(),
@@ -104,7 +109,7 @@ impl DownloadQueue {
 
         let dest = mods_dir.join(format!("{mod_name}_{version}.zip"));
         if dest.exists() {
-            // Exact version already installed — nothing to do.
+            tracing::info!(id, mod = %mod_name, %version, "already installed — nothing to do");
             let done = DownloadUpdate { status: "completed", ..base.clone() };
             let _ = app.emit("download-updated", &done);
             return Ok(done);
@@ -112,6 +117,7 @@ impl DownloadQueue {
 
         let key = format!("{mod_name}|{version}");
         if !self.in_flight.lock().expect("queue lock poisoned").insert(key) {
+            tracing::warn!(id, mod = %mod_name, %version, "rejected: already in queue");
             return Err(AppError::Config(format!(
                 "{mod_name} {version} is already in the download queue"
             )));
@@ -177,7 +183,48 @@ async fn run_job(
     );
     let part = mods_dir.join(format!("{}_{}.zip.part", item.mod_name, item.version));
 
-    match download_and_verify(&queue.http, cancel, &url, &part, app, &item).await {
+    // Attempt loop: transient failures retry with exponential backoff.
+    let mut outcome: Result<u64, JobFail> = Err(JobFail::Error("no attempt made".into(), false));
+    for attempt in 1..=MAX_ATTEMPTS {
+        if cancel.load(Ordering::SeqCst) {
+            outcome = Err(JobFail::Cancelled);
+            break;
+        }
+        if attempt > 1 {
+            // Reset the visible progress for the new attempt.
+            let _ = app.emit(
+                "download-updated",
+                &DownloadUpdate { received: 0, total: 0, ..item.clone() },
+            );
+        }
+        match download_and_verify(&queue.http, cancel, &url, &part, app, &item).await {
+            Ok(total) => {
+                outcome = Ok(total);
+                break;
+            }
+            Err(JobFail::Cancelled) => {
+                outcome = Err(JobFail::Cancelled);
+                break;
+            }
+            Err(JobFail::Error(e, false)) => {
+                tracing::error!(id, mod = %item.mod_name, version = %item.version, "download failed (permanent): {e}");
+                outcome = Err(JobFail::Error(e, false));
+                break;
+            }
+            Err(JobFail::Error(e, true)) if attempt < MAX_ATTEMPTS => {
+                let wait = Duration::from_secs(2u64.saturating_pow(attempt)); // 2s, 4s
+                tracing::warn!(id, attempt, "transient download failure, retrying in {wait:?}: {e}");
+                tokio::time::sleep(wait).await;
+            }
+            Err(JobFail::Error(e, true)) => {
+                tracing::error!(id, attempts = MAX_ATTEMPTS, "download failed after {MAX_ATTEMPTS} attempts: {e}");
+                outcome = Err(JobFail::Error(format!("{e} (after {MAX_ATTEMPTS} attempts)"), false));
+                break;
+            }
+        }
+    }
+
+    match outcome {
         Ok(total) => {
             // One zip per mod name: remove other versions before the rename.
             let dest_name = format!("{}_{}.zip", item.mod_name, item.version);
@@ -185,6 +232,7 @@ async fn run_job(
             let dest = mods_dir.join(dest_name);
             match tokio::fs::rename(&part, &dest).await {
                 Ok(()) => {
+                    tracing::info!(id, mod = %item.mod_name, version = %item.version, bytes = total, "download completed");
                     item.status = "completed";
                     item.received = total;
                     item.total = total;
@@ -192,6 +240,7 @@ async fn run_job(
                     crate::core::services::packs::maybe_finalize(app, &item.mod_name).await;
                 }
                 Err(e) => {
+                    tracing::error!(id, "could not finalize install: {e}");
                     item.status = "failed";
                     item.error = Some(format!("could not finalize install: {e}"));
                 }
@@ -199,9 +248,10 @@ async fn run_job(
         }
         Err(JobFail::Cancelled) => {
             let _ = tokio::fs::remove_file(&part).await;
+            tracing::info!(id, mod = %item.mod_name, "download cancelled");
             item.status = "cancelled";
         }
-        Err(JobFail::Error(e)) => {
+        Err(JobFail::Error(e, _)) => {
             let _ = tokio::fs::remove_file(&part).await;
             item.status = "failed";
             item.error = Some(e);
@@ -224,20 +274,26 @@ async fn download_and_verify(
 
     let response = match http.get(url).send().await {
         Ok(r) => r,
-        Err(e) => return Err(JobFail::Error(format!("request failed: {e}"))),
+        Err(e) => return Err(JobFail::Error(format!("request failed: {e}"), true)),
     };
     let status = response.status();
     if !status.is_success() {
-        return Err(JobFail::Error(format!(
-            "HTTP {} — download server rejected the request (check mod name/version)",
-            status.as_u16()
-        )));
+        // 429 / 5xx are worth retrying; 4xx means the request itself is wrong.
+        let transient =
+            status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error();
+        return Err(JobFail::Error(
+            format!(
+                "HTTP {} — download server rejected the request (check mod name/version)",
+                status.as_u16()
+            ),
+            transient,
+        ));
     }
     let total = response.content_length().unwrap_or(0);
 
     let mut file = match tokio::fs::File::create(part).await {
         Ok(f) => f,
-        Err(e) => return Err(JobFail::Error(format!("could not create part file: {e}"))),
+        Err(e) => return Err(JobFail::Error(format!("could not create part file: {e}"), false)),
     };
 
     let mut stream = response.bytes_stream();
@@ -250,11 +306,11 @@ async fn download_and_verify(
         }
         let chunk = match stream.next().await {
             Some(Ok(c)) => c,
-            Some(Err(e)) => return Err(JobFail::Error(format!("transfer failed: {e}"))),
+            Some(Err(e)) => return Err(JobFail::Error(format!("transfer failed: {e}"), true)),
             None => break,
         };
         if let Err(e) = file.write_all(&chunk).await {
-            return Err(JobFail::Error(format!("write failed: {e}")));
+            return Err(JobFail::Error(format!("write failed: {e}"), false));
         }
         received += chunk.len() as u64;
         if last_emit.elapsed() >= PROGRESS_INTERVAL {
@@ -266,12 +322,12 @@ async fn download_and_verify(
         }
     }
     if let Err(e) = file.flush().await {
-        return Err(JobFail::Error(format!("write failed: {e}")));
+        return Err(JobFail::Error(format!("write failed: {e}"), false));
     }
     drop(file);
 
     if let Err(e) = verify_mod_zip(part, &item.mod_name, &item.version) {
-        return Err(JobFail::Error(e.to_string()));
+        return Err(JobFail::Error(e.to_string(), false));
     }
 
     Ok(if total == 0 { received } else { total })
@@ -284,7 +340,7 @@ fn verify_mod_zip(path: &Path, expected_name: &str, expected_version: &str) -> R
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Parse(format!("downloaded file is not a valid zip: {e}")))?;
 
-    let mut info_json: Option<(String, String)> = None; // (entry name, contents)
+    let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
         let mut entry = archive
             .by_index(i)
@@ -297,7 +353,7 @@ fn verify_mod_zip(path: &Path, expected_name: &str, expected_version: &str) -> R
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
-                break; // prefer root-level info.json
+                break;
             }
         }
     }
@@ -343,11 +399,6 @@ pub(crate) fn plausible_version(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
-}
-
-#[allow(dead_code)]
-fn encode_component(s: &str) -> String {
-    encode_path_component(s)
 }
 
 fn anticache_token() -> String {

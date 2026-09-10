@@ -9,10 +9,12 @@ use crate::error::AppError;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
-    /// Explicit path to the Factorio mods directory. None = auto-detect (Phase 3).
+    /// Explicit path to the Factorio mods directory. None = auto-detect.
     pub mods_dir: Option<String>,
-    /// Game version used for compatibility filtering ("2.0", "1.1", ...).
+    /// Game version used for compatibility filtering ("2.0", "2.1", ...).
     pub target_factorio_version: String,
+    /// File-log level: debug | info | warn | error.
+    pub log_level: String,
 }
 
 impl Default for Config {
@@ -20,6 +22,7 @@ impl Default for Config {
         Self {
             mods_dir: None,
             target_factorio_version: "2.0".to_string(),
+            log_level: "info".to_string(),
         }
     }
 }

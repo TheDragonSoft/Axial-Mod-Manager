@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   detectModsDir,
   getSettings,
@@ -39,6 +40,7 @@ function DirStatusLine({ status }: { status: ModsDirStatus }) {
 export default function SettingsPage() {
   const [modsDirInput, setModsDirInput] = useState("");
   const [gameVersion, setGameVersion] = useState("2.0");
+  const [logLevel, setLogLevel] = useState("info");
   const [status, setStatus] = useState<ModsDirStatus | null>(null);
   const [wasAutoDetected, setWasAutoDetected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -59,11 +61,24 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleBrowse() {
+    const path = await openDialog({
+      directory: true,
+      title: "Select your Factorio mods directory",
+    });
+    if (typeof path === "string" && path) {
+      setModsDirInput(path);
+      markDirty();
+      void refreshStatus(path);
+    }
+  }
+
   useEffect(() => {
     (async () => {
       try {
         const s = await getSettings();
         setGameVersion(s.targetFactorioVersion);
+        setLogLevel(s.logLevel ?? "info");
         if (s.modsDir) {
           setModsDirInput(s.modsDir);
           await refreshStatus(s.modsDir);
@@ -119,6 +134,7 @@ export default function SettingsPage() {
       await setSettings({
         modsDir: trimmed || null,
         targetFactorioVersion: gameVersion,
+        logLevel,
       });
       setWasAutoDetected(false);
       setSaveState("saved");
@@ -143,18 +159,27 @@ export default function SettingsPage() {
           >
             Mods directory
           </label>
-          <input
-            id="mods-dir"
-            type="text"
-            value={modsDirInput}
-            onChange={(e) => {
-              setModsDirInput(e.target.value);
-              markDirty();
-            }}
-            onBlur={() => refreshStatus(modsDirInput)}
-            placeholder="Leave empty to auto-detect on launch"
-            className="mt-1.5 w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-500"
-          />
+          <div className="mt-1.5 flex gap-2">
+            <input
+              id="mods-dir"
+              type="text"
+              value={modsDirInput}
+              onChange={(e) => {
+                setModsDirInput(e.target.value);
+                markDirty();
+              }}
+              onBlur={() => refreshStatus(modsDirInput)}
+              placeholder="Leave empty to auto-detect on launch"
+              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-500"
+            />
+            <button
+              type="button"
+              onClick={() => void handleBrowse()}
+              className="shrink-0 rounded border border-zinc-700 px-3 text-sm text-zinc-300 hover:border-amber-500 hover:text-amber-400"
+            >
+              Browse…
+            </button>
+          </div>
           {status && <DirStatusLine status={status} />}
           {wasAutoDetected && (
             <p className="mt-1 text-xs text-amber-500/80">
@@ -185,6 +210,32 @@ export default function SettingsPage() {
           </select>
           <p className="mt-1 text-xs text-zinc-500">
             Used to tag mods as compatible/incompatible (Phase 4+).
+          </p>
+        </div>
+
+        <div>
+          <label
+            htmlFor="log-level"
+            className="block text-xs font-medium uppercase tracking-wide text-zinc-500"
+          >
+            Log level (file log)
+          </label>
+          <select
+            id="log-level"
+            value={logLevel}
+            onChange={(e) => {
+              setLogLevel(e.target.value);
+              markDirty();
+            }}
+            className="mt-1.5 w-40 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-amber-500"
+          >
+            <option value="debug">debug</option>
+            <option value="info">info</option>
+            <option value="warn">warn</option>
+            <option value="error">error</option>
+          </select>
+          <p className="mt-1 text-xs text-zinc-500">
+            Written to app-data/logs/fmm.log — level applies after restart.
           </p>
         </div>
 

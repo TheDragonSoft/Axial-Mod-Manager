@@ -10,6 +10,7 @@ const TABS: { id: Tab; label: string }[] = [
 export default function Sidebar() {
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
+  const updateCount = useAppStore((s) => s.updateCount);
 
   return (
     <aside className="flex h-full w-48 flex-col border-r border-zinc-800 bg-zinc-900">
@@ -30,6 +31,11 @@ export default function Sidebar() {
             }`}
           >
             {label}
+            {id === "installed" && updateCount !== null && updateCount > 0 && (
+              <span className="ml-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-zinc-950">
+                {updateCount}
+              </span>
+            )}
           </button>
         ))}
       </nav>

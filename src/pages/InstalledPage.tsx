@@ -1,30 +1,44 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Toggle from "../components/Toggle";
-import { listInstalled, toAppError, toggleMod, uninstallMod } from "../lib/api";
+import VersionsModal from "../components/VersionsModal";
+import {
+  checkUpdates,
+  enqueueDownload,
+  listInstalled,
+  toAppError,
+  toggleMod,
+  uninstallMod,
+} from "../lib/api";
 import { onInstalledChanged, onSettingsChanged } from "../lib/events";
-import type { InstalledMod } from "../types";
+import { useAppStore } from "../store/useAppStore";
+import { useQueueStore } from "../store/useQueueStore";
+import type { InstalledMod, UpdatesReport } from "../types";
 
 function ModRow({
   mod,
   confirming,
   busy,
+  updateTo,
   onToggle,
   onUninstall,
+  onUpdate,
+  onVersions,
 }: {
   mod: InstalledMod;
   confirming: boolean;
   busy: boolean;
+  updateTo: string | null;
   onToggle: (mod: InstalledMod, next: boolean) => void;
   onUninstall: (mod: InstalledMod) => void;
+  onUpdate: (mod: InstalledMod) => void;
+  onVersions: (mod: InstalledMod) => void;
 }) {
   return (
     <tr className="border-b border-zinc-800/60 hover:bg-zinc-900/60">
       <td className="py-2.5 pr-4">
         <p className="font-mono text-zinc-200">
           {mod.name}
-          <span className="ml-2 text-[10px] text-zinc-600">
-            {mod.dependencies.length} deps
-          </span>
+          <span className="ml-2 text-[10px] text-zinc-600">{mod.dependencies.length} deps</span>
         </p>
         {mod.problem && (
           <p className="mt-0.5 max-w-md truncate text-[11px] text-red-400" title={mod.problem}>
@@ -34,33 +48,43 @@ function ModRow({
       </td>
       <td className="py-2.5 pr-4 text-zinc-400">v{mod.version}</td>
       <td className="py-2.5 pr-4">
-        <span
-          className={mod.factorioVersion === "2.0" ? "text-green-400" : "text-zinc-500"}
-        >
+        <span className={mod.factorioVersion === "2.0" ? "text-green-400" : "text-zinc-500"}>
           {mod.factorioVersion}
         </span>
       </td>
       <td className="py-2.5 pr-4">
-        <Toggle
-          checked={mod.enabled}
-          onChange={(v) => onToggle(mod, v)}
-          label={`Enable ${mod.name}`}
-        />
+        <Toggle checked={mod.enabled} onChange={(v) => onToggle(mod, v)} label={`Enable ${mod.name}`} />
       </td>
       <td className="py-2.5 text-right">
-        <button
-          onClick={() => onUninstall(mod)}
-          disabled={busy}
-          className={
-            busy
-              ? "text-xs text-zinc-600"
-              : confirming
-                ? "text-xs font-medium text-red-400 hover:text-red-300"
-                : "text-xs text-zinc-500 hover:text-red-400"
-          }
-        >
-          {busy ? "Removing…" : confirming ? "Confirm remove?" : "Remove"}
-        </button>
+        <div className="flex items-center justify-end gap-3">
+          {updateTo && (
+            <button
+              onClick={() => onUpdate(mod)}
+              className="text-xs font-medium text-amber-400 hover:text-amber-300"
+            >
+              Update → v{updateTo}
+            </button>
+          )}
+          <button
+            onClick={() => onVersions(mod)}
+            className="text-xs text-zinc-500 hover:text-amber-400"
+          >
+            Versions
+          </button>
+          <button
+            onClick={() => onUninstall(mod)}
+            disabled={busy}
+            className={
+              busy
+                ? "text-xs text-zinc-600"
+                : confirming
+                  ? "text-xs font-medium text-red-400 hover:text-red-300"
+                  : "text-xs text-zinc-500 hover:text-red-400"
+            }
+          >
+            {busy ? "Removing…" : confirming ? "Confirm remove?" : "Remove"}
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -72,6 +96,9 @@ export default function InstalledPage() {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busyFile, setBusyFile] = useState<string | null>(null);
+  const [report, setReport] = useState<UpdatesReport | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [versionsFor, setVersionsFor] = useState<InstalledMod | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -88,7 +115,6 @@ export default function InstalledPage() {
     void refresh();
   }, [refresh]);
 
-  // Re-scan whenever the backend touches the folder or settings are saved.
   useEffect(() => {
     const u1 = onInstalledChanged(() => void refresh());
     const u2 = onSettingsChanged(() => {
@@ -103,8 +129,56 @@ export default function InstalledPage() {
     };
   }, [refresh]);
 
+  const updateByName = useMemo(() => {
+    const m = new Map<string, string>();
+    report?.updates.forEach((u) => m.set(u.name, u.availableVersion));
+    return m;
+  }, [report]);
+
+  async function runCheck() {
+    setChecking(true);
+    try {
+      const r = await checkUpdates();
+      setReport(r);
+      useAppStore.getState().setUpdateCount(r.updates.length > 0 ? r.updates.length : null);
+    } catch (e) {
+      setError(toAppError(e).message);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function handleUpdate(mod: InstalledMod) {
+    const u = report?.updates.find((x) => x.name === mod.name);
+    if (!u) return;
+    try {
+      await enqueueDownload(u.name, u.availableVersion);
+      setReport((r) =>
+        r ? { ...r, updates: r.updates.filter((x) => x.name !== u.name) } : r,
+      );
+      const remaining = (report?.updates.length ?? 1) - 1;
+      useAppStore.getState().setUpdateCount(remaining > 0 ? remaining : null);
+      useQueueStore.getState().open();
+    } catch (e) {
+      setError(toAppError(e).message);
+    }
+  }
+
+  async function updateAll() {
+    if (!report) return;
+    for (const u of report.updates) {
+      try {
+        await enqueueDownload(u.name, u.availableVersion);
+      } catch (e) {
+        setError(`${u.name}: ${toAppError(e).message}`);
+      }
+    }
+    useAppStore.getState().setUpdateCount(null);
+    setReport(null);
+    useQueueStore.getState().open();
+  }
+
   async function handleToggle(mod: InstalledMod, next: boolean) {
-    // Optimistic update; roll back if the backend refuses.
     const apply = (enabled: boolean) =>
       setSnapshot((s) =>
         s
@@ -126,7 +200,6 @@ export default function InstalledPage() {
   }
 
   async function handleUninstall(mod: InstalledMod) {
-    // Two-step inline confirm (native confirm() is unreliable in Tauri webviews).
     if (confirming !== mod.fileName) {
       setConfirming(mod.fileName);
       window.setTimeout(
@@ -163,6 +236,39 @@ export default function InstalledPage() {
           " · mod-list.json not found — everything counts as enabled until first toggle"}
       </p>
 
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => void runCheck()}
+          disabled={checking}
+          className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-amber-500 hover:text-amber-400 disabled:opacity-50"
+        >
+          {checking ? "Checking…" : "Check for updates"}
+        </button>
+        {report && report.updates.length > 0 && (
+          <button
+            onClick={() => void updateAll()}
+            className="rounded bg-amber-500 px-3 py-1.5 text-xs font-medium text-zinc-950 hover:bg-amber-400"
+          >
+            Update all ({report.updates.length})
+          </button>
+        )}
+        {report && (
+          <span className="text-xs text-zinc-600">
+            {report.updates.length} update{report.updates.length === 1 ? "" : "s"} ·{" "}
+            {report.upToDate.length} up to date
+            {report.errors.length > 0 && ` · ${report.errors.length} could not be checked`}
+            {` · target ${report.target}`}
+          </span>
+        )}
+      </div>
+
+      {report && report.errors.length > 0 && (
+        <p className="mt-2 text-[11px] text-zinc-600">
+          {report.errors.slice(0, 5).map(([n, r]) => `${n}: ${r}`).join(" · ")}
+          {report.errors.length > 5 && " …"}
+        </p>
+      )}
+
       {error && (
         <div className="mt-4 rounded border border-red-900/60 bg-red-950/40 p-3">
           <p className="text-xs text-red-400">{error}</p>
@@ -193,12 +299,19 @@ export default function InstalledPage() {
                 mod={m}
                 confirming={confirming === m.fileName}
                 busy={busyFile === m.fileName}
+                updateTo={updateByName.get(m.name) ?? null}
                 onToggle={handleToggle}
                 onUninstall={handleUninstall}
+                onUpdate={handleUpdate}
+                onVersions={setVersionsFor}
               />
             ))}
           </tbody>
         </table>
+      )}
+
+      {versionsFor && (
+        <VersionsModal mod={versionsFor} onClose={() => setVersionsFor(null)} />
       )}
     </div>
   );

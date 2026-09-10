@@ -1,8 +1,8 @@
 use tauri::{AppHandle, Emitter, State};
 
-use crate::core::services::mod_store;
+use crate::core::services::{mod_store, updates};
 use crate::error::AppError;
-use crate::models::{InstalledSnapshot, ModsDirStatus};
+use crate::models::{InstalledSnapshot, ModsDirStatus, UpdatesReport};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -62,4 +62,15 @@ pub async fn uninstall_mod(
     mod_store::uninstall(&dir, &file_name)?;
     let _ = app.emit("installed-changed", ());
     Ok(name)
+}
+
+/// Compare every installed mod against the newest target-compatible release.
+#[tauri::command]
+pub async fn check_updates(state: State<'_, AppState>) -> Result<UpdatesReport, AppError> {
+    let config = state.config.read().expect("config lock poisoned").clone();
+    let dir = mod_store::resolve_dir(&config)?;
+    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir))
+        .await
+        .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
+    Ok(updates::check(&*state.index, &snapshot, &config.target_factorio_version).await)
 }

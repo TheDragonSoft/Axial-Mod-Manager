@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "axial",
+  "productName": "Factorio Mod Manager",
   "version": "0.1.0",
   "identifier": "com.modforge.app",
   "build": {
@@ -12,9 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "axial",
-        "width": 800,
-        "height": 600
+        "title": "Factorio Mod Manager",
+        "width": 1150,
+        "height": 760,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true
       }
     ],
     "security": {

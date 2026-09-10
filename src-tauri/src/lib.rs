@@ -5,7 +5,8 @@ mod error;
 mod models;
 mod state;
 
-use std::sync::{Arc, RwLock};
+use std::path::Path;
+use std::sync::{Arc, Mutex, RwLock};
 
 use tauri::Manager;
 
@@ -14,14 +15,55 @@ use core::services::index_client::USER_AGENT;
 use core::services::portal_client::PortalClient;
 use state::AppState;
 
+/// File logging to <app-data>/logs/fmm.log with a single 5 MB rotation.
+fn init_logging(data_dir: &Path, level: &str) {
+    let dir = data_dir.join("logs");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return; // no usable data dir — run without file logging
+    }
+    let log_path = dir.join("fmm.log");
+    if let Ok(meta) = std::fs::metadata(&log_path) {
+        if meta.len() > 5 * 1024 * 1024 {
+            let _ = std::fs::rename(&log_path, dir.join("fmm.log.1"));
+        }
+    }
+    let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    else {
+        return;
+    };
+    let max_level = match level.to_lowercase().as_str() {
+        "debug" => tracing::Level::DEBUG,
+        "warn" => tracing::Level::WARN,
+        "error" => tracing::Level::ERROR,
+        _ => tracing::Level::INFO,
+    };
+    let _ = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_max_level(max_level)
+        .with_writer(Mutex::new(file))
+        .try_init();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let config_path = data_dir.join("settings.json");
             let config = config::Config::load(&config_path).unwrap_or_default();
+
+            init_logging(&data_dir, &config.log_level);
+            tracing::info!(
+                "starting — target game {}, mods dir {:?}, log level {}",
+                config.target_factorio_version,
+                config.mods_dir,
+                config.log_level
+            );
 
             let profiles_dir = data_dir.join("profiles");
             std::fs::create_dir_all(&profiles_dir)?;
@@ -39,6 +81,41 @@ pub fn run() {
                 queue: Arc::new(DownloadQueue::new(http)),
                 pending_activation: std::sync::Mutex::new(None),
             });
+
+            // Crash recovery: re-enqueue downloads interrupted by a previous
+            // session (*.part leftovers — cancelled jobs clean up after
+            // themselves, so only genuinely interrupted files remain).
+            let handle = app.handle().clone();
+            let queue = handle.state::<AppState>().queue.clone();
+            let startup_config = handle
+                .state::<AppState>()
+                .config
+                .read()
+                .expect("config lock poisoned")
+                .clone();
+            tauri::async_runtime::spawn(async move {
+                let Ok(mods_dir) = core::services::mod_store::resolve_dir(&startup_config) else {
+                    return;
+                };
+                let Ok(entries) = std::fs::read_dir(&mods_dir) else { return };
+                for entry in entries.flatten() {
+                    let fname = entry.file_name().to_string_lossy().into_owned();
+                    let Some(stem) = fname.strip_suffix(".zip.part") else { continue };
+                    let Some((name, version)) = stem.rsplit_once('_') else { continue };
+                    if name.is_empty() || version.is_empty() {
+                        continue;
+                    }
+                    match queue
+                        .clone()
+                        .enqueue(handle.clone(), mods_dir.clone(), name.to_string(), version.to_string())
+                        .await
+                    {
+                        Ok(_) => tracing::info!("re-enqueued interrupted download: {name} {version}"),
+                        Err(e) => tracing::warn!("could not re-enqueue {name} {version}: {e}"),
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -50,6 +127,7 @@ pub fn run() {
             commands::installed::list_installed,
             commands::installed::toggle_mod,
             commands::installed::uninstall_mod,
+            commands::installed::check_updates,
             commands::index::search_mods,
             commands::index::get_mod_details,
             commands::index::index_health_check,

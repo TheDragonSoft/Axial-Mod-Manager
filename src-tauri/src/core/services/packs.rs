@@ -320,8 +320,8 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
         let _ = app.emit(
             "pack-activated",
             &PackActivatedPayload {
-                pack_id: pack.id,
-                pack_name: pack.name,
+                pack_id: pack.id.clone(),
+                pack_name: pack.name.clone(),
                 missing,
             },
         );
@@ -331,6 +331,15 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
             remaining,
         });
     }
+
+    tracing::info!(
+        pack = %diff.pack_name,
+        enabled = diff.to_enable.len(),
+        disabled = diff.to_disable.len(),
+        downloads = diff.to_download.len(),
+        errors = diff.errors.len(),
+        "pack activation applied"
+    );
 
     let _ = app.emit("installed-changed", ());
     Ok(diff)
@@ -374,15 +383,19 @@ pub async fn maybe_finalize(app: &AppHandle, downloaded_mod: &str) {
         *guard = None;
     }
 
-    if let Err(e) = result {
-        let _ = app.emit(
-            "pack-activated",
-            &PackActivatedPayload {
-                pack_id,
-                pack_name: format!("<finalize failed: {e}>"),
-                missing: vec![],
-            },
-        );
+    match result {
+        Ok(()) => tracing::info!(%pack_id, "pack fully finalized"),
+        Err(e) => {
+            tracing::error!(%pack_id, "pack finalize failed: {e}");
+            let _ = app.emit(
+                "pack-activated",
+                &PackActivatedPayload {
+                    pack_id,
+                    pack_name: format!("<finalize failed: {e}>"),
+                    missing: vec![],
+                },
+            );
+        }
     }
 }
 

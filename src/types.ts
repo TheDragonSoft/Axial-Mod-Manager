@@ -10,6 +10,7 @@ export interface AppError {
 export interface Settings {
   modsDir: string | null;
   targetFactorioVersion: string;
+  logLevel: string;
 }
 
 // ---- Mods directory detection/validation (Phase 3) ----
@@ -181,4 +182,21 @@ export interface PackActivatedPayload {
   packName: string;
   missing: string[];
 }
+
+// ---- Update detection (Phase 9) ----
+
+export interface UpdateInfo {
+  name: string;
+  installedVersion: string;
+  availableVersion: string;
+  factorioVersion: string;
+}
+
+export interface UpdatesReport {
+  target: string;
+  updates: UpdateInfo[];
+  upToDate: string[];
+  errors: [string, string][];
+}
+
 
