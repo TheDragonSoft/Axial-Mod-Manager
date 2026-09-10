@@ -22,7 +22,8 @@ pub async fn resolve_install_plan(
     let target = config.target_factorio_version.clone();
     let dir = mod_store::resolve_dir(&config)?;
 
-    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir))
+    let cache = state.zip_cache.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir, &cache))
         .await
         .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
     let installed: HashMap<String, InstalledMod> = snapshot

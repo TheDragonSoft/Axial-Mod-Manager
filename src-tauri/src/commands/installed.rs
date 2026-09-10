@@ -14,12 +14,14 @@ pub async fn validate_mods_dir(path: String) -> Result<ModsDirStatus, AppError> 
     Ok(mod_store::dir_status(trimmed))
 }
 
-/// Heavy work (zip reads) runs on the blocking thread pool.
+/// Heavy work (zip reads) runs on the blocking thread pool, served from the
+/// zip info cache when nothing on disk changed.
 #[tauri::command]
 pub async fn list_installed(state: State<'_, AppState>) -> Result<InstalledSnapshot, AppError> {
     let config = state.config.read().expect("config lock poisoned").clone();
     let dir = mod_store::resolve_dir(&config)?;
-    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir))
+    let cache = state.zip_cache.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir, &cache))
         .await
         .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
     Ok(snapshot)
@@ -32,13 +34,16 @@ pub async fn toggle_mod(
     name: String,
     enabled: bool,
 ) -> Result<(), AppError> {
-    let name = name.trim();
+    let name = name.trim().to_string();
     if name.is_empty() {
         return Err(AppError::Config("mod name is empty".into()));
     }
     let config = state.config.read().expect("config lock poisoned").clone();
     let dir = mod_store::resolve_dir(&config)?;
-    mod_store::set_enabled(&dir, name, enabled)?;
+    // mod-list.json writes are blocking IO — keep them off the async runtime.
+    tauri::async_runtime::spawn_blocking(move || mod_store::set_enabled(&dir, &name, enabled))
+        .await
+        .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;
     let _ = app.emit("installed-changed", ());
     Ok(())
 }
@@ -53,13 +58,26 @@ pub async fn uninstall_mod(
     let config = state.config.read().expect("config lock poisoned").clone();
     let dir = mod_store::resolve_dir(&config)?;
 
-    let name = mod_store::mod_name_of(&dir, &file_name)?;
+    // Zip reads/deletes are blocking IO — keep them off the async runtime.
+    let name = {
+        let dir = dir.clone();
+        let file_name = file_name.clone();
+        let cache = state.zip_cache.clone();
+        tauri::async_runtime::spawn_blocking(move || mod_store::mod_name_of(&dir, &file_name, &cache))
+            .await
+            .map_err(|e| AppError::Parse(format!("background task failed: {e}")))?
+    }?;
     if state.queue.is_busy(&name) {
         return Err(AppError::Config(format!(
             "{name} is currently downloading — cancel that download first"
         )));
     }
-    mod_store::uninstall(&dir, &file_name)?;
+
+    let cache = state.zip_cache.clone();
+    tauri::async_runtime::spawn_blocking(move || mod_store::uninstall(&dir, &file_name, &cache))
+        .await
+        .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;
+
     let _ = app.emit("installed-changed", ());
     Ok(name)
 }
@@ -69,7 +87,8 @@ pub async fn uninstall_mod(
 pub async fn check_updates(state: State<'_, AppState>) -> Result<UpdatesReport, AppError> {
     let config = state.config.read().expect("config lock poisoned").clone();
     let dir = mod_store::resolve_dir(&config)?;
-    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir))
+    let cache = state.zip_cache.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir, &cache))
         .await
         .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
     Ok(updates::check(&*state.index, &snapshot, &config.target_factorio_version).await)
