@@ -20,6 +20,7 @@ pub enum AppError {
     Config(String),
 
     /// Used while a subsystem is scaffolded but not wired (e.g. index adapter in 4A).
+    #[allow(dead_code)]
     #[error("Not implemented: {0}")]
     NotImplemented(String),
 }

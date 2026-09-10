@@ -9,7 +9,8 @@ use std::sync::RwLock;
 
 use tauri::Manager;
 
-use core::services::index_client::{Re146Client, USER_AGENT};
+use core::services::index_client::USER_AGENT;
+use core::services::portal_client::PortalClient;
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -24,7 +25,7 @@ pub fn run() {
             let http = reqwest::Client::builder()
                 .user_agent(USER_AGENT)
                 .build()?;
-            let index = Re146Client::new(http);
+            let index = PortalClient::new(http);
 
             app.manage(AppState {
                 config: RwLock::new(config),
