@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes } from "react";
 import { clsx } from "clsx";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
-type Size = "sm" | "md";
+type Size = "sm" | "md" | "icon";
 
 const VARIANTS: Record<Variant, string> = {
   // Primary actions are white by design (see index.css tokens note).
@@ -31,7 +31,11 @@ export default function Button({
         "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
         "disabled:cursor-not-allowed disabled:opacity-50",
-        size === "sm" ? "px-2.5 py-1.5 text-xs" : "px-3.5 py-2 text-sm",
+        size === "sm"
+          ? "px-2.5 py-1.5 text-xs"
+          : size === "icon"
+            ? "h-9 w-9 p-0"
+            : "px-3.5 py-2 text-sm",
         VARIANTS[variant],
         className,
       )}
