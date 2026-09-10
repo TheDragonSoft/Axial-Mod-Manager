@@ -55,6 +55,7 @@ Rules:
 | `deps.rs`         | Factorio dependency-string parser + version math. Handles all prefixes: `?` optional, `!` incompatible, `~` hidden-required, `+` recommended, `(?)`/`(!)` hidden variants. Mod names can contain spaces — parsing is prefix-aware, not split-on-space. |
 | `resolver.rs`     | BFS install planning over the dep graph (cycle-guarded). Produces `InstallPlan` tiers: to_install / satisfied / optional / conflicts / warnings. Shown in `DependencyPlanModal.tsx`. |
 | `mod_store.rs`    | Per-OS mods-dir detection, zip `info.json` scanning, `mod-list.json` editing, uninstall, directory validation (writable probe `.axial_write_probe`). |
+| `game_detect.rs`  | Per-OS Factorio install detection (Steam libraries via `libraryfolders.vdf`, GOG, standalone paths, game-log `Read data path` hint) + game version read from `data/base/info.json` — read-only probing, no process spawn. `Config.game_dir` overrides detection when set. |
 | `packs.rs`        | Pack manifests stored as `profiles/<id>.json`. Import is tolerant (`format` accepted, not enforced). **Activation is target-state reconciliation**: diff target vs installed, download missing, finalize via `PendingActivation` state when downloads land, emit `pack-activated`. |
 | `updates.rs`      | Newest release compatible with the configured target game version vs installed version. |
 

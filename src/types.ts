@@ -9,6 +9,7 @@ export interface AppError {
 /** Mirror of Rust's Config (serde camelCase). */
 export interface Settings {
   modsDir: string | null;
+  gameDir: string | null;
   targetFactorioVersion: string;
   logLevel: string;
 }
@@ -28,6 +29,26 @@ export interface ModsDirStatus {
   creatable: boolean;
   zipCount: number;
   hasModList: boolean;
+}
+
+// ---- Factorio game detection ----
+
+/** Mirror of Rust's DetectedGame (serde camelCase). */
+export interface DetectedGame {
+  installDir: string;
+  exePath: string | null;
+  version: string | null;
+  targetVersion: string | null;
+  portableModsDir: string | null;
+  source: string;
+}
+
+/** Facts about a candidate game directory; game is set when it is an install. */
+export interface GameDirStatus {
+  path: string;
+  exists: boolean;
+  isDir: boolean;
+  game: DetectedGame | null;
 }
 
 // ---- Index types (mocked in Phase 2, live from backend in Phase 4) ----

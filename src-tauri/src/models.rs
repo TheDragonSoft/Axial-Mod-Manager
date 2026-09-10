@@ -10,6 +10,35 @@ pub struct DetectedDir {
     pub exists: bool,
 }
 
+/// A detected local Factorio installation, consumed by the Settings UI.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedGame {
+    /// Directory containing data/ (on macOS the .app bundle's Contents/).
+    pub install_dir: String,
+    /// Game executable, when found under the install dir.
+    pub exe_path: Option<String>,
+    /// Full game version from data/base/info.json (e.g. "2.0.28").
+    pub version: Option<String>,
+    /// major.minor of `version` — the shape used for compat filtering.
+    pub target_version: Option<String>,
+    /// Portable installs keep their mods inside the game dir; set when it exists.
+    pub portable_mods_dir: Option<String>,
+    /// Where the install was found: steam | gog | standalone | game-log | custom.
+    pub source: String,
+}
+
+/// Facts about a candidate game directory, consumed by the Settings UI.
+/// `game` is present only when the directory is a real Factorio install.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameDirStatus {
+    pub path: String,
+    pub exists: bool,
+    pub is_dir: bool,
+    pub game: Option<DetectedGame>,
+}
+
 /// Facts about a candidate mods directory, consumed by the Settings UI.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

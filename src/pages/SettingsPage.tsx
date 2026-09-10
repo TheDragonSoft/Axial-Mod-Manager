@@ -1,15 +1,124 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
+  detectGameInstall,
   detectModsDir,
   getSettings,
   setSettings,
   toAppError,
+  validateGameDir,
   validateModsDir,
 } from "../lib/api";
-import type { ModsDirStatus } from "../types";
+import type { DetectedGame, GameDirStatus, ModsDirStatus } from "../types";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+
+const SOURCE_LABELS: Record<string, string> = {
+  steam: "Steam",
+  gog: "GOG",
+  standalone: "Standalone install",
+  "game-log": "Found via game log",
+  custom: "Selected manually",
+};
+
+/** Detected game install summary with one-click adoption of its facts. */
+function GameInstallInfo({
+  game,
+  gameVersion,
+  modsDirInput,
+  onUseTargetVersion,
+  onUsePortableModsDir,
+}: {
+  game: DetectedGame;
+  gameVersion: string;
+  modsDirInput: string;
+  onUseTargetVersion: (v: string) => void;
+  onUsePortableModsDir: (p: string) => void;
+}) {
+  const source = SOURCE_LABELS[game.source] ?? game.source;
+  const { targetVersion, portableModsDir } = game;
+  return (
+    <div className="mt-1.5 space-y-1">
+      <p
+        className="truncate font-mono text-xs text-zinc-300"
+        title={game.exePath ?? game.installDir}
+      >
+        {game.installDir}
+      </p>
+      <p className="text-xs text-zinc-500">
+        {source}
+        {game.version ? ` · game version ${game.version}` : " · version unknown"}
+      </p>
+      {targetVersion ? (
+        targetVersion !== gameVersion ? (
+          <button
+            type="button"
+            onClick={() => onUseTargetVersion(targetVersion)}
+            className="text-xs text-amber-400 hover:text-amber-300"
+          >
+            Use detected version ({targetVersion}) for compatibility filtering
+          </button>
+        ) : (
+          <p className="text-xs text-green-400/80">
+            Target version matches the installed game ✓
+          </p>
+        )
+      ) : null}
+      {portableModsDir && modsDirInput.trim() !== portableModsDir && (
+        <button
+          type="button"
+          onClick={() => onUsePortableModsDir(portableModsDir)}
+          className="block text-xs text-amber-400 hover:text-amber-300"
+        >
+          Use the portable mods folder inside the game installation
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Human-readable summary of a GameDirStatus, styled by severity. */
+function GameDirStatusLine({
+  status,
+  gameVersion,
+  modsDirInput,
+  onUseTargetVersion,
+  onUsePortableModsDir,
+}: {
+  status: GameDirStatus;
+  gameVersion: string;
+  modsDirInput: string;
+  onUseTargetVersion: (v: string) => void;
+  onUsePortableModsDir: (p: string) => void;
+}) {
+  if (!status.exists) {
+    return <p className="mt-1.5 text-xs text-red-400">Path does not exist.</p>;
+  }
+  if (!status.isDir) {
+    return (
+      <p className="mt-1.5 text-xs text-red-400">
+        Path exists but is not a directory.
+      </p>
+    );
+  }
+  if (!status.game) {
+    return (
+      <p className="mt-1.5 text-xs text-red-400">
+        Not a Factorio installation — data/base/info.json not found in this
+        folder.
+      </p>
+    );
+  }
+  return (
+    <GameInstallInfo
+      game={status.game}
+      gameVersion={gameVersion}
+      modsDirInput={modsDirInput}
+      onUseTargetVersion={onUseTargetVersion}
+      onUsePortableModsDir={onUsePortableModsDir}
+    />
+  );
+}
 
 /** Human-readable summary of a ModsDirStatus, styled by severity. */
 function DirStatusLine({ status }: { status: ModsDirStatus }) {
@@ -39,10 +148,14 @@ function DirStatusLine({ status }: { status: ModsDirStatus }) {
 
 export default function SettingsPage() {
   const [modsDirInput, setModsDirInput] = useState("");
+  const [gameDirInput, setGameDirInput] = useState("");
   const [gameVersion, setGameVersion] = useState("2.0");
   const [logLevel, setLogLevel] = useState("info");
   const [status, setStatus] = useState<ModsDirStatus | null>(null);
-  const [wasAutoDetected, setWasAutoDetected] = useState(false);
+  const [gameStatus, setGameStatus] = useState<GameDirStatus | null>(null);
+  const [modsDirWasAutoDetected, setModsDirWasAutoDetected] = useState(false);
+  const [gameDirWasAutoDetected, setGameDirWasAutoDetected] = useState(false);
+  const [scanningGame, setScanningGame] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -61,6 +174,42 @@ export default function SettingsPage() {
     }
   }
 
+  async function refreshGameStatus(path: string) {
+    const trimmed = path.trim();
+    if (!trimmed) {
+      setGameStatus(null);
+      return;
+    }
+    try {
+      setGameStatus(await validateGameDir(trimmed));
+    } catch {
+      setGameStatus(null);
+    }
+  }
+
+  async function scanForGame() {
+    setScanningGame(true);
+    try {
+      const detected = await detectGameInstall();
+      if (detected) {
+        setGameDirInput(detected.installDir);
+        setGameDirWasAutoDetected(true);
+        setGameStatus({
+          path: detected.installDir,
+          exists: true,
+          isDir: true,
+          game: detected,
+        });
+      } else {
+        setGameStatus(null);
+      }
+    } catch {
+      setGameStatus(null);
+    } finally {
+      setScanningGame(false);
+    }
+  }
+
   async function handleBrowse() {
     const path = await openDialog({
       directory: true,
@@ -70,6 +219,18 @@ export default function SettingsPage() {
       setModsDirInput(path);
       markDirty();
       void refreshStatus(path);
+    }
+  }
+
+  async function handleGameBrowse() {
+    const path = await openDialog({
+      directory: true,
+      title: "Select your Factorio installation folder",
+    });
+    if (typeof path === "string" && path) {
+      setGameDirInput(path);
+      markDirty();
+      void refreshGameStatus(path);
     }
   }
 
@@ -87,9 +248,16 @@ export default function SettingsPage() {
           const detected = await detectModsDir();
           if (detected) {
             setModsDirInput(detected.path);
-            setWasAutoDetected(true);
+            setModsDirWasAutoDetected(true);
             await refreshStatus(detected.path);
           }
+        }
+        if (s.gameDir) {
+          setGameDirInput(s.gameDir);
+          setScanningGame(false);
+          await refreshGameStatus(s.gameDir);
+        } else {
+          await scanForGame();
         }
       } catch (e) {
         setLoadError(toAppError(e).message);
@@ -100,7 +268,8 @@ export default function SettingsPage() {
   }, []);
 
   function markDirty() {
-    setWasAutoDetected(false);
+    setModsDirWasAutoDetected(false);
+    setGameDirWasAutoDetected(false);
     setSaveState("idle");
     setSaveError(null);
   }
@@ -108,6 +277,7 @@ export default function SettingsPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = modsDirInput.trim();
+    const gameDir = gameDirInput.trim();
     setSaveState("saving");
     setSaveError(null);
 
@@ -130,13 +300,33 @@ export default function SettingsPage() {
         }
       }
 
-      // Empty input ⇒ save as null (= auto-detect on next launch).
+      // Same gate for the game folder: saving a non-install would silently
+      // break version detection.
+      if (gameDir) {
+        const gst = await validateGameDir(gameDir);
+        setGameStatus(gst);
+        if (!gst.game) {
+          setSaveState("error");
+          setSaveError(
+            !gst.exists
+              ? "That path does not exist."
+              : gst.isDir
+                ? "That folder is not a Factorio installation — data/base/info.json not found."
+                : "That path is not a directory.",
+          );
+          return;
+        }
+      }
+
+      // Empty inputs ⇒ save as null (= auto-detect on next launch).
       await setSettings({
         modsDir: trimmed || null,
+        gameDir: gameDir || null,
         targetFactorioVersion: gameVersion,
         logLevel,
       });
-      setWasAutoDetected(false);
+      setModsDirWasAutoDetected(false);
+      setGameDirWasAutoDetected(false);
       setSaveState("saved");
     } catch (err) {
       setSaveState("error");
@@ -181,7 +371,76 @@ export default function SettingsPage() {
             </button>
           </div>
           {status && <DirStatusLine status={status} />}
-          {wasAutoDetected && (
+          {modsDirWasAutoDetected && (
+            <p className="mt-1 text-xs text-amber-500/80">
+              Auto-detected — click Save to keep it.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label
+            htmlFor="game-dir"
+            className="block text-xs font-medium uppercase tracking-wide text-zinc-500"
+          >
+            Factorio installation
+          </label>
+          <div className="mt-1.5 flex gap-2">
+            <input
+              id="game-dir"
+              type="text"
+              value={gameDirInput}
+              onChange={(e) => {
+                setGameDirInput(e.target.value);
+                markDirty();
+              }}
+              onBlur={() => void refreshGameStatus(gameDirInput)}
+              placeholder="Leave empty to auto-detect on launch"
+              className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-500"
+            />
+            <button
+              type="button"
+              onClick={() => void handleGameBrowse()}
+              className="shrink-0 rounded border border-zinc-700 px-3 text-sm text-zinc-300 hover:border-amber-500 hover:text-amber-400"
+            >
+              Browse…
+            </button>
+          </div>
+          {scanningGame ? (
+            <p className="mt-1.5 text-xs text-zinc-500">Scanning…</p>
+          ) : gameDirInput.trim() ? (
+            gameStatus && (
+              <GameDirStatusLine
+                status={gameStatus}
+                gameVersion={gameVersion}
+                modsDirInput={modsDirInput}
+                onUseTargetVersion={(v) => {
+                  setGameVersion(v);
+                  markDirty();
+                }}
+                onUsePortableModsDir={(p) => {
+                  setModsDirInput(p);
+                  markDirty();
+                  void refreshStatus(p);
+                }}
+              />
+            )
+          ) : (
+            <div className="mt-1.5">
+              <p className="text-xs text-zinc-500">
+                No Factorio installation detected — browse to the game folder,
+                or leave empty to keep auto-detecting.
+              </p>
+              <button
+                type="button"
+                onClick={() => void scanForGame()}
+                className="mt-1 text-xs text-amber-400 hover:text-amber-300"
+              >
+                Scan again
+              </button>
+            </div>
+          )}
+          {gameDirWasAutoDetected && (
             <p className="mt-1 text-xs text-amber-500/80">
               Auto-detected — click Save to keep it.
             </p>

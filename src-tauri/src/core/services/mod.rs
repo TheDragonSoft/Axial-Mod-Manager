@@ -1,5 +1,6 @@
 pub mod deps;
 pub mod downloader;
+pub mod game_detect;
 pub mod index_client;
 pub mod mod_store;
 pub mod packs;

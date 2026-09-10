@@ -11,6 +11,9 @@ use crate::error::AppError;
 pub struct Config {
     /// Explicit path to the Factorio mods directory. None = auto-detect.
     pub mods_dir: Option<String>,
+    /// Explicit path to the Factorio installation (the folder containing
+    /// data/). None = auto-detect. Used by game detection for the version.
+    pub game_dir: Option<String>,
     /// Game version used for compatibility filtering ("2.0", "2.1", ...).
     pub target_factorio_version: String,
     /// File-log level: debug | info | warn | error.
@@ -21,6 +24,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             mods_dir: None,
+            game_dir: None,
             target_factorio_version: "2.0".to_string(),
             log_level: "info".to_string(),
         }

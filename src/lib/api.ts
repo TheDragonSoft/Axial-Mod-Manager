@@ -3,6 +3,8 @@ import type {
   ActivationDiff,
   AppError,
   DetectedDir,
+  DetectedGame,
+  GameDirStatus,
   IndexHealth,
   InstalledSnapshot,
   ModDetails,
@@ -47,6 +49,14 @@ export async function detectModsDir(): Promise<DetectedDir | null> {
 
 export async function validateModsDir(path: string): Promise<ModsDirStatus> {
   return invoke<ModsDirStatus>("validate_mods_dir", { path });
+}
+
+export async function detectGameInstall(): Promise<DetectedGame | null> {
+  return invoke<DetectedGame | null>("detect_game");
+}
+
+export async function validateGameDir(path: string): Promise<GameDirStatus> {
+  return invoke<GameDirStatus>("validate_game_dir", { path });
 }
 
 // ---- Index ----
