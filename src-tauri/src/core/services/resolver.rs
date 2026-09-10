@@ -281,6 +281,7 @@ mod tests {
                     file_size: None,
                 })
                 .collect(),
+            thumbnail: None,
         }
     }
 
