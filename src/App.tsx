@@ -1,51 +1,57 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useEffect, useState } from "react";
+import Sidebar from "./components/Sidebar";
+import BrowsePage from "./pages/BrowsePage";
+import InstalledPage from "./pages/InstalledPage";
+import PacksPage from "./pages/PacksPage";
+import SettingsPage from "./pages/SettingsPage";
+import { useAppStore, type Tab } from "./store/useAppStore";
+import { ping, toAppError } from "./lib/api";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+type BridgeState =
+  | { status: "connecting" }
+  | { status: "online"; message: string }
+  | { status: "error"; message: string };
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+function renderPage(tab: Tab) {
+  switch (tab) {
+    case "browse":
+      return <BrowsePage />;
+    case "installed":
+      return <InstalledPage />;
+    case "packs":
+      return <PacksPage />;
+    case "settings":
+      return <SettingsPage />;
   }
-
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
 }
 
-export default App;
+export default function App() {
+  const activeTab = useAppStore((s) => s.activeTab);
+  const [bridge, setBridge] = useState<BridgeState>({ status: "connecting" });
+
+  useEffect(() => {
+    ping("world")
+      .then((message) => setBridge({ status: "online", message }))
+      .catch((e) => setBridge({ status: "error", message: toAppError(e).message }));
+  }, []);
+
+  return (
+    <div className="flex h-full">
+      <Sidebar />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <main className="flex-1 overflow-y-auto p-6">{renderPage(activeTab)}</main>
+        <footer className="border-t border-zinc-800 px-4 py-2 text-xs">
+          {bridge.status === "connecting" && (
+            <span className="text-zinc-500">● Connecting to backend…</span>
+          )}
+          {bridge.status === "online" && (
+            <span className="text-green-500">● Backend online — {bridge.message}</span>
+          )}
+          {bridge.status === "error" && (
+            <span className="text-red-500">● Backend error — {bridge.message}</span>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
