@@ -125,12 +125,60 @@ export interface PlanEntry {
   depsKnown: boolean;
 }
 
+export interface PlanSatisfied {
+  name: string;
+  version: string;
+}
+
 export interface ResolutionPlan {
   rootName: string;
   target: string;
   toInstall: PlanEntry[];
-  satisfied: string[];
+  satisfied: PlanSatisfied[];
   optional: string[];
   conflicts: string[];
   warnings: string[];
 }
+
+// ---- Mod packs (Phase 8) ----
+
+export interface PackMod {
+  name: string;
+  version: string;
+  enabled: boolean;
+}
+
+export interface Pack {
+  id: string;
+  name: string;
+  createdAt: number;
+  mods: PackMod[];
+}
+
+export interface PackMeta {
+  id: string;
+  name: string;
+  createdAt: number;
+  modCount: number;
+}
+
+export interface DownloadPlanItem {
+  name: string;
+  version: string;
+}
+
+export interface ActivationDiff {
+  packId: string;
+  packName: string;
+  toEnable: string[];
+  toDisable: string[];
+  toDownload: DownloadPlanItem[];
+  errors: string[];
+}
+
+export interface PackActivatedPayload {
+  packId: string;
+  packName: string;
+  missing: string[];
+}
+

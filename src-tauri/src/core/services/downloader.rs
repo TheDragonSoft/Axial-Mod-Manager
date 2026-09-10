@@ -189,6 +189,7 @@ async fn run_job(
                     item.received = total;
                     item.total = total;
                     let _ = app.emit("installed-changed", ());
+                    crate::core::services::packs::maybe_finalize(app, &item.mod_name).await;
                 }
                 Err(e) => {
                     item.status = "failed";
@@ -338,7 +339,7 @@ fn remove_other_versions(dir: &Path, keep: &str, mod_name: &str) -> std::io::Res
     Ok(())
 }
 
-fn plausible_version(s: &str) -> bool {
+pub(crate) fn plausible_version(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))

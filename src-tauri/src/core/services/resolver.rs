@@ -5,7 +5,7 @@ use crate::core::services::deps::{
 };
 use crate::core::services::index_client::IndexClient;
 use crate::error::AppError;
-use crate::models::{InstalledMod, ModDetails, ModRelease, PlanEntry, ResolutionPlan};
+use crate::models::{InstalledMod, ModDetails, ModRelease, PlanEntry, PlanSatisfied, ResolutionPlan};
 
 /// Everything the resolver needs to know about the world.
 pub struct ResolveContext<'a> {
@@ -156,8 +156,11 @@ pub async fn resolve(
             let v = installed_entry
                 .map(|i| i.version.clone())
                 .unwrap_or_default();
-            chosen.insert(name.clone(), v);
-            plan.satisfied.push(name.clone());
+            chosen.insert(name.clone(), v.clone());
+            plan.satisfied.push(PlanSatisfied {
+                name: name.clone(),
+                version: v,
+            });
         } else {
             if let Some(inst) = installed_entry {
                 if inst.factorio_version != ctx.target {
@@ -369,7 +372,7 @@ mod tests {
         let plan = resolve(&ctx, "a", None).await.unwrap();
         assert_eq!(plan.to_install.len(), 1);
         assert_eq!(plan.to_install[0].name, "a");
-        assert!(plan.satisfied.contains(&"b".to_string()));
+        assert!(plan.satisfied.iter().any(|s| s.name == "b"));
     }
 
     #[tokio::test]

@@ -23,6 +23,9 @@ pub fn run() {
             let config_path = data_dir.join("settings.json");
             let config = config::Config::load(&config_path).unwrap_or_default();
 
+            let profiles_dir = data_dir.join("profiles");
+            std::fs::create_dir_all(&profiles_dir)?;
+
             let http = reqwest::Client::builder()
                 .user_agent(USER_AGENT)
                 .build()?;
@@ -31,8 +34,10 @@ pub fn run() {
             app.manage(AppState {
                 config: RwLock::new(config),
                 config_path,
+                profiles_dir,
                 index: Box::new(index),
                 queue: Arc::new(DownloadQueue::new(http)),
+                pending_activation: std::sync::Mutex::new(None),
             });
             Ok(())
         })
@@ -51,6 +56,14 @@ pub fn run() {
             commands::downloads::enqueue_download,
             commands::downloads::cancel_download,
             commands::deps::resolve_install_plan,
+            commands::packs::list_packs,
+            commands::packs::get_pack,
+            commands::packs::create_pack_from_installed,
+            commands::packs::create_pack_from_mods,
+            commands::packs::delete_pack,
+            commands::packs::import_pack,
+            commands::packs::export_pack,
+            commands::packs::activate_pack,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

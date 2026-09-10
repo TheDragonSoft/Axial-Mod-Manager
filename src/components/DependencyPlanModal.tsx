@@ -183,7 +183,7 @@ export default function DependencyPlanModal({ name, title, onClose, onDone }: Pr
             {plan.satisfied.length > 0 && (
               <p className="mt-3 text-xs text-zinc-500">
                 Already installed and compatible ({plan.satisfied.length}):{" "}
-                <span className="font-mono">{plan.satisfied.join(", ")}</span>
+                <span className="font-mono">{plan.satisfied.map((s) => s.name).join(", ")}</span>
               </p>
             )}
 

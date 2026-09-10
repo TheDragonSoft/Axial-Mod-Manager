@@ -1,11 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ActivationDiff,
   AppError,
   DetectedDir,
   IndexHealth,
   InstalledSnapshot,
   ModDetails,
   ModsDirStatus,
+  Pack,
+  PackMeta,
+  PackMod,
   QueueItem,
   ResolutionPlan,
   SearchResult,
@@ -91,3 +95,38 @@ export async function uninstallMod(fileName: string): Promise<void> {
 export async function resolveInstallPlan(name: string, version?: string): Promise<ResolutionPlan> {
   return invoke<ResolutionPlan>("resolve_install_plan", { name, version: version ?? null });
 }
+
+// ---- Packs ----
+
+export async function listPacks(): Promise<PackMeta[]> {
+  return invoke<PackMeta[]>("list_packs");
+}
+
+export async function getPack(id: string): Promise<Pack> {
+  return invoke<Pack>("get_pack", { id });
+}
+
+export async function createPackFromInstalled(name: string): Promise<Pack> {
+  return invoke<Pack>("create_pack_from_installed", { name });
+}
+
+export async function createPackFromMods(name: string, mods: PackMod[]): Promise<Pack> {
+  return invoke<Pack>("create_pack_from_mods", { name, mods });
+}
+
+export async function deletePack(id: string): Promise<void> {
+  return invoke<void>("delete_pack", { id });
+}
+
+export async function importPack(json: string): Promise<Pack> {
+  return invoke<Pack>("import_pack", { json });
+}
+
+export async function exportPack(id: string): Promise<string> {
+  return invoke<string>("export_pack", { id });
+}
+
+export async function activatePack(id: string): Promise<ActivationDiff> {
+  return invoke<ActivationDiff>("activate_pack", { id });
+}
+

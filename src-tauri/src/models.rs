@@ -126,12 +126,19 @@ pub struct PlanEntry {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PlanSatisfied {
+    pub name: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolutionPlan {
     pub root_name: String,
     pub target: String,
     pub to_install: Vec<PlanEntry>,
     /// Already installed at suitable versions — will be left alone.
-    pub satisfied: Vec<String>,
+    pub satisfied: Vec<PlanSatisfied>,
     /// Optional dependencies, informational; installable via checkboxes.
     pub optional: Vec<String>,
     /// Hard problems (incompatibilities, fetch failures) — confirm is blocked.
@@ -139,3 +146,68 @@ pub struct ResolutionPlan {
     /// Soft problems (constraint best-effort, unknown deps) — confirm allowed.
     pub warnings: Vec<String>,
 }
+
+// ---- Mod packs (Phase 8) ----
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackMod {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pack {
+    pub id: String,
+    pub name: String,
+    pub created_at: u64,
+    pub mods: Vec<PackMod>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackMeta {
+    pub id: String,
+    pub name: String,
+    pub created_at: u64,
+    pub mod_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadPlanItem {
+    pub name: String,
+    pub version: String,
+}
+
+/// Result of activating a pack — consumed by the UI summary.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivationDiff {
+    pub pack_id: String,
+    pub pack_name: String,
+    pub to_enable: Vec<String>,
+    pub to_disable: Vec<String>,
+    pub to_download: Vec<DownloadPlanItem>,
+    pub errors: Vec<String>,
+}
+
+/// Payload of the "pack-activated" event (fired when every download landed).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackActivatedPayload {
+    pub pack_id: String,
+    pub pack_name: String,
+    /// Enabled pack mods still absent from disk (failed downloads).
+    pub missing: Vec<String>,
+}
+

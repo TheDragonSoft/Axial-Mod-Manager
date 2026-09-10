@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import type { QueueItem, Settings } from "../types";
+import type { PackActivatedPayload, QueueItem, Settings } from "../types";
 
 /** Emitted by Rust `set_settings` after a successful save. */
 export function onSettingsChanged(
@@ -19,3 +19,11 @@ export function onDownloadUpdated(
 export function onInstalledChanged(handler: () => void): Promise<() => void> {
   return listen("installed-changed", () => handler());
 }
+
+/** Fired when a pack activation's downloads have all landed. */
+export function onPackActivated(
+  handler: (payload: PackActivatedPayload) => void,
+): Promise<() => void> {
+  return listen<PackActivatedPayload>("pack-activated", (e) => handler(e.payload));
+}
+

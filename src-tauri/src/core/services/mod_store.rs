@@ -466,6 +466,23 @@ pub fn uninstall(dir: &Path, file_name: &str) -> Result<String, AppError> {
     Ok(name)
 }
 
+/// Atomically replace mod-list.json's `mods` array with `entries`.
+/// A canonical enabled `base` entry is always kept first; other top-level
+/// keys in the file are preserved. Corrupt files refuse to load (same policy
+/// as set_enabled) rather than being silently clobbered.
+pub fn replace_mod_list(dir: &Path, entries: &[(String, bool)]) -> Result<(), AppError> {
+    let mut root = load_mod_list_for_write(dir)?;
+    let mut arr: Vec<serde_json::Value> = vec![json!({ "name": "base", "enabled": true })];
+    for (name, enabled) in entries {
+        if name == "base" {
+            continue;
+        }
+        arr.push(json!({ "name": name, "enabled": enabled }));
+    }
+    root["mods"] = serde_json::Value::Array(arr);
+    save_mod_list(dir, &root)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
