@@ -55,7 +55,7 @@ const ACTIVITY_ICONS: Record<
 > = {
   "download-completed": { icon: CheckCircle2, className: "text-accent" },
   "download-failed": { icon: XCircle, className: "text-red-400" },
-  "pack-activated": { icon: Boxes, className: "text-violet-300" },
+  "pack-activated": { icon: Boxes, className: "text-[#DA9FF8]" },
   "updates-found": { icon: ArrowUpCircle, className: "text-amber-400" },
 };
 
@@ -68,7 +68,7 @@ function StatusRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
-      <span className="text-sm text-zinc-400">{label}</span>
+      <span className="text-sm text-stone-400">{label}</span>
       <div className="flex min-w-0 items-center gap-2 text-sm">{children}</div>
     </div>
   );
@@ -195,7 +195,7 @@ export default function DashboardPage() {
         <StatCard
           label="Installed Mods"
           icon={Package}
-          iconTone="green"
+          iconTone="blue"
           value={snapshot ? snapshot.mods.length : "—"}
           sub={
             snapshot
@@ -207,10 +207,10 @@ export default function DashboardPage() {
         <StatCard
           label="Updates"
           icon={ArrowUpCircle}
-          iconTone="amber"
+          iconTone="green"
           value={
             checking ? (
-              <Spinner className="h-7 w-7 text-zinc-500" />
+              <Spinner className="h-7 w-7 text-stone-500" />
             ) : (
               (updateCount ?? "—")
             )
@@ -233,7 +233,7 @@ export default function DashboardPage() {
         <StatCard
           label="On Disk"
           icon={HardDrive}
-          iconTone="sky"
+          iconTone="orange"
           value={dirStatus ? dirStatus.zipCount : "—"}
           sub={
             dirStatus
@@ -258,11 +258,11 @@ export default function DashboardPage() {
           <div className="divide-y divide-line">
             <StatusRow label="Backend">
               {backendOk === null ? (
-                <Spinner className="text-zinc-600" />
+                <Spinner className="text-stone-600" />
               ) : backendOk ? (
                 <>
                   <StatusDot tone="green" />
-                  <span className="text-zinc-300">Operational</span>
+                  <span className="text-stone-300">Operational</span>
                 </>
               ) : (
                 <>
@@ -285,7 +285,7 @@ export default function DashboardPage() {
               ) : dirStatus?.writable ? (
                 <>
                   <StatusDot tone="green" />
-                  <span className="truncate font-mono text-xs text-zinc-300">
+                  <span className="truncate font-mono text-xs text-stone-300">
                     {settings.modsDir}
                   </span>
                 </>
@@ -302,9 +302,9 @@ export default function DashboardPage() {
               {game ? (
                 <>
                   <StatusDot tone="green" />
-                  <span className="text-zinc-300">
+                  <span className="text-stone-300">
                     {game.version ?? "unknown version"}{" "}
-                    <span className="text-zinc-600">via {game.source}</span>
+                    <span className="text-stone-600">via {game.source}</span>
                   </span>
                 </>
               ) : (
@@ -320,7 +320,7 @@ export default function DashboardPage() {
               )}
             </StatusRow>
             <StatusRow label="Target version">
-              <span className="text-zinc-300">
+              <span className="text-stone-300">
                 Factorio {settings?.targetFactorioVersion ?? "—"}
               </span>
             </StatusRow>
@@ -334,7 +334,7 @@ export default function DashboardPage() {
           subtitle="This session"
         >
           {activity.length === 0 ? (
-            <p className="py-6 text-center text-sm text-zinc-600">
+            <p className="py-6 text-center text-sm text-stone-600">
               Nothing yet — downloads and pack activations show up here.
             </p>
           ) : (
@@ -345,8 +345,8 @@ export default function DashboardPage() {
                   <li key={a.id} className="flex items-start gap-2.5">
                     <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${className}`} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-zinc-300">{a.label}</p>
-                      <p className="text-xs text-zinc-600">
+                      <p className="truncate text-sm text-stone-300">{a.label}</p>
+                      <p className="text-xs text-stone-600">
                         {a.detail ? `${a.detail} · ` : ""}
                         {timeAgo(a.at)}
                       </p>
@@ -363,7 +363,7 @@ export default function DashboardPage() {
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Panel
           icon={Compass}
-          iconTone="sky"
+          iconTone="blue"
           title="Quick Links"
           subtitle="Jump straight in"
         >
@@ -379,11 +379,11 @@ export default function DashboardPage() {
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className="flex w-full items-center gap-3 rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-zinc-300 transition-colors hover:border-zinc-600 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                className="flex w-full items-center gap-3 rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-stone-300 transition-colors hover:border-stone-600 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
-                <Icon className="h-4 w-4 text-zinc-500" />
+                <Icon className="h-4 w-4 text-stone-500" />
                 <span className="flex-1 text-left">{label}</span>
-                <ChevronRight className="h-4 w-4 text-zinc-600" />
+                <ChevronRight className="h-4 w-4 text-stone-600" />
               </button>
             ))}
           </div>
@@ -397,20 +397,20 @@ export default function DashboardPage() {
         >
           <div className="space-y-3 text-sm">
             <div>
-              <p className="text-xs text-zinc-600">Mods directory</p>
-              <p className="mt-0.5 truncate font-mono text-xs text-zinc-300">
+              <p className="text-xs text-stone-600">Mods directory</p>
+              <p className="mt-0.5 truncate font-mono text-xs text-stone-300">
                 {settings?.modsDir ?? "not configured"}
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg border border-line bg-surface-2 p-3">
-                <p className="text-lg font-bold text-white">
+                <p className="text-lg font-bold text-stone-200">
                   {dirStatus?.zipCount ?? "—"}
                 </p>
-                <p className="text-xs text-zinc-600">mod zips</p>
+                <p className="text-xs text-stone-600">mod zips</p>
               </div>
               <div className="rounded-lg border border-line bg-surface-2 p-3">
-                <p className="flex items-center gap-1.5 text-lg font-bold text-white">
+                <p className="flex items-center gap-1.5 text-lg font-bold text-stone-200">
                   {dirStatus ? (
                     dirStatus.hasModList ? (
                       <CheckCircle2 className="h-4 w-4 text-accent" />
@@ -421,7 +421,7 @@ export default function DashboardPage() {
                     "—"
                   )}
                 </p>
-                <p className="text-xs text-zinc-600">mod-list.json</p>
+                <p className="text-xs text-stone-600">mod-list.json</p>
               </div>
             </div>
           </div>
@@ -429,26 +429,26 @@ export default function DashboardPage() {
 
         <Panel
           icon={ArrowUpCircle}
-          iconTone="amber"
+          iconTone="orange"
           title="Session"
           subtitle="Since the app started"
         >
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-lg border border-line bg-surface-2 p-3">
               <p className="text-2xl font-bold text-accent">{downloadsDone}</p>
-              <p className="text-xs text-zinc-600">downloaded</p>
+              <p className="text-xs text-stone-600">downloaded</p>
             </div>
             <div className="rounded-lg border border-line bg-surface-2 p-3">
               <p className="text-2xl font-bold text-red-400">
                 {downloadsFailed}
               </p>
-              <p className="text-xs text-zinc-600">failed</p>
+              <p className="text-xs text-stone-600">failed</p>
             </div>
             <div className="rounded-lg border border-line bg-surface-2 p-3">
-              <p className="text-2xl font-bold text-violet-300">
+              <p className="text-2xl font-bold text-[#DA9FF8]">
                 {packsActivated}
               </p>
-              <p className="text-xs text-zinc-600">packs activated</p>
+              <p className="text-xs text-stone-600">packs activated</p>
             </div>
           </div>
           <div className="mt-4 flex items-center gap-2 rounded-lg border border-line bg-surface-2 p-3">
@@ -458,10 +458,10 @@ export default function DashboardPage() {
               size="sm"
               className="bg-accent/10 text-accent"
             />
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-stone-500">
               Tip: use{" "}
               <button
-                className="text-zinc-300 underline decoration-zinc-700 hover:text-white"
+                className="text-stone-300 underline decoration-stone-700 hover:text-stone-100"
                 onClick={() => setActiveTab("packs")}
               >
                 packs

@@ -102,7 +102,7 @@ export default function Modal({
         aria-modal="true"
         tabIndex={-1}
         className={clsx(
-          "flex max-h-[85vh] w-full flex-col rounded-xl border border-line bg-surface shadow-2xl outline-none",
+          "flex max-h-[85vh] w-full flex-col rounded-xl border border-line bg-app shadow-2xl outline-none",
           SIZES[size],
         )}
       >
@@ -111,11 +111,11 @@ export default function Modal({
             <div className="flex min-w-0 items-center gap-3">
               {icon}
               <div className="min-w-0">
-                <h2 className="truncate text-base font-semibold text-white">
+                <h2 className="truncate text-base font-semibold text-stone-200">
                   {title}
                 </h2>
                 {subtitle && (
-                  <p className="truncate text-xs text-zinc-500">{subtitle}</p>
+                  <p className="truncate text-xs text-stone-500">{subtitle}</p>
                 )}
               </div>
             </div>
@@ -124,7 +124,7 @@ export default function Modal({
               <button
                 onClick={onClose}
                 aria-label="Close"
-                className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-surface-2 hover:text-zinc-200 focus-visible:outline-2 focus-visible:outline-accent"
+                className="rounded-lg p-1.5 text-stone-500 transition-colors hover:bg-surface-2 hover:text-stone-200 focus-visible:outline-2 focus-visible:outline-accent"
               >
                 <X className="h-4 w-4" />
               </button>

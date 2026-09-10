@@ -60,12 +60,12 @@ function GameInstallInfo({
   return (
     <div className="mt-1.5 space-y-1">
       <p
-        className="truncate font-mono text-xs text-zinc-300"
+        className="truncate font-mono text-xs text-stone-300"
         title={game.exePath ?? game.installDir}
       >
         {game.installDir}
       </p>
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-stone-500">
         {source}
         {game.version ? ` · game version ${game.version}` : " · version unknown"}
       </p>
@@ -142,7 +142,7 @@ function GameDirStatusLine({
 
 /** Human-readable summary of a ModsDirStatus, styled by severity. */
 function DirStatusLine({ status }: { status: ModsDirStatus }) {
-  let tone = "text-zinc-500";
+  let tone = "text-stone-500";
   let text: string;
 
   if (status.exists && !status.isDir) {
@@ -363,7 +363,7 @@ export default function SettingsPage() {
           title="Settings"
           subtitle="Configure Axial and your Factorio integration"
         />
-        <p className="flex items-center gap-2 text-sm text-zinc-500">
+        <p className="flex items-center gap-2 text-sm text-stone-500">
           <Spinner /> Loading…
         </p>
       </div>
@@ -402,9 +402,9 @@ export default function SettingsPage() {
 
         <div className="max-w-2xl">
           {section === "storage" && (
-            <Panel icon={HardDrive} title="Mods directory" subtitle="Where mod zips are downloaded and enabled">
+            <Panel flat icon={HardDrive} title="Mods directory" subtitle="Where mod zips are downloaded and enabled">
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium tracking-wide text-zinc-400 uppercase">
+                <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
                   Mods directory
                 </span>
                 <div className="flex gap-2">
@@ -440,9 +440,9 @@ export default function SettingsPage() {
           )}
 
           {section === "game" && (
-            <Panel icon={Cpu} title="Factorio installation" subtitle="Used for install detection and the game version">
+            <Panel flat icon={Cpu} title="Factorio installation" subtitle="Used for install detection and the game version">
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium tracking-wide text-zinc-400 uppercase">
+                <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
                   Installation folder
                 </span>
                 <div className="flex gap-2">
@@ -469,7 +469,7 @@ export default function SettingsPage() {
                 </div>
               </label>
               {scanningGame ? (
-                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-zinc-500">
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-stone-500">
                   <Spinner /> Scanning…
                 </p>
               ) : gameDirInput.trim() ? (
@@ -491,7 +491,7 @@ export default function SettingsPage() {
                 )
               ) : (
                 <div className="mt-1.5">
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-stone-500">
                     No Factorio installation detected — browse to the game
                     folder, or leave empty to keep auto-detecting.
                   </p>
@@ -515,9 +515,9 @@ export default function SettingsPage() {
 
           {section === "general" && (
             <div className="space-y-4">
-              <Panel icon={SlidersHorizontal} title="Compatibility" subtitle="Which game version mods are filtered against">
+              <Panel flat icon={SlidersHorizontal} title="Compatibility" subtitle="Which game version mods are filtered against">
                 <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-zinc-400 uppercase">
+                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
                     Target Factorio version
                   </span>
                   <Select
@@ -532,16 +532,16 @@ export default function SettingsPage() {
                     <option value="2.0">2.0</option>
                     <option value="1.1">1.1</option>
                   </Select>
-                  <span className="mt-1.5 block text-xs text-zinc-500">
+                  <span className="mt-1.5 block text-xs text-stone-500">
                     Used to tag mods as compatible/incompatible across Browse and
                     update checks.
                   </span>
                 </label>
               </Panel>
 
-              <Panel icon={SlidersHorizontal} title="Logging" subtitle="File log verbosity">
+              <Panel flat icon={SlidersHorizontal} title="Logging" subtitle="File log verbosity">
                 <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-zinc-400 uppercase">
+                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
                     Log level (file log)
                   </span>
                   <Select
@@ -557,7 +557,7 @@ export default function SettingsPage() {
                     <option value="warn">warn</option>
                     <option value="error">error</option>
                   </Select>
-                  <span className="mt-1.5 block text-xs text-zinc-500">
+                  <span className="mt-1.5 block text-xs text-stone-500">
                     Written to app-data/logs/axial.log — level applies after
                     restart.
                   </span>
@@ -571,7 +571,7 @@ export default function SettingsPage() {
             <Button variant="primary" type="submit" disabled={saveState === "saving"}>
               {saveState === "saving" ? (
                 <>
-                  <Spinner className="text-zinc-500" /> Saving…
+                  <Spinner className="text-stone-500" /> Saving…
                 </>
               ) : (
                 "Save Settings"
@@ -585,7 +585,7 @@ export default function SettingsPage() {
             {saveState === "error" && saveError && (
               <span className="text-xs text-red-400">{saveError}</span>
             )}
-            <span className="ml-auto text-xs text-zinc-600">
+            <span className="ml-auto text-xs text-stone-600">
               Paths are validated before anything is saved.
             </span>
           </div>

@@ -50,7 +50,7 @@ function ModRow({
       <ModTile name={mod.name} url={thumbnail} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate font-medium text-zinc-100">{mod.name}</p>
+          <p className="truncate font-medium text-stone-100">{mod.name}</p>
           {mod.problem && (
             <Badge tone="red" title={mod.problem}>
               problem
@@ -58,7 +58,7 @@ function ModRow({
           )}
           {updateTo && <Badge tone="green">update → v{updateTo}</Badge>}
         </div>
-        <p className="mt-0.5 truncate font-mono text-xs text-zinc-500">
+        <p className="mt-0.5 truncate font-mono text-xs text-stone-500">
           v{mod.version} · Factorio {mod.factorioVersion} ·{" "}
           {mod.dependencies.length} deps
         </p>
@@ -270,7 +270,7 @@ export default function InstalledPage() {
         }
       />
 
-      <p className="-mt-3 mb-4 text-xs text-zinc-600">
+      <p className="-mt-3 mb-4 text-xs text-stone-600">
         {loading
           ? "Scanning mods folder…"
           : `${mods.length} mod${mods.length === 1 ? "" : "s"} on disk`}
@@ -285,7 +285,7 @@ export default function InstalledPage() {
       </p>
 
       {report && report.errors.length > 0 && (
-        <p className="mb-4 text-[11px] text-zinc-600">
+        <p className="mb-4 text-[11px] text-stone-600">
           {report.errors
             .slice(0, 5)
             .map(([n, r]) => `${n}: ${r}`)

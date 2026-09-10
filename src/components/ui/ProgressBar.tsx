@@ -13,12 +13,12 @@ export default function ProgressBar({
   const fills = {
     green: "bg-accent",
     red: "bg-red-500",
-    white: "bg-zinc-100",
+    white: "bg-stone-100",
   } as const;
   return (
     <div
       className={clsx(
-        "h-1.5 w-full overflow-hidden rounded-full bg-zinc-800",
+        "h-1.5 w-full overflow-hidden rounded-full bg-stone-800",
         className,
       )}
     >

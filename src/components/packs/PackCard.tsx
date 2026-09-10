@@ -114,10 +114,10 @@ export default function PackCard({
           onClick={() => void toggleExpanded()}
           className="min-w-0 flex-1 text-left"
         >
-          <p className="truncate font-semibold text-white">{meta.name}</p>
+          <p className="truncate font-semibold text-stone-200">{meta.name}</p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <Badge>{meta.modCount} mods</Badge>
-            <span className="text-xs text-zinc-600">
+            <span className="text-xs text-stone-600">
               created {new Date(meta.createdAt * 1000).toLocaleDateString()}
             </span>
           </div>
@@ -125,7 +125,7 @@ export default function PackCard({
         <button
           onClick={() => void toggleExpanded()}
           aria-label={expanded ? "Collapse" : "Expand"}
-          className="shrink-0 rounded-lg p-1.5 text-zinc-600 transition-colors hover:bg-surface-2 hover:text-zinc-300"
+          className="shrink-0 rounded-lg p-1.5 text-stone-600 transition-colors hover:bg-surface-2 hover:text-stone-300"
         >
           {expanded ? (
             <ChevronUp className="h-4 w-4" />
@@ -139,8 +139,8 @@ export default function PackCard({
         <ul className="mt-4 max-h-56 space-y-1 overflow-y-auto rounded-lg border border-line bg-surface-2 p-3 text-xs">
           {pack.mods.map((m) => (
             <li key={m.name} className="flex items-center justify-between font-mono">
-              <span className="truncate text-zinc-300">{m.name}</span>
-              <span className={m.enabled ? "text-zinc-500" : "text-zinc-600 line-through"}>
+              <span className="truncate text-stone-300">{m.name}</span>
+              <span className={m.enabled ? "text-stone-500" : "text-stone-600 line-through"}>
                 v{m.version}
               </span>
             </li>
@@ -150,7 +150,7 @@ export default function PackCard({
 
       {exported !== null && (
         <div className="mt-4">
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-stone-500">
             Export JSON — select all and copy to share this pack:
           </p>
           <textarea
@@ -158,7 +158,7 @@ export default function PackCard({
             value={exported}
             onFocus={(e) => e.currentTarget.select()}
             rows={6}
-            className="mt-2 w-full rounded-lg border border-line bg-app p-2 font-mono text-[11px] text-zinc-400 focus:outline-none"
+            className="mt-2 w-full rounded-lg border border-line bg-app p-2 font-mono text-[11px] text-stone-400 focus:outline-none"
           />
         </div>
       )}

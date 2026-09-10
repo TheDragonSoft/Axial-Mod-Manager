@@ -48,10 +48,10 @@ function QueueRow({ item }: { item: QueueItem }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-zinc-200">
+              <p className="truncate text-sm font-medium text-stone-200">
                 {item.modName}
               </p>
-              <p className="text-xs text-zinc-500">v{item.version}</p>
+              <p className="text-xs text-stone-500">v{item.version}</p>
             </div>
             <Badge tone={status.tone} className="shrink-0">
               {status.label}
@@ -64,7 +64,7 @@ function QueueRow({ item }: { item: QueueItem }) {
                 value={pct}
                 tone={item.status === "cancelled" ? "white" : "green"}
               />
-              <div className="mt-1 flex justify-between text-[11px] text-zinc-500">
+              <div className="mt-1 flex justify-between text-[11px] text-stone-500">
                 <span>
                   {formatBytes(item.received)}
                   {item.total > 0 && ` / ${formatBytes(item.total)}`}
@@ -123,9 +123,9 @@ export default function QueueDrawer() {
         }`}
       >
         <header className="flex items-center justify-between border-b border-line px-4 py-3">
-          <h3 className="text-sm font-semibold text-zinc-100">
+          <h3 className="text-sm font-semibold text-stone-100">
             Downloads{" "}
-            <span className="font-normal text-zinc-500">
+            <span className="font-normal text-stone-500">
               ({activeCount} active)
             </span>
           </h3>
@@ -138,7 +138,7 @@ export default function QueueDrawer() {
             <button
               onClick={close}
               aria-label="Close"
-              className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-surface-2 hover:text-zinc-200"
+              className="rounded-lg p-1.5 text-stone-500 transition-colors hover:bg-surface-2 hover:text-stone-200"
             >
               <X className="h-4 w-4" />
             </button>
@@ -147,7 +147,7 @@ export default function QueueDrawer() {
 
         <div className="flex-1 overflow-y-auto">
           {items.length === 0 ? (
-            <p className="p-6 text-center text-sm text-zinc-600">
+            <p className="p-6 text-center text-sm text-stone-600">
               No downloads yet.
             </p>
           ) : (

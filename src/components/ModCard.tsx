@@ -31,17 +31,17 @@ export default function ModCard({
     <Card
       onClick={() => onOpen?.(mod)}
       title="View details"
-      className={`flex flex-col p-5 transition-colors hover:border-zinc-600 ${
+      className={`flex flex-col p-5 transition-colors hover:border-stone-600 ${
         onOpen ? "cursor-pointer" : ""
       }`}
     >
       <div className="flex items-start gap-3">
         <ModTile name={mod.name} url={thumbnail} />
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold text-white">
+          <h3 className="truncate text-sm font-semibold text-stone-200">
             {mod.title}
           </h3>
-          <p className="truncate font-mono text-xs text-zinc-600">{mod.name}</p>
+          <p className="truncate font-mono text-xs text-stone-600">{mod.name}</p>
         </div>
         <button
           onClick={(e) => {
@@ -53,14 +53,14 @@ export default function ModCard({
           className={`shrink-0 rounded-lg p-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-accent ${
             favorite
               ? "text-accent"
-              : "text-zinc-600 hover:bg-surface-2 hover:text-zinc-300"
+              : "text-stone-600 hover:bg-surface-2 hover:text-stone-300"
           }`}
         >
           <Heart className={`h-4 w-4 ${favorite ? "fill-current" : ""}`} />
         </button>
       </div>
 
-      <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
+      <div className="mt-3 flex items-center gap-2 text-xs text-stone-500">
         <span className="flex items-center gap-1.5">
           <Download className="h-3.5 w-3.5" />
           {formatCount(mod.downloads)}
@@ -71,12 +71,12 @@ export default function ModCard({
         </Badge>
       </div>
 
-      <p className="mt-2 line-clamp-2 min-h-10 flex-1 text-sm leading-relaxed text-zinc-400">
+      <p className="mt-2 line-clamp-2 min-h-10 flex-1 text-sm leading-relaxed text-stone-400">
         {mod.summary}
       </p>
 
       <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
-        <span className="font-mono text-xs text-zinc-600">
+        <span className="font-mono text-xs text-stone-600">
           v{mod.latestVersion}
         </span>
         <div className="flex items-center gap-1">

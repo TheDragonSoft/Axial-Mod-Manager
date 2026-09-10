@@ -112,14 +112,14 @@ export default function NewPackModal({
             <button
               key={id}
               onClick={() => setMode(id)}
-              className="flex w-full items-center gap-3 rounded-lg border border-line bg-surface-2 px-4 py-3 text-left transition-colors hover:border-zinc-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="flex w-full items-center gap-3 rounded-lg border border-line bg-surface-2 px-4 py-3 text-left transition-colors hover:border-stone-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-zinc-300">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-stone-800 text-stone-300">
                 <Icon className="h-4 w-4" />
               </div>
               <span className="min-w-0">
-                <span className="block text-sm font-medium text-zinc-100">{title}</span>
-                <span className="block text-xs text-zinc-500">{hint}</span>
+                <span className="block text-sm font-medium text-stone-100">{title}</span>
+                <span className="block text-xs text-stone-500">{hint}</span>
               </span>
             </button>
           ))}
@@ -136,7 +136,7 @@ export default function NewPackModal({
           }}
         >
           <label className="block">
-            <span className="mb-1.5 block text-xs font-medium tracking-wide text-zinc-400 uppercase">
+            <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
               Pack name
             </span>
             <Input
@@ -153,7 +153,7 @@ export default function NewPackModal({
       {mode === "root" && (
         <div className="space-y-4">
           <label className="block">
-            <span className="mb-1.5 block text-xs font-medium tracking-wide text-zinc-400 uppercase">
+            <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
               Root mod name (portal id)
             </span>
             <Input
@@ -163,7 +163,7 @@ export default function NewPackModal({
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-xs font-medium tracking-wide text-zinc-400 uppercase">
+            <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
               Version (optional — latest compatible)
             </span>
             <Input
@@ -183,10 +183,10 @@ export default function NewPackModal({
             </Button>
           ) : (
             <>
-              <div className="rounded-lg border border-line bg-surface-2 p-3 text-xs text-zinc-400">
+              <div className="rounded-lg border border-line bg-surface-2 p-3 text-xs text-stone-400">
                 <p>
-                  <span className="text-zinc-200">{plan.toInstall.length}</span> to install ·{" "}
-                  <span className="text-zinc-200">{plan.satisfied.length}</span> already
+                  <span className="text-stone-200">{plan.toInstall.length}</span> to install ·{" "}
+                  <span className="text-stone-200">{plan.satisfied.length}</span> already
                   installed · {plan.optional.length} optional (not included)
                 </p>
                 {plan.conflicts.length > 0 && (
@@ -194,7 +194,7 @@ export default function NewPackModal({
                     {plan.conflicts.length} conflict(s) — resolve before saving.
                   </p>
                 )}
-                <ul className="mt-2 max-h-32 overflow-y-auto font-mono text-[11px] text-zinc-500">
+                <ul className="mt-2 max-h-32 overflow-y-auto font-mono text-[11px] text-stone-500">
                   {plan.toInstall.map((e) => (
                     <li key={e.name}>
                       {e.name} @{e.version}
@@ -203,13 +203,13 @@ export default function NewPackModal({
                   {plan.satisfied.map((s) => (
                     <li key={s.name}>
                       {s.name} @{s.version}{" "}
-                      <span className="text-zinc-600">(installed)</span>
+                      <span className="text-stone-600">(installed)</span>
                     </li>
                   ))}
                 </ul>
               </div>
               <label className="block">
-                <span className="mb-1.5 block text-xs font-medium tracking-wide text-zinc-400 uppercase">
+                <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
                   Pack name
                 </span>
                 <Input
@@ -254,7 +254,7 @@ export default function NewPackModal({
             onChange={(e) => setImportJson(e.target.value)}
             placeholder='{"name":"SeaBlock","mods":[…]}'
             rows={10}
-            className={`w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-xs text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none ${INPUT_CLASS}`}
+            className={`w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-xs text-stone-200 placeholder-stone-600 focus:border-stone-500 focus:outline-none ${INPUT_CLASS}`}
           />
           {error && <p className="text-xs text-red-400">{error}</p>}
         </form>

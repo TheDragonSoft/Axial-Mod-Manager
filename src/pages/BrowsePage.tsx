@@ -89,7 +89,7 @@ function DiagnosticsPanel() {
             OK · HTTP {health.httpStatus} · {health.byteLength.toLocaleString()}{" "}
             bytes
           </p>
-          <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-zinc-500">
+          <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-stone-500">
             {health.excerpt}
           </pre>
         </div>
@@ -254,7 +254,7 @@ export default function BrowsePage() {
               aria-label="Diagnostics"
               title="Run index diagnostics"
               onClick={() => setShowDiagnostics((v) => !v)}
-              className={showDiagnostics ? "text-zinc-200" : ""}
+              className={showDiagnostics ? "text-stone-200" : ""}
             >
               <Activity className="h-4 w-4" />
             </Button>
@@ -325,7 +325,7 @@ export default function BrowsePage() {
           {data && (
             <>
               <div className="mt-4 flex items-center justify-between">
-                <p className="text-xs text-zinc-600">
+                <p className="text-xs text-stone-600">
                   {data.totalCount.toLocaleString()} mods · page {data.page} of{" "}
                   {data.pageCount}
                 </p>

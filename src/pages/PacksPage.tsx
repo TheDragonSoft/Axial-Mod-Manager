@@ -70,7 +70,7 @@ export default function PacksPage() {
           </Button>
         }
       />
-      <p className="-mt-3 mb-4 text-xs text-zinc-600">
+      <p className="-mt-3 mb-4 text-xs text-stone-600">
         Activating a pack downloads its missing mods and disables mods not in the
         pack (never deletes them).
       </p>

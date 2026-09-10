@@ -5,11 +5,11 @@ type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "icon";
 
 const VARIANTS: Record<Variant, string> = {
-  // Primary actions are white by design (see index.css tokens note).
-  primary: "bg-white text-zinc-950 hover:bg-zinc-200",
+  // Primary actions are the reference's warm off-white (sampled #E7E5E4).
+  primary: "bg-stone-200 text-stone-950 hover:bg-stone-300",
   secondary:
-    "border border-line bg-surface-2 text-zinc-200 hover:border-zinc-600 hover:text-white",
-  ghost: "text-zinc-400 hover:bg-surface-2 hover:text-zinc-100",
+    "border border-line bg-input text-stone-200 hover:border-stone-600 hover:text-stone-100",
+  ghost: "text-stone-400 hover:bg-surface-2 hover:text-stone-100",
   danger:
     "border border-red-900/60 bg-red-950/40 text-red-300 hover:border-red-700 hover:text-red-200",
 };

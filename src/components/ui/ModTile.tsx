@@ -6,13 +6,14 @@ import { clsx } from "clsx";
  * otherwise a deterministic tinted letter tile (portal has no image for
  * every mod). `url === undefined` renders the fallback immediately.
  */
+/* Letter-tile tints use the reference palette (blue/green/purple/orange/red). */
 const TINTS = [
-  "from-green-500/25 to-emerald-600/5 text-green-300",
-  "from-sky-500/25 to-blue-600/5 text-sky-300",
-  "from-violet-500/25 to-purple-600/5 text-violet-300",
-  "from-amber-500/25 to-orange-600/5 text-amber-300",
-  "from-rose-500/25 to-pink-600/5 text-rose-300",
-  "from-cyan-500/25 to-teal-600/5 text-cyan-300",
+  "from-[#00CC46]/25 to-[#00CC46]/5 text-[#7FE79F]",
+  "from-[#0285EE]/25 to-[#0285EE]/5 text-[#7FC4F6]",
+  "from-[#BB3FF2]/25 to-[#BB3FF2]/5 text-[#DA9FF8]",
+  "from-[#F97316]/25 to-[#F97316]/5 text-[#FDBA8C]",
+  "from-red-500/25 to-red-500/5 text-red-300",
+  "from-stone-400/25 to-stone-400/5 text-stone-300",
 ];
 
 function tintFor(name: string): string {

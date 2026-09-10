@@ -6,7 +6,7 @@ const TONES: Record<Tone, string> = {
   green: "bg-accent",
   amber: "bg-amber-400",
   red: "bg-red-500",
-  zinc: "bg-zinc-600",
+  zinc: "bg-stone-600",
 };
 
 export default function StatusDot({

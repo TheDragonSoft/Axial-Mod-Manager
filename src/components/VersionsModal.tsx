@@ -60,7 +60,7 @@ export default function VersionsModal({
       subtitle="switching versions replaces the old zip"
       icon={<ModTile name={mod.name} url={thumbnail} size="md" />}
     >
-      {loading && <p className="text-sm text-zinc-500">Loading releases…</p>}
+      {loading && <p className="text-sm text-stone-500">Loading releases…</p>}
       {error && (
         <div className="rounded-lg border border-red-900/60 bg-red-950/40 p-3">
           <p className="text-xs text-red-400">{error.message}</p>
@@ -80,7 +80,7 @@ export default function VersionsModal({
                 className="flex items-center justify-between gap-3 px-3 py-2"
               >
                 <div className="min-w-0">
-                  <p className="font-mono text-sm text-zinc-200">
+                  <p className="font-mono text-sm text-stone-200">
                     v{r.version}
                     {isInstalled && (
                       <Badge tone="green" className="ml-2">
@@ -88,7 +88,7 @@ export default function VersionsModal({
                       </Badge>
                     )}
                   </p>
-                  <p className="text-[11px] text-zinc-500">
+                  <p className="text-[11px] text-stone-500">
                     game {r.factorioVersion || "?"}
                     {r.fileSize !== null && ` · ${formatBytes(r.fileSize)}`}
                   </p>

@@ -18,13 +18,13 @@ export default function PageHeader({
   return (
     <div className="mb-6 flex items-center justify-between gap-4">
       <div className="flex min-w-0 items-center gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-line bg-surface text-zinc-300">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-line bg-surface text-stone-300">
           <Icon className="h-5 w-5" />
         </div>
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-white">{title}</h1>
+          <h1 className="text-2xl font-bold text-stone-200">{title}</h1>
           {subtitle && (
-            <p className="truncate text-sm text-zinc-500">{subtitle}</p>
+            <p className="truncate text-sm text-stone-500">{subtitle}</p>
           )}
         </div>
       </div>
