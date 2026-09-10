@@ -6,7 +6,8 @@ on:
   pull_request:
 
 jobs:
-  test:
+  typecheck-and-unit-tests:
+    name: Frontend type-check + backend unit tests
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
