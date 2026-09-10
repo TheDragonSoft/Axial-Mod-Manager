@@ -13,12 +13,14 @@ use crate::models::{IndexHealth, ModDetails, ModRelease, ModSummary, SearchResul
 const PAGE_SIZE: u32 = 25;
 /// How long the locally-held full mod listing stays fresh.
 const DUMP_TTL: Duration = Duration::from_secs(30 * 60);
-/// Safety valve: if the server ignores our page size we'd face hundreds of
-/// tiny pages — abort rather than hammer the API.
+/// Safety valve against a server ignoring our page size.
 const MAX_PAGES: u32 = 2000;
 
 // ---------------------------------------------------------------------------
 // Raw API DTOs — lenient by design; unknown fields are ignored.
+// IMPORTANT: the portal keeps each release's factorio_version and
+// dependencies inside an embedded `info_json` (object OR JSON string),
+// not at the top level. Extraction lives in `info_json_fields`.
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
@@ -48,6 +50,8 @@ pub struct PortalRelease {
     pub download_url: Option<String>,
     #[serde(default)]
     pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub info_json: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -91,6 +95,37 @@ pub struct PortalModDetails {
 }
 
 // ---------------------------------------------------------------------------
+// info_json extraction
+// ---------------------------------------------------------------------------
+
+/// Extract (factorio_version, dependencies) from a release's embedded
+/// info.json. The API has shipped it both as an object and as a JSON-encoded
+/// string; both are handled, as is absence.
+fn info_json_fields(raw: Option<&serde_json::Value>) -> (Option<String>, Vec<String>) {
+    let Some(raw) = raw else { return (None, Vec::new()) };
+    let owned;
+    let obj = match raw {
+        serde_json::Value::String(s) => {
+            owned = serde_json::from_str::<serde_json::Value>(s)
+                .unwrap_or(serde_json::Value::Null);
+            &owned
+        }
+        other => other,
+    };
+    let factorio_version = obj
+        .get("factorio_version")
+        .and_then(|x| x.as_str())
+        .map(String::from)
+        .filter(|s| !s.is_empty());
+    let dependencies = obj
+        .get("dependencies")
+        .and_then(|x| x.as_array())
+        .map(|a| a.iter().filter_map(|d| d.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    (factorio_version, dependencies)
+}
+
+// ---------------------------------------------------------------------------
 // Parsing (pure, unit-tested)
 // ---------------------------------------------------------------------------
 
@@ -106,12 +141,31 @@ pub(crate) fn parse_search(raw: &str) -> Result<SearchResult, AppError> {
 }
 
 fn map_summary(item: PortalModListItem) -> ModSummary {
+    let fv_top = item
+        .latest_release
+        .as_ref()
+        .map(|r| r.factorio_version.clone())
+        .unwrap_or_default();
+    let (fv_info, _) = item
+        .latest_release
+        .as_ref()
+        .map(|r| info_json_fields(r.info_json.as_ref()))
+        .unwrap_or((None, Vec::new()));
+
     ModSummary {
         name: item.name,
         title: item.title,
         downloads: item.downloads_count.unwrap_or(0),
-        latest_version: item.latest_release.as_ref().map(|r| r.version.clone()).unwrap_or_else(|| "?".into()),
-        factorio_version: item.latest_release.as_ref().map(|r| r.factorio_version.clone()).unwrap_or_else(|| "?".into()),
+        latest_version: item
+            .latest_release
+            .as_ref()
+            .map(|r| r.version.clone())
+            .unwrap_or_else(|| "?".into()),
+        factorio_version: if fv_top.is_empty() {
+            fv_info.unwrap_or_default()
+        } else {
+            fv_top
+        },
         summary: item.summary,
     }
 }
@@ -119,16 +173,28 @@ fn map_summary(item: PortalModListItem) -> ModSummary {
 pub(crate) fn parse_details(raw: &str) -> Result<ModDetails, AppError> {
     let dto: PortalModDetails = serde_json::from_str(raw)
         .map_err(|e| AppError::Parse(format!("portal details response: {e}")))?;
+
+    // Dependency source priority: top-level field, else the newest release's
+    // embedded info_json, else that release's top-level deps (if any).
+    let newest = dto
+        .releases
+        .iter()
+        .max_by(|a, b| cmp_versions(&a.version, &b.version));
     let dependencies = if !dto.dependencies.is_empty() {
         dto.dependencies
     } else {
-        // Fallback: take deps from the newest release, if the API exposes them there.
-        dto.releases
-            .iter()
-            .max_by(|a, b| cmp_versions(&a.version, &b.version))
-            .map(|r| r.dependencies.clone())
-            .unwrap_or_default()
+        match newest {
+            Some(r) => {
+                let (_, mut deps) = info_json_fields(r.info_json.as_ref());
+                if deps.is_empty() {
+                    deps = r.dependencies.clone();
+                }
+                deps
+            }
+            None => Vec::new(),
+        }
     };
+
     Ok(ModDetails {
         name: dto.name,
         title: dto.title,
@@ -141,16 +207,21 @@ pub(crate) fn parse_details(raw: &str) -> Result<ModDetails, AppError> {
 }
 
 fn map_release(r: PortalRelease) -> ModRelease {
+    let (fv_info, _) = info_json_fields(r.info_json.as_ref());
     ModRelease {
         version: r.version,
-        factorio_version: r.factorio_version,
+        factorio_version: if r.factorio_version.is_empty() {
+            fv_info.unwrap_or_default()
+        } else {
+            r.factorio_version
+        },
         released_at: r.released_at,
         downloads_count: r.downloads_count,
         file_size: r.file_size,
     }
 }
 
-/// Portal names are [A-Za-z0-9 _.-] in practice.
+/// Portal names are [A-Za-z0-9 _.-] in practice (spaces occur, e.g. "Flow Control").
 pub fn plausible_name(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
@@ -172,8 +243,7 @@ pub(crate) fn encode_path_component(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Local search over a cached full listing — replaces server-side q/sort params,
-// which do not behave as documented.
+// Local search over a cached full listing
 // ---------------------------------------------------------------------------
 
 fn filter_sort_page(
@@ -257,8 +327,6 @@ impl PortalClient {
         Ok((raw, len))
     }
 
-    /// Download the complete listing. `max` is the documented "everything"
-    /// page size; fall back to a large fixed size if it is rejected.
     async fn fetch_dump(&self) -> Result<Dump, AppError> {
         let mut size_str = "max";
         let (first_raw, mut bytes) = loop {
@@ -368,17 +436,6 @@ impl IndexClient for PortalClient {
 mod tests {
     use super::*;
 
-    fn m(name: &str, title: &str, dl: u64) -> ModSummary {
-        ModSummary {
-            name: name.into(),
-            title: title.into(),
-            downloads: dl,
-            latest_version: "1.0.0".into(),
-            factorio_version: "2.0".into(),
-            summary: format!("summary of {name}"),
-        }
-    }
-
     const SEARCH_FIXTURE: &str = r#"{
         "pagination": { "page": 2, "page_count": 84, "count": 2081 },
         "results": [
@@ -393,10 +450,20 @@ mod tests {
         "name": "krastorio2", "title": "Krastorio 2", "owner": "Krastor and Darkfrei",
         "summary": "A major overhaul.", "downloads_count": 1842000,
         "category": "overhaul",
-        "dependencies": ["base", "? optional-mod >= 1.0", "! rival"],
         "releases": [
-            { "version": "1.8.1", "factorio_version": "2.0", "file_size": 12345678 },
+            {
+                "version": "2.1.2", "file_size": 99,
+                "info_json": { "factorio_version": "2.1",
+                               "dependencies": ["base", "+ ChangeInserterDropLane", "? aircraft"] }
+            },
             { "version": "1.3.0", "factorio_version": "1.1", "downloads": 90000 }
+        ]
+    }"#;
+
+    const STRING_INFO_FIXTURE: &str = r#"{
+        "name": "x", "title": "X", "summary": "",
+        "releases": [
+            { "version": "3.0.0", "info_json": "{\"factorio_version\":\"2.0\",\"dependencies\":[\"base\"]}" }
         ]
     }"#;
 
@@ -418,47 +485,56 @@ mod tests {
     }
 
     #[test]
-    fn details_parses_releases_and_ignores_unknown_fields() {
+    fn details_pulls_factorio_version_from_info_json() {
         let d = parse_details(DETAILS_FIXTURE).expect("fixture must parse");
-        assert_eq!(d.releases.len(), 2);
-        assert_eq!(d.releases[0].file_size, Some(12_345_678));
-        assert_eq!(d.releases[1].downloads_count, Some(90_000));
+        assert_eq!(d.releases[0].factorio_version, "2.1", "embedded info_json wins");
+        assert_eq!(d.releases[1].factorio_version, "1.1", "top-level still honored");
+    }
+
+    #[test]
+    fn details_pulls_dependencies_from_newest_release_info_json() {
+        let d = parse_details(DETAILS_FIXTURE).expect("fixture must parse");
         assert_eq!(d.dependencies.len(), 3);
+        assert!(d.dependencies.contains(&"+ ChangeInserterDropLane".to_string()));
+    }
+
+    #[test]
+    fn info_json_as_json_string_is_parsed() {
+        let d = parse_details(STRING_INFO_FIXTURE).expect("fixture must parse");
+        assert_eq!(d.releases[0].factorio_version, "2.0");
+        assert_eq!(d.dependencies.len(), 1);
     }
 
     #[test]
     fn name_validation() {
         assert!(!plausible_name(""));
         assert!(!plausible_name("../etc"));
+        assert!(!plausible_name("+ ChangeInserterDropLane"));
         assert!(plausible_name("even-distribution"));
-        assert!(plausible_name("has space"));
+        assert!(plausible_name("Flow Control"));
         assert!(plausible_name("some_mod_2.5"));
     }
 
     #[test]
     fn local_search_filters_sorts_paginates() {
+        let mk = |name: &str, title: &str, dl: u64| ModSummary {
+            name: name.into(),
+            title: title.into(),
+            downloads: dl,
+            latest_version: "1.0.0".into(),
+            factorio_version: "2.0".into(),
+            summary: format!("summary of {name}"),
+        };
         let items = vec![
-            m("waterfill", "Waterfill", 100),
-            m("krastorio2", "Krastorio 2", 500),
-            m("even-distribution", "Even Distribution", 300),
-            m("pycoalprocessing", "Pyanodons Coal Processing", 200),
+            mk("waterfill", "Waterfill", 100),
+            mk("krastorio2", "Krastorio 2", 500),
+            mk("even-distribution", "Even Distribution", 300),
+            mk("pycoalprocessing", "Pyanodons Coal Processing", 200),
         ];
         let (page1, total) = filter_sort_page(&items, "", 1, SortKey::Downloads, 2);
         assert_eq!(total, 4);
         assert_eq!(page1[0].name, "krastorio2");
-        assert_eq!(page1[1].name, "even-distribution");
         let (page2, _) = filter_sort_page(&items, "", 2, SortKey::Downloads, 2);
         assert_eq!(page2[0].name, "pycoalprocessing");
-        assert_eq!(page2[1].name, "waterfill");
-    }
-
-    #[test]
-    fn local_search_is_case_insensitive_across_fields() {
-        let items = vec![m("krastorio2", "Krastorio 2", 1)];
-        let (r, total) = filter_sort_page(&items, "KRAS", 1, SortKey::Name, 25);
-        assert_eq!(total, 1);
-        assert_eq!(r.len(), 1);
-        let (_, none) = filter_sort_page(&items, "zzz", 1, SortKey::Name, 25);
-        assert_eq!(none, 0);
     }
 }

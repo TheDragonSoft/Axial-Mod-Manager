@@ -1,13 +1,24 @@
+//! Parsing of Factorio info.json dependency strings and version math.
+
 use std::cmp::Ordering;
 use std::fmt;
 
 /// Kind of a Factorio dependency declaration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DepKind {
+    /// `"mod"` — must be installed and enabled.
     Required,
+    /// `"~ mod"` — required, but hidden from Factorio's in-game GUI (libraries).
+    HiddenRequired,
+    /// `"? mod"` — optional: used if present, the game runs without it.
     Optional,
+    /// `"(?) mod"` — optional and hidden from the GUI.
     HiddenOptional,
+    /// `"+ mod"` — recommended (Factorio 2.1+): suggested, not required.
+    Recommended,
+    /// `"! mod"` — must NOT be enabled alongside this mod.
     Incompatible,
+    /// `"(!) mod"` — incompatible and hidden from the GUI.
     HiddenIncompatible,
 }
 
@@ -41,18 +52,20 @@ pub struct Dependency {
     pub constraint: Option<(VersionOp, String)>,
 }
 
-/// Parse a raw info.json dependency string. Tolerant: handles prefixes with
-/// or without a following space, and operators with or without spaces
-/// (`"a>=1.0"` and `"a >= 1.0"` both parse).
+/// Parse a raw dependency string. Tolerant: handles prefixes with or without
+/// a following space, and operators with or without spaces.
 pub fn parse_dependency(raw: &str) -> Dependency {
     let mut kind = DepKind::Required;
     let mut rest = raw.trim();
 
+    // Longest prefixes first.
     for (marker, k) in [
         ("(?)", DepKind::HiddenOptional),
         ("(!)", DepKind::HiddenIncompatible),
         ("?", DepKind::Optional),
         ("!", DepKind::Incompatible),
+        ("~", DepKind::HiddenRequired),
+        ("+", DepKind::Recommended),
     ] {
         if let Some(r) = rest.strip_prefix(marker) {
             kind = k;
@@ -66,26 +79,18 @@ pub fn parse_dependency(raw: &str) -> Dependency {
 }
 
 /// Split `"name >= 1.0"` (any spacing) into name + parsed constraint.
+///
+/// Rule (matches Factorio's own parser): the name is everything before the
+/// first comparison operator. With no operator, the ENTIRE remainder is the
+/// name — multi-word portal names like "Flow Control" are legal and must
+/// never be split on spaces.
 fn split_name_constraint(rest: &str) -> (String, Option<(VersionOp, String)>) {
-    let bytes = rest.as_bytes();
-    let mut op_start = None;
-    for (i, b) in bytes.iter().enumerate() {
-        if matches!(b, b'>' | b'<' | b'=') {
-            op_start = Some(i);
-            break;
+    match rest.bytes().position(|b| matches!(b, b'>' | b'<' | b'=')) {
+        Some(i) => {
+            let name = rest[..i].trim().to_string();
+            (name, parse_constraint(rest[i..].trim()))
         }
-    }
-    match op_start {
-        Some(idx) => {
-            let name = rest[..idx].trim().to_string();
-            (name, parse_constraint(rest[idx..].trim()))
-        }
-        None => {
-            let mut parts = rest.split_whitespace();
-            let name = parts.next().unwrap_or("").to_string();
-            let constraint_str = parts.collect::<Vec<_>>().join(" ");
-            (name, parse_constraint(&constraint_str))
-        }
+        None => (rest.trim().to_string(), None),
     }
 }
 
@@ -152,23 +157,39 @@ mod tests {
 
     #[test]
     fn parses_all_prefix_forms() {
-        assert_eq!(parse_dependency("base").name, "base");
         assert_eq!(parse_dependency("base").kind, DepKind::Required);
+        assert_eq!(parse_dependency("base").name, "base");
 
         let d = parse_dependency("? some-opt >= 1.0");
         assert_eq!(d.kind, DepKind::Optional);
         assert_eq!(d.name, "some-opt");
         assert_eq!(d.constraint, Some((VersionOp::Gte, "1.0".into())));
 
-        let d = parse_dependency("(?) hidden-opt");
-        assert_eq!(d.kind, DepKind::HiddenOptional);
-        assert_eq!(d.name, "hidden-opt");
+        assert_eq!(parse_dependency("(?) hidden-opt").kind, DepKind::HiddenOptional);
+        assert_eq!(parse_dependency("! rival-mod").kind, DepKind::Incompatible);
+        assert_eq!(parse_dependency("(!) rival-mod").kind, DepKind::HiddenIncompatible);
+    }
 
-        let d = parse_dependency("! rival-mod");
-        assert_eq!(d.kind, DepKind::Incompatible);
+    #[test]
+    fn plus_is_recommended_and_tilde_is_hidden_required() {
+        let d = parse_dependency("+ ChangeInserterDropLane");
+        assert_eq!(d.kind, DepKind::Recommended);
+        assert_eq!(d.name, "ChangeInserterDropLane");
 
-        let d = parse_dependency("(!) rival-mod");
-        assert_eq!(d.kind, DepKind::HiddenIncompatible);
+        let d = parse_dependency("~ Krastorio2Assets");
+        assert_eq!(d.kind, DepKind::HiddenRequired);
+        assert_eq!(d.name, "Krastorio2Assets");
+    }
+
+    #[test]
+    fn multi_word_names_stay_intact() {
+        let d = parse_dependency("Flow Control");
+        assert_eq!(d.name, "Flow Control");
+        assert_eq!(d.constraint, None);
+
+        let d = parse_dependency("Flow Control >= 1.0");
+        assert_eq!(d.name, "Flow Control");
+        assert_eq!(d.constraint, Some((VersionOp::Gte, "1.0".into())));
     }
 
     #[test]

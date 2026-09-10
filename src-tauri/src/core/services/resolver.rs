@@ -213,10 +213,10 @@ pub async fn resolve(
             }
             use crate::core::services::deps::DepKind as DK;
             match dep.kind {
-                DK::Required => {
+                DK::Required | DK::HiddenRequired => {
                     queue.push_back((dep.name, None, dep.constraint, name.clone()));
                 }
-                DK::Optional | DK::HiddenOptional => {
+                DK::Optional | DK::HiddenOptional | DK::Recommended => {
                     let already = chosen.contains_key(&dep.name)
                         || ctx.installed.contains_key(&dep.name)
                         || optional_seen.contains(&dep.name);
@@ -401,5 +401,24 @@ mod tests {
         let plan = resolve(&ctx, "a", None).await.unwrap();
         assert!(!plan.to_install[0].deps_known);
         assert!(plan.warnings.iter().any(|w| w.contains("dependency information")));
+    }
+
+    #[tokio::test]
+    async fn resolves_hidden_required_and_recommended() {
+        let mut mods = HashMap::new();
+        mods.insert(
+            "a".into(),
+            details("a", "Mod A", vec![("1.0.0", "2.0")], vec!["~ lib", "+ opt"]),
+        );
+        mods.insert("lib".into(), details("lib", "Lib", vec![("1.0.0", "2.0")], vec!["base"]));
+        mods.insert("opt".into(), details("opt", "Opt", vec![("1.0.0", "2.0")], vec!["base"]));
+        let mock = Mock { mods };
+        let installed = HashMap::new();
+        let ctx = ResolveContext { index: &mock, installed: &installed, target: "2.0" };
+
+        let plan = resolve(&ctx, "a", None).await.unwrap();
+        let names: Vec<&str> = plan.to_install.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "lib"], "~ lib must be queued as required");
+        assert_eq!(plan.optional, vec!["opt"], "+ opt must be treated as optional");
     }
 }
