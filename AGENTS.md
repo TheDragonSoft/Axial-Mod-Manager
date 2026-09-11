@@ -58,6 +58,7 @@ Rules:
 | `game_detect.rs`  | Per-OS Factorio install detection (Steam libraries via `libraryfolders.vdf`, GOG, standalone paths, game-log `Read data path` hint) + game version read from `data/base/info.json` — read-only probing, no process spawn. `Config.game_dir` overrides detection when set. |
 | `packs.rs`        | Pack manifests stored as `profiles/<id>.json`. Import is tolerant (`format` accepted, not enforced). **Activation is target-state reconciliation**: diff target vs installed, download missing, finalize via `PendingActivation` state when downloads land, emit `pack-activated`. |
 | `updates.rs`      | Newest release compatible with the configured target game version vs installed version. |
+| `mirror_client.rs` | Community mirror client (`re146.dev/factorio/mods`). Enriches `ModDetails` with per-release dependencies from embedded `info.json` (official API omits them). `PortalWithMirrorDeps` wraps `IndexClient` with mirror fallback. |
 
 `AppState` (`state.rs`) holds: `RwLock<Config>`, config path, profiles dir, boxed `IndexClient`, `Arc<DownloadQueue>`, `pending_activation`. Long-running work (activation finalize, crash recovery) is spawned via `tauri::async_runtime`.
 
@@ -99,5 +100,6 @@ Rules:
 - Phases 1–9 complete (see git history): browse → download/install → deps resolver → packs → updates/ops polish. v0.1.0.
 - `experiment/new-ui` branch: full UI redesign (DashboardPage, DiscoPanel-style dark theme with white primaries + green accent, thumbnails, favorites, Quick Access). Develop the new UI there; `main` is the stable pre-redesign app. Work happens in the `Axial-NewUI` git worktree.
 - No frontend tests; CI runs `cargo test` + `tsc` only.
+- Dependency info comes from community mirror enrichment (`mirror_client.rs`) because the official portal API omits per-release dependencies. If the mirror lacks info or is unreachable, the resolver degrades gracefully with a badge warning instead of failing.
 - Download mirror is third-party (see `downloader.rs`); official authenticated portal downloads are a possible future feature (would need user token handling in Settings).
 - CSP is configured in `tauri.conf.json` (allows `https:` images for portal thumbnails, `ipc:` for Tauri IPC). If you add remote resources the frontend loads, extend `img-src`/`connect-src` there.

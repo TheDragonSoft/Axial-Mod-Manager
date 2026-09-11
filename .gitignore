@@ -23,6 +23,8 @@ vite.config.d.ts
 .vscode/*
 !.vscode/extensions.json
 .idea
+.zcode
+context/
 .DS_Store
 *.suo
 *.ntvs*

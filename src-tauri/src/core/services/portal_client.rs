@@ -105,7 +105,7 @@ pub struct PortalModDetails {
 /// Extract (factorio_version, dependencies) from a release's embedded
 /// info.json. The API has shipped it both as an object and as a JSON-encoded
 /// string; both are handled, as is absence.
-fn info_json_fields(raw: Option<&serde_json::Value>) -> (Option<String>, Vec<String>) {
+pub(crate) fn info_json_fields(raw: Option<&serde_json::Value>) -> (Option<String>, Vec<String>) {
     let Some(raw) = raw else { return (None, Vec::new()) };
     let owned;
     let obj = match raw {
@@ -240,6 +240,9 @@ fn map_release(r: PortalRelease) -> ModRelease {
         released_at: r.released_at,
         downloads_count: r.downloads_count,
         file_size: r.file_size,
+        // The official API no longer publishes per-release dependencies;
+        // mirror_client fills these in from the community mirror.
+        dependencies: Vec::new(),
     }
 }
 

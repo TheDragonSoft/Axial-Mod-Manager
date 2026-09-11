@@ -71,6 +71,31 @@ fn pick_version(
     })
 }
 
+/// Dependency source, tiered: the settled release's own dependency list
+/// (per-release info.json data, enriched from the community mirror by
+/// mirror_client) -> the details-level list -> the installed zip's info.json.
+/// Empty at every tier = unknown (deps_known=false).
+fn dep_source(
+    details: &ModDetails,
+    version: &str,
+    installed_entry: Option<&InstalledMod>,
+) -> (Vec<String>, bool) {
+    if let Some(r) = details
+        .releases
+        .iter()
+        .find(|r| r.version == version && !r.dependencies.is_empty())
+    {
+        return (r.dependencies.clone(), true);
+    }
+    if !details.dependencies.is_empty() {
+        return (details.dependencies.clone(), true);
+    }
+    if let Some(inst) = installed_entry {
+        return (inst.dependencies.clone(), !inst.dependencies.is_empty());
+    }
+    (vec![], false)
+}
+
 type QueueItem = (String, Option<String>, Option<(VersionOp, String)>, String);
 
 /// Resolve the full install plan for `root` (and optional pinned version).
@@ -133,16 +158,6 @@ pub async fn resolve(
 
         let installed_entry = ctx.installed.get(&name);
 
-        // Dependency source, tiered: API -> installed info.json -> unknown.
-        let (raw_deps, deps_known) = if !details.dependencies.is_empty() {
-            (details.dependencies.clone(), true)
-        } else if let Some(inst) = installed_entry {
-            let known = !inst.dependencies.is_empty();
-            (inst.dependencies.clone(), known)
-        } else {
-            (vec![], false)
-        };
-
         // Satisfied = installed at a version matching game target + constraint.
         let installed_ok = match installed_entry {
             Some(inst) => {
@@ -152,6 +167,10 @@ pub async fn resolve(
             None => false,
         };
 
+        // Set inside the branches below: deps of the release this node
+        // actually settles on (see dep_source).
+        let (raw_deps, deps_known);
+
         if installed_ok {
             let v = installed_entry
                 .map(|i| i.version.clone())
@@ -159,8 +178,11 @@ pub async fn resolve(
             chosen.insert(name.clone(), v.clone());
             plan.satisfied.push(PlanSatisfied {
                 name: name.clone(),
-                version: v,
+                version: v.clone(),
             });
+            // deps_known is only recorded on to-install entries; here only
+            // the dep list matters (for traversal).
+            raw_deps = dep_source(&details, &v, installed_entry).0;
         } else {
             if let Some(inst) = installed_entry {
                 if inst.factorio_version != ctx.target {
@@ -191,6 +213,7 @@ pub async fn resolve(
                     pick.version
                 ));
             }
+            (raw_deps, deps_known) = dep_source(&details, &pick.version, installed_entry);
             plan.to_install.push(PlanEntry {
                 name: name.clone(),
                 title: details.title.clone(),
@@ -203,12 +226,10 @@ pub async fn resolve(
         }
 
         // Traverse this mod's dependencies regardless of install/satisfied.
-        if !deps_known {
-            plan.warnings.push(format!(
-                "dependency information for {name} was not available — its own \
-                 dependencies will not be installed automatically"
-            ));
-        }
+        // Deps come tiered from dep_source; when every tier is empty the
+        // requirements simply can't be known (deps_known=false surfaces the
+        // per-entry ⚠ badge in the UI) — the official API publishes no
+        // dependency data anymore, so the mirror is the usual source.
         for raw in &raw_deps {
             let dep = parse_dependency(raw);
             if dep.name.is_empty() || dep.name == "base" || dep.name == name {
@@ -279,6 +300,7 @@ mod tests {
                     released_at: None,
                     downloads_count: None,
                     file_size: None,
+                    dependencies: vec![],
                 })
                 .collect(),
             thumbnail: None,
@@ -395,7 +417,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unknown_deps_are_flagged() {
+    async fn unpublished_deps_are_not_warned() {
         let mut mods = HashMap::new();
         mods.insert("a".into(), details("a", "Mod A", vec![("1.0.0", "2.0")], vec![]));
         let mock = Mock { mods };
@@ -404,7 +426,29 @@ mod tests {
 
         let plan = resolve(&ctx, "a", None).await.unwrap();
         assert!(!plan.to_install[0].deps_known);
-        assert!(plan.warnings.iter().any(|w| w.contains("dependency information")));
+        // No dependency source knows anything — silent, badge-only.
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[tokio::test]
+    async fn settled_release_deps_drive_traversal() {
+        let mut mods = HashMap::new();
+        let mut a = details("a", "Mod A", vec![("1.0.0", "2.0"), ("2.0.0", "2.1")], vec![]);
+        a.releases[0].dependencies = vec!["b >= 1.0.0".into()];
+        a.releases[1].dependencies = vec!["c".into()];
+        mods.insert("a".into(), a);
+        mods.insert("b".into(), details("b", "Mod B", vec![("1.0.0", "2.0")], vec!["base"]));
+        mods.insert("c".into(), details("c", "Mod C", vec![("1.0.0", "2.1")], vec!["base"]));
+        let mock = Mock { mods };
+        let installed = HashMap::new();
+        let ctx = ResolveContext { index: &mock, installed: &installed, target: "2.0" };
+
+        // Target 2.0 picks a 1.0.0; its own dep list must win over the newer
+        // release's (which targets a different game version entirely).
+        let plan = resolve(&ctx, "a", None).await.unwrap();
+        let names: Vec<&str> = plan.to_install.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "b"]);
+        assert!(plan.to_install.iter().all(|e| e.deps_known));
     }
 
     #[tokio::test]

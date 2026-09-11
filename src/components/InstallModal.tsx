@@ -507,7 +507,7 @@ export default function InstallModal({
             {depCount === 0 ? (
               <p className="mt-3 flex items-center gap-2 text-sm text-stone-500">
                 <Check className="h-4 w-4 text-accent" />
-                Nothing else needed — every dependency is already installed.
+                No additional mods will be installed alongside this one.
               </p>
             ) : (
               <ul className="mt-3 space-y-2">

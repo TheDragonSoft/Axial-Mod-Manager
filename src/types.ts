@@ -79,6 +79,8 @@ export interface ModRelease {
   releasedAt: string | null;
   downloadsCount: number | null;
   fileSize: number | null;
+  /** Dependency strings from this release's info.json (mirror enrichment; empty = unknown). */
+  dependencies: string[];
 }
 
 export interface ModDetails {

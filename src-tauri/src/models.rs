@@ -88,6 +88,9 @@ pub struct ModRelease {
     pub released_at: Option<String>,
     pub downloads_count: Option<u64>,
     pub file_size: Option<u64>,
+    /// Dependency strings from this release's own info.json (community-mirror
+    /// enrichment; the official API no longer publishes them). Empty = unknown.
+    pub dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

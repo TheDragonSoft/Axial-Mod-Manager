@@ -12,6 +12,7 @@ use tauri::Manager;
 
 use core::services::downloader::DownloadQueue;
 use core::services::index_client::USER_AGENT;
+use core::services::mirror_client::{MirrorClient, PortalWithMirrorDeps};
 use core::services::portal_client::PortalClient;
 use state::AppState;
 
@@ -71,7 +72,10 @@ pub fn run() {
             let http = reqwest::Client::builder()
                 .user_agent(USER_AGENT)
                 .build()?;
-            let index = PortalClient::new(http.clone());
+            let index = PortalWithMirrorDeps::new(
+                Box::new(PortalClient::new(http.clone())),
+                MirrorClient::new(http.clone()),
+            );
 
             app.manage(AppState {
                 config: RwLock::new(config),
