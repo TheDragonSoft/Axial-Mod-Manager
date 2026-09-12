@@ -61,6 +61,7 @@ export default function App() {
 
   useEffect(() => {
     const unlisten = onPackActivated((p) => {
+      useAppStore.getState().setActivatingPackId(null);
       useActivityStore.getState().push(
         "pack-activated",
         p.packName,
@@ -74,13 +75,18 @@ export default function App() {
 
   // Target game version for the compat badges — loaded once, kept fresh by
   // settings-changed so badge coloring survives a settings save.
+  // Also keeps activePackId in sync with the backend Config.
   useEffect(() => {
     getSettings()
-      .then((s) => useAppStore.getState().setTargetFactorioVersion(s.targetFactorioVersion))
+      .then((s) => {
+        useAppStore.getState().setTargetFactorioVersion(s.targetFactorioVersion);
+        useAppStore.getState().setActivePackId(s.activePackId);
+      })
       .catch(() => undefined);
-    const unlisten = onSettingsChanged((s) =>
-      useAppStore.getState().setTargetFactorioVersion(s.targetFactorioVersion),
-    );
+    const unlisten = onSettingsChanged((s) => {
+      useAppStore.getState().setTargetFactorioVersion(s.targetFactorioVersion);
+      useAppStore.getState().setActivePackId(s.activePackId);
+    });
     return () => {
       void unlisten.then((f) => f());
     };

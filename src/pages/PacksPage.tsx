@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { Boxes, Plus } from "lucide-react";
-import { listPacks, toAppError } from "../lib/api";
+import { Boxes, Leaf, Plus } from "lucide-react";
+import { activateVanilla, listPacks, toAppError } from "../lib/api";
 import { onPackActivated } from "../lib/events";
 import { useAppStore } from "../store/useAppStore";
 import type { PackMeta } from "../types";
 import PackCard, { type Status } from "../components/packs/PackCard";
 import NewPackModal from "../components/packs/NewPackModal";
+import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
+import Card from "../components/ui/Card";
 import EmptyState from "../components/ui/EmptyState";
+import ModTile from "../components/ui/ModTile";
 import PageHeader from "../components/ui/PageHeader";
+import Spinner from "../components/ui/Spinner";
+import Toggle from "../components/ui/Toggle";
+import { useConfirm } from "../components/ui/useConfirm";
 
 export default function PacksPage() {
   const [packs, setPacks] = useState<PackMeta[]>([]);
@@ -19,6 +25,11 @@ export default function PacksPage() {
   const openPackId = useAppStore((s) => s.openPackId);
   const setOpenPackId = useAppStore((s) => s.setOpenPackId);
   const bumpPacks = useAppStore((s) => s.bumpPacks);
+  const activePackId = useAppStore((s) => s.activePackId);
+  const activatingPackId = useAppStore((s) => s.activatingPackId);
+  const setActivatingPackId = useAppStore((s) => s.setActivatingPackId);
+
+  const vanillaConfirm = useConfirm();
 
   const refresh = useCallback(async () => {
     try {
@@ -39,14 +50,15 @@ export default function PacksPage() {
     const unlisten = onPackActivated((p) => {
       setStatus(
         p.missing.length > 0
-          ? { kind: "err", text: `Pack “${p.packName}” finished with missing mods: ${p.missing.join(", ")}` }
-          : { kind: "ok", text: `Pack “${p.packName}” fully activated ✓` },
+          ? { kind: "err", text: `Pack "${p.packName}" finished with missing mods: ${p.missing.join(", ")}` }
+          : { kind: "ok", text: `Pack "${p.packName}" fully activated ✓` },
       );
+      bumpPacks();
     });
     return () => {
       void unlisten.then((f) => f());
     };
-  }, []);
+  }, [bumpPacks]);
 
   // Consume the Quick Access request after the pack list is available.
   const [pendingOpen, setPendingOpen] = useState<string | null>(null);
@@ -56,6 +68,30 @@ export default function PacksPage() {
       setOpenPackId(null);
     }
   }, [openPackId, setOpenPackId]);
+
+  const isVanillaActive = activePackId === "vanilla";
+  const isVanillaActivating = activatingPackId === "vanilla";
+  const anyActivating = activatingPackId !== null;
+
+  async function handleVanillaToggle(checked: boolean) {
+    if (checked) {
+      // Turning Vanilla ON — confirm.
+      if (vanillaConfirm.confirming !== "vanilla") {
+        vanillaConfirm.arm("vanilla");
+        return;
+      }
+      vanillaConfirm.disarm();
+      setActivatingPackId("vanilla");
+      try {
+        await activateVanilla();
+        setStatus({ kind: "ok", text: "Switched to Vanilla — all mods disabled except base." });
+      } catch (e) {
+        setActivatingPackId(null);
+        setStatus({ kind: "err", text: toAppError(e).message });
+      }
+    }
+    // Turning Vanilla OFF does nothing — user must turn ON another pack instead.
+  }
 
   return (
     <div>
@@ -87,6 +123,38 @@ export default function PacksPage() {
         </div>
       )}
       {error && <p className="mb-4 text-sm text-red-400">Error: {error}</p>}
+
+      {/* Vanilla pseudo-pack — always shown, pinned first */}
+      <div className="mb-4">
+        <Card className="flex items-center gap-3 p-5">
+          <ModTile name="Vanilla" size="lg" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold text-stone-200">Vanilla</p>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <Badge>0 mods</Badge>
+              <span className="text-xs text-stone-600">
+                <Leaf className="mr-0.5 inline h-3 w-3" />
+                built-in — base game only
+              </span>
+            </div>
+          </div>
+          {isVanillaActivating ? (
+            <Spinner className="h-5 w-5 shrink-0 text-accent" />
+          ) : (
+            <Toggle
+              checked={isVanillaActive}
+              onChange={(v) => void handleVanillaToggle(v)}
+              disabled={anyActivating || isVanillaActive}
+              label={isVanillaActive ? "Vanilla is active" : "Activate Vanilla"}
+            />
+          )}
+        </Card>
+        {vanillaConfirm.confirming === "vanilla" && (
+          <p className="mt-1.5 text-xs text-amber-400">
+            This will disable all mods — switch to Vanilla?
+          </p>
+        )}
+      </div>
 
       {loading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

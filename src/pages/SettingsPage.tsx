@@ -19,6 +19,7 @@ import {
   validateModsDir,
 } from "../lib/api";
 import type { DetectedGame, GameDirStatus, ModsDirStatus } from "../types";
+import { useAppStore } from "../store/useAppStore";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 import PageHeader from "../components/ui/PageHeader";
@@ -345,6 +346,7 @@ export default function SettingsPage() {
         gameDir: gameDir || null,
         targetFactorioVersion: gameVersion,
         logLevel,
+        activePackId: useAppStore.getState().activePackId,
       });
       setModsDirWasAutoDetected(false);
       setGameDirWasAutoDetected(false);

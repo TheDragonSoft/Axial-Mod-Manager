@@ -150,6 +150,10 @@ export async function activatePack(id: string): Promise<ActivationDiff> {
   return invoke<ActivationDiff>("activate_pack", { id });
 }
 
+export async function activateVanilla(): Promise<void> {
+  return invoke<void>("activate_vanilla");
+}
+
 export async function checkUpdates(): Promise<UpdatesReport> {
   return invoke<UpdatesReport>("check_updates");
 }

@@ -67,3 +67,8 @@ pub async fn export_pack(state: State<'_, AppState>, id: String) -> Result<Strin
 pub async fn activate_pack(app: AppHandle, id: String) -> Result<ActivationDiff, AppError> {
     packs::activate(&app, &id).await
 }
+
+#[tauri::command]
+pub async fn activate_vanilla(app: AppHandle) -> Result<(), AppError> {
+    packs::activate_vanilla(&app).await
+}

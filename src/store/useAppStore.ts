@@ -21,6 +21,14 @@ interface AppState {
    * settings-changed. Drives the compat badges; null = not loaded yet. */
   targetFactorioVersion: string | null;
   setTargetFactorioVersion: (v: string) => void;
+  /** ID of the currently active pack (from Config); null = none yet.
+   * Updated via settings-changed events. */
+  activePackId: string | null;
+  setActivePackId: (id: string | null) => void;
+  /** Transient: set when a pack activation is in progress, cleared when
+   * pack-activated arrives. Drives the in-progress toggle state. */
+  activatingPackId: string | null;
+  setActivatingPackId: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -36,4 +44,8 @@ export const useAppStore = create<AppState>((set) => ({
   setOpenPackId: (id) => set({ openPackId: id }),
   targetFactorioVersion: null,
   setTargetFactorioVersion: (v) => set({ targetFactorioVersion: v }),
+  activePackId: null,
+  setActivePackId: (id) => set({ activePackId: id }),
+  activatingPackId: null,
+  setActivatingPackId: (id) => set({ activatingPackId: id }),
 }));

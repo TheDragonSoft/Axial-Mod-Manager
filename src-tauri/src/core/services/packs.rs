@@ -202,6 +202,24 @@ pub fn export_pack(profiles_dir: &Path, id: &str) -> Result<String, AppError> {
 }
 
 // ---------------------------------------------------------------------------
+// Active pack persistence
+// ---------------------------------------------------------------------------
+
+/// Save the active pack id into Config, persist to disk, and emit
+/// `settings-changed` so the frontend stays in sync. Follows the same
+/// pattern as `set_settings` in commands/settings.rs.
+fn persist_active_pack(app: &AppHandle, pack_id: Option<&str>) -> Result<(), AppError> {
+    let state = app.state::<AppState>();
+    let config_path = state.config_path.clone();
+    let mut config = state.config.read().expect("config lock poisoned").clone();
+    config.active_pack_id = pack_id.map(String::from);
+    config.save(&config_path)?;
+    *state.config.write().expect("config lock poisoned") = config.clone();
+    let _ = app.emit("settings-changed", &config);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------
 
@@ -331,6 +349,7 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
                 missing,
             },
         );
+        persist_active_pack(app, Some(&pack.id))?;
     } else {
         *state.pending_activation.lock().expect("pack lock poisoned") = Some(PendingActivation {
             pack_id: pack.id,
@@ -438,12 +457,51 @@ async fn finalize_now(app: &AppHandle, pack_id: &str) -> Result<(), AppError> {
     let _ = app.emit(
         "pack-activated",
         &PackActivatedPayload {
-            pack_id: pack.id,
+            pack_id: pack.id.clone(),
             pack_name: pack.name,
             missing,
         },
     );
+    persist_active_pack(app, Some(&pack.id))?;
     let _ = app.emit("installed-changed", ());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Vanilla activation
+// ---------------------------------------------------------------------------
+
+/// Activate the built-in Vanilla pseudo-pack: disable every mod except `base`,
+/// clear any in-flight activation, and persist `"vanilla"` as the active pack.
+pub async fn activate_vanilla(app: &AppHandle) -> Result<(), AppError> {
+    let state = app.state::<AppState>();
+    let config = state.config.read().expect("config lock poisoned").clone();
+    let mods_dir = mod_store::resolve_dir(&config)?;
+
+    mod_store::disable_all_mods(&mods_dir)?;
+
+    // Clear any pending pack activation — Vanilla takes over immediately.
+    {
+        let mut guard = match state.pending_activation.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *guard = None;
+    }
+
+    persist_active_pack(app, Some("vanilla"))?;
+
+    let _ = app.emit(
+        "pack-activated",
+        &PackActivatedPayload {
+            pack_id: "vanilla".into(),
+            pack_name: "Vanilla".into(),
+            missing: vec![],
+        },
+    );
+    let _ = app.emit("installed-changed", ());
+
+    tracing::info!("vanilla pack activated — all mods disabled except base");
     Ok(())
 }
 

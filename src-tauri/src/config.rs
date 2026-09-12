@@ -18,6 +18,9 @@ pub struct Config {
     pub target_factorio_version: String,
     /// File-log level: debug | info | warn | error.
     pub log_level: String,
+    /// ID of the currently active pack (`"vanilla"` for the built-in Vanilla
+    /// pseudo-pack). `None` means no pack has been explicitly activated yet.
+    pub active_pack_id: Option<String>,
 }
 
 impl Default for Config {
@@ -27,6 +30,7 @@ impl Default for Config {
             game_dir: None,
             target_factorio_version: "2.0".to_string(),
             log_level: "info".to_string(),
+            active_pack_id: None,
         }
     }
 }

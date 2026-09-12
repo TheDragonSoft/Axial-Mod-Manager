@@ -151,6 +151,7 @@ pub fn run() {
             commands::packs::import_pack,
             commands::packs::export_pack,
             commands::packs::activate_pack,
+            commands::packs::activate_vanilla,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

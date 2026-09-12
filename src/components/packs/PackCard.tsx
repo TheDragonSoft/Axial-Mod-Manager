@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Play, Trash2 } from "lucide-react";
-import { activatePack, deletePack, exportPack, getPack, toAppError } from "../../lib/api";
+import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { activatePack, activateVanilla, deletePack, exportPack, getPack, toAppError } from "../../lib/api";
+import { useAppStore } from "../../store/useAppStore";
 import { useQueueStore } from "../../store/useQueueStore";
 import Badge from "../ui/Badge";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
 import ModTile from "../ui/ModTile";
+import Spinner from "../ui/Spinner";
+import Toggle from "../ui/Toggle";
 import { useConfirm } from "../ui/useConfirm";
 import type { ActivationDiff, Pack, PackMeta } from "../../types";
 
@@ -26,7 +29,15 @@ export default function PackCard({
   const [pack, setPack] = useState<Pack | null>(null);
   const [exported, setExported] = useState<string | null>(null);
   const del = useConfirm();
-  const act = useConfirm();
+  const confirm = useConfirm();
+
+  const activePackId = useAppStore((s) => s.activePackId);
+  const activatingPackId = useAppStore((s) => s.activatingPackId);
+  const setActivatingPackId = useAppStore((s) => s.setActivatingPackId);
+
+  const isActive = activePackId === meta.id;
+  const isActivating = activatingPackId === meta.id;
+  const anyActivating = activatingPackId !== null;
 
   // Sidebar Quick Access requests a specific pack to be expanded on entry.
   useEffect(() => {
@@ -57,30 +68,54 @@ export default function PackCard({
     setExpanded(true);
   }
 
-  async function doActivate() {
-    if (act.confirming !== meta.id) {
-      act.arm(meta.id);
-      return;
-    }
-    act.disarm();
-    try {
-      const diff: ActivationDiff = await activatePack(meta.id);
-      const parts = [
-        `enabled ${diff.toEnable.length}`,
-        `disabled ${diff.toDisable.length}`,
-        diff.toDownload.length > 0 && `downloading ${diff.toDownload.length}`,
-        diff.errors.length > 0 && `${diff.errors.length} error(s)`,
-      ].filter(Boolean);
-      onStatus({
-        kind: "ok",
-        text: `Activating “${diff.packName}”: ${parts.join(", ")}`,
-      });
-      if (diff.toDownload.length > 0) useQueueStore.getState().open();
-      if (diff.errors.length > 0) {
-        onStatus({ kind: "err", text: diff.errors.join(" · ") });
+  async function handleToggle(checked: boolean) {
+    if (checked) {
+      // Turning ON this pack — confirm first.
+      if (confirm.confirming !== meta.id) {
+        confirm.arm(meta.id);
+        return;
       }
-    } catch (e) {
-      onStatus({ kind: "err", text: toAppError(e).message });
+      confirm.disarm();
+      setActivatingPackId(meta.id);
+      try {
+        const diff: ActivationDiff = await activatePack(meta.id);
+        const parts = [
+          `enabled ${diff.toEnable.length}`,
+          `disabled ${diff.toDisable.length}`,
+          diff.toDownload.length > 0 && `downloading ${diff.toDownload.length}`,
+          diff.errors.length > 0 && `${diff.errors.length} error(s)`,
+        ].filter(Boolean);
+        onStatus({
+          kind: "ok",
+          text: `Activating "${diff.packName}": ${parts.join(", ")}`,
+        });
+        if (diff.toDownload.length > 0) useQueueStore.getState().open();
+        // activatingPackId is cleared by the pack-activated event in App.tsx;
+        // for immediate activations (no downloads), pack-activated fires
+        // synchronously before this returns.
+        if (diff.toDownload.length === 0) setActivatingPackId(null);
+        if (diff.errors.length > 0) {
+          onStatus({ kind: "err", text: diff.errors.join(" · ") });
+        }
+      } catch (e) {
+        setActivatingPackId(null);
+        onStatus({ kind: "err", text: toAppError(e).message });
+      }
+    } else {
+      // Turning OFF the active pack → activate Vanilla.
+      if (confirm.confirming !== `vanilla-${meta.id}`) {
+        confirm.arm(`vanilla-${meta.id}`);
+        return;
+      }
+      confirm.disarm();
+      setActivatingPackId("vanilla");
+      try {
+        await activateVanilla();
+        onStatus({ kind: "ok", text: "Switched to Vanilla — all mods disabled except base." });
+      } catch (e) {
+        setActivatingPackId(null);
+        onStatus({ kind: "err", text: toAppError(e).message });
+      }
     }
   }
 
@@ -106,6 +141,14 @@ export default function PackCard({
     }
   }
 
+  // Derive the confirm-prompt text when a confirm is armed.
+  const confirmText =
+    confirm.confirming === meta.id
+      ? "Extras will be disabled — activate?"
+      : confirm.confirming === `vanilla-${meta.id}`
+        ? "This will disable all mods — switch to Vanilla?"
+        : null;
+
   return (
     <Card className="flex flex-col p-5">
       <div className="flex items-start gap-3">
@@ -122,18 +165,34 @@ export default function PackCard({
             </span>
           </div>
         </button>
-        <button
-          onClick={() => void toggleExpanded()}
-          aria-label={expanded ? "Collapse" : "Expand"}
-          className="shrink-0 rounded-lg p-1.5 text-stone-600 transition-colors hover:bg-surface-2 hover:text-stone-300"
-        >
-          {expanded ? (
-            <ChevronUp className="h-4 w-4" />
+        <div className="flex shrink-0 items-center gap-2">
+          {isActivating ? (
+            <Spinner className="h-5 w-5 text-accent" />
           ) : (
-            <ChevronDown className="h-4 w-4" />
+            <Toggle
+              checked={isActive}
+              onChange={(v) => void handleToggle(v)}
+              disabled={anyActivating}
+              label={isActive ? `Deactivate ${meta.name}` : `Activate ${meta.name}`}
+            />
           )}
-        </button>
+          <button
+            onClick={() => void toggleExpanded()}
+            aria-label={expanded ? "Collapse" : "Expand"}
+            className="shrink-0 rounded-lg p-1.5 text-stone-600 transition-colors hover:bg-surface-2 hover:text-stone-300"
+          >
+            {expanded ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </button>
+        </div>
       </div>
+
+      {confirmText && (
+        <p className="mt-2 text-xs text-amber-400">{confirmText}</p>
+      )}
 
       {expanded && pack && (
         <ul className="mt-4 max-h-56 space-y-1 overflow-y-auto rounded-lg border border-line bg-surface-2 p-3 text-xs">
@@ -167,31 +226,19 @@ export default function PackCard({
         <Button variant="ghost" size="sm" onClick={() => void doExport()}>
           Export
         </Button>
-        <div className="flex items-center gap-1">
-          <Button
-            variant={act.confirming === meta.id ? "secondary" : "primary"}
-            size="sm"
-            onClick={() => void doActivate()}
-          >
-            <Play className="h-3.5 w-3.5" />
-            {act.confirming === meta.id
-              ? "Extras will be disabled — activate?"
-              : "Activate"}
-          </Button>
-          <Button
-            variant={del.confirming === meta.id ? "danger" : "ghost"}
-            size="sm"
-            onClick={() => void doDelete()}
-            title="Delete pack"
-            aria-label={`Delete ${meta.name}`}
-          >
-            {del.confirming === meta.id ? (
-              "Confirm delete?"
-            ) : (
-              <Trash2 className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
+        <Button
+          variant={del.confirming === meta.id ? "danger" : "ghost"}
+          size="sm"
+          onClick={() => void doDelete()}
+          title="Delete pack"
+          aria-label={`Delete ${meta.name}`}
+        >
+          {del.confirming === meta.id ? (
+            "Confirm delete?"
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+        </Button>
       </div>
     </Card>
   );

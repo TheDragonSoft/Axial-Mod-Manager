@@ -5,13 +5,14 @@ import {
   Boxes,
   Compass,
   Download,
+  Leaf,
   LayoutDashboard,
   Package,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { useAppStore, type Tab } from "../store/useAppStore";
 import { useQueueStore } from "../store/useQueueStore";
-import { listPacks } from "../lib/api";
+import { activatePack, activateVanilla, listPacks, toAppError } from "../lib/api";
 import type { PackMeta } from "../types";
 import type { BridgeStatus } from "../App";
 import StatusDot from "./ui/StatusDot";
@@ -47,6 +48,9 @@ export default function Sidebar({
   const updateCount = useAppStore((s) => s.updateCount);
   const packsVersion = useAppStore((s) => s.packsVersion);
   const setOpenPackId = useAppStore((s) => s.setOpenPackId);
+  const activePackId = useAppStore((s) => s.activePackId);
+  const activatingPackId = useAppStore((s) => s.activatingPackId);
+  const setActivatingPackId = useAppStore((s) => s.setActivatingPackId);
   const queueToggle = useQueueStore((s) => s.toggle);
   const queueItems = useQueueStore((s) => s.items);
   const activeDownloads = queueItems.filter(
@@ -68,6 +72,49 @@ export default function Sidebar({
       .then(setVersion)
       .catch(() => setVersion(null));
   }, []);
+
+  async function handleVanillaClick() {
+    if (activatingPackId !== null) return;
+    setActiveTab("packs");
+    if (activePackId === "vanilla") {
+      return;
+    }
+    setActivatingPackId("vanilla");
+    try {
+      await activateVanilla();
+    } catch (e) {
+      setActivatingPackId(null);
+      console.error("Vanilla activation failed:", toAppError(e).message);
+    }
+  }
+
+  async function handlePackClick(p: PackMeta) {
+    if (activatingPackId !== null) return;
+    setOpenPackId(p.id);
+    setActiveTab("packs");
+
+    if (activePackId === p.id) {
+      // Active pack switch turned OFF -> switch to Vanilla
+      setActivatingPackId("vanilla");
+      try {
+        await activateVanilla();
+      } catch (e) {
+        setActivatingPackId(null);
+        console.error("Vanilla activation failed:", toAppError(e).message);
+      }
+    } else {
+      // Inactive pack switch turned ON -> switch to this pack
+      setActivatingPackId(p.id);
+      try {
+        const diff = await activatePack(p.id);
+        if (diff.toDownload.length > 0) useQueueStore.getState().open();
+        if (diff.toDownload.length === 0) setActivatingPackId(null);
+      } catch (e) {
+        setActivatingPackId(null);
+        console.error("Pack activation failed:", toAppError(e).message);
+      }
+    }
+  }
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-surface">
@@ -124,29 +171,38 @@ export default function Sidebar({
         </button>
       </nav>
 
-      {/* Quick Access: jump straight into one of your packs */}
-      {packs.length > 0 && (
-        <>
-          <p className="px-5 pt-5 pb-1 text-[10px] font-semibold tracking-widest text-stone-600 uppercase">
-            Quick Access
-          </p>
-          <div className="space-y-0.5 overflow-y-auto px-3 pb-2">
-            {packs.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => {
-                  setOpenPackId(p.id);
-                  setActiveTab("packs");
-                }}
-                className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-              >
-                <StatusDot tone="green" />
-                <span className="truncate">{p.name}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      {/* Quick Access: Vanilla always first, then user packs */}
+      <p className="px-5 pt-5 pb-1 text-[10px] font-semibold tracking-widest text-stone-600 uppercase">
+        Quick Access
+      </p>
+      <div className="space-y-0.5 overflow-y-auto px-3 pb-2">
+        {/* Vanilla — pinned first */}
+        <button
+          onClick={() => void handleVanillaClick()}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <StatusDot
+            tone={activePackId === "vanilla" ? "green" : activatingPackId === "vanilla" ? "amber" : "zinc"}
+            pulse={activatingPackId === "vanilla"}
+          />
+          <Leaf className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">Vanilla</span>
+        </button>
+        {/* User packs */}
+        {packs.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => void handlePackClick(p)}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <StatusDot
+              tone={activePackId === p.id ? "green" : activatingPackId === p.id ? "amber" : "zinc"}
+              pulse={activatingPackId === p.id}
+            />
+            <span className="truncate">{p.name}</span>
+          </button>
+        ))}
+      </div>
 
       {/* Footer: backend bridge + version */}
       <div className="mt-auto border-t border-line px-5 py-3">

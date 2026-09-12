@@ -12,6 +12,7 @@ export interface Settings {
   gameDir: string | null;
   targetFactorioVersion: string;
   logLevel: string;
+  activePackId: string | null;
 }
 
 // ---- Mods directory detection/validation (Phase 3) ----
