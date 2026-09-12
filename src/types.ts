@@ -150,6 +150,8 @@ export interface QueueItem {
   received: number;
   total: number;
   error?: string | null;
+  enqueuedAt?: number;
+  completedAt?: number;
 }
 
 // ---- Dependency resolution (Phase 7) ----

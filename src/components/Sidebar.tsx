@@ -13,7 +13,11 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import { useAppStore, type Tab } from "../store/useAppStore";
-import { useQueueStore } from "../store/useQueueStore";
+import {
+  useQueueStore,
+  selectActiveCount,
+  selectFailedCount,
+} from "../store/useQueueStore";
 import { useActivityStore } from "../store/useActivityStore";
 import {
   activatePack,
@@ -63,11 +67,8 @@ export default function Sidebar({
   const activatingPackId = useAppStore((s) => s.activatingPackId);
   const setActivatingPackId = useAppStore((s) => s.setActivatingPackId);
   const queueToggle = useQueueStore((s) => s.toggle);
-  const queueItems = useQueueStore((s) => s.items);
-  const activeDownloads = queueItems.filter(
-    (i) => i.status === "queued" || i.status === "downloading",
-  ).length;
-  const failedDownloads = queueItems.filter((i) => i.status === "failed").length;
+  const activeDownloads = useQueueStore(selectActiveCount);
+  const failedDownloads = useQueueStore(selectFailedCount);
 
   const [packs, setPacks] = useState<PackMeta[]>([]);
   const [version, setVersion] = useState<string | null>(null);

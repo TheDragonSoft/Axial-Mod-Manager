@@ -1,5 +1,10 @@
+import { memo, useMemo } from "react";
 import { enqueueDownload, cancelDownload, toAppError } from "../lib/api";
-import { useQueueStore } from "../store/useQueueStore";
+import {
+  useQueueStore,
+  selectActiveCount,
+  selectFinishedCount,
+} from "../store/useQueueStore";
 import { useThumbnailUrl } from "../lib/thumbnails";
 import Badge from "./ui/Badge";
 import Button from "./ui/Button";
@@ -9,7 +14,10 @@ import { X } from "lucide-react";
 import { formatBytes, percent } from "../lib/format";
 import type { QueueItem, QueueStatus } from "../types";
 
-const STATUS_BADGES: Record<QueueStatus, { label: string; tone: "neutral" | "green" | "red" | "amber" }> = {
+const STATUS_BADGES: Record<
+  QueueStatus,
+  { label: string; tone: "neutral" | "green" | "red" | "amber" }
+> = {
   queued: { label: "Queued", tone: "neutral" },
   downloading: { label: "Downloading", tone: "amber" },
   completed: { label: "Done", tone: "green" },
@@ -17,7 +25,7 @@ const STATUS_BADGES: Record<QueueStatus, { label: string; tone: "neutral" | "gre
   cancelled: { label: "Cancelled", tone: "neutral" },
 };
 
-function QueueRow({ item }: { item: QueueItem }) {
+const QueueRow = memo(function QueueRow({ item }: { item: QueueItem }) {
   const upsert = useQueueStore((s) => s.upsert);
   const dismiss = useQueueStore((s) => s.dismiss);
   const thumbnail = useThumbnailUrl(item.modName);
@@ -35,6 +43,7 @@ function QueueRow({ item }: { item: QueueItem }) {
 
   async function retry() {
     try {
+      dismiss(item.id);
       await enqueueDownload(item.modName, item.version);
     } catch (e) {
       upsert({ ...item, status: "failed", error: toAppError(e).message });
@@ -42,7 +51,7 @@ function QueueRow({ item }: { item: QueueItem }) {
   }
 
   return (
-    <div className="border-b border-line px-4 py-3">
+    <div className="border-b border-line px-4 py-3 animate-fade-in transition-colors duration-150">
       <div className="flex items-start gap-3">
         <ModTile name={item.modName} url={thumbnail} size="sm" />
         <div className="min-w-0 flex-1">
@@ -99,18 +108,33 @@ function QueueRow({ item }: { item: QueueItem }) {
       </div>
     </div>
   );
-}
+});
 
 export default function QueueDrawer() {
   const items = useQueueStore((s) => s.items);
   const isOpen = useQueueStore((s) => s.isOpen);
   const close = useQueueStore((s) => s.close);
   const clearFinished = useQueueStore((s) => s.clearFinished);
+  const activeCount = useQueueStore(selectActiveCount);
+  const finishedCount = useQueueStore(selectFinishedCount);
 
-  const activeCount = items.filter(
-    (i) => i.status === "queued" || i.status === "downloading",
-  ).length;
-  const finishedCount = items.length - activeCount;
+  // Active items maintain the stable queue sort order established in the store
+  const activeItems = useMemo(
+    () => items.filter((i) => i.status === "queued" || i.status === "downloading"),
+    [items],
+  );
+
+  // Finished items drop to the bottom section, sorted by most recently finished first
+  const finishedItems = useMemo(
+    () =>
+      items
+        .filter((i) => i.status !== "queued" && i.status !== "downloading")
+        .sort((a, b) => (b.completedAt ?? b.id) - (a.completedAt ?? a.id)),
+    [items],
+  );
+
+  const hasFailed = finishedItems.some((i) => i.status === "failed");
+  const finishedLabel = hasFailed ? "Finished" : "Completed";
 
   return (
     <>
@@ -151,10 +175,47 @@ export default function QueueDrawer() {
               No downloads yet.
             </p>
           ) : (
-            items.map((item) => <QueueRow key={item.id} item={item} />)
+            <>
+              {activeItems.length > 0 && (
+                <div>
+                  {finishedItems.length > 0 && (
+                    <div className="sticky top-0 z-10 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+                        In Progress ({activeItems.length})
+                      </p>
+                    </div>
+                  )}
+                  {activeItems.map((item) => (
+                    <QueueRow key={item.id} item={item} />
+                  ))}
+                </div>
+              )}
+
+              {finishedItems.length > 0 && (
+                <div>
+                  <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-surface/95 px-4 py-2 backdrop-blur-sm">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+                      {finishedLabel} ({finishedItems.length})
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearFinished}
+                      className="h-5 px-1.5 text-[10px] text-stone-500 hover:text-stone-300"
+                    >
+                      Clear all
+                    </Button>
+                  </div>
+                  {finishedItems.map((item) => (
+                    <QueueRow key={item.id} item={item} />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </aside>
     </>
   );
 }
+
