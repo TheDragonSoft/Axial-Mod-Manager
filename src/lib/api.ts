@@ -157,6 +157,14 @@ export async function exportPack(id: string): Promise<string> {
   return invoke<string>("export_pack", { id });
 }
 
+export async function importPackBase64(base64: string): Promise<Pack> {
+  return invoke<Pack>("import_pack_base64", { base64 });
+}
+
+export async function exportPackBase64(id: string): Promise<string> {
+  return invoke<string>("export_pack_base64", { id });
+}
+
 export async function activatePack(id: string): Promise<ActivationDiff> {
   return invoke<ActivationDiff>("activate_pack", { id });
 }

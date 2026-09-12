@@ -64,6 +64,16 @@ pub async fn export_pack(state: State<'_, AppState>, id: String) -> Result<Strin
 }
 
 #[tauri::command]
+pub async fn import_pack_base64(state: State<'_, AppState>, base64: String) -> Result<Pack, AppError> {
+    packs::import_pack_base64(&state.profiles_dir, &base64)
+}
+
+#[tauri::command]
+pub async fn export_pack_base64(state: State<'_, AppState>, id: String) -> Result<String, AppError> {
+    packs::export_pack_base64(&state.profiles_dir, &id)
+}
+
+#[tauri::command]
 pub async fn activate_pack(app: AppHandle, id: String) -> Result<ActivationDiff, AppError> {
     packs::activate(&app, &id).await
 }

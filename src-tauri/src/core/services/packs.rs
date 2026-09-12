@@ -5,6 +5,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -191,7 +193,7 @@ pub fn import_pack(profiles_dir: &Path, json: &str) -> Result<Pack, AppError> {
         created_at: Option<u64>,
     }
     let imp: Imported = serde_json::from_str(json)
-        .map_err(|e| AppError::Parse(format!("pack manifest: {e}")))?;
+        .map_err(|e| AppError::Parse(format!("malformed pack JSON: {e}")))?;
     create_pack(profiles_dir, &imp.name, imp.mods)
 }
 
@@ -199,6 +201,29 @@ pub fn export_pack(profiles_dir: &Path, id: &str) -> Result<String, AppError> {
     let pack = load_pack(profiles_dir, id)?;
     serde_json::to_string_pretty(&pack)
         .map_err(|e| AppError::Parse(format!("serialize pack: {e}")))
+}
+
+/// Export a pack as a standard Base64-encoded JSON manifest string.
+pub fn export_pack_base64(profiles_dir: &Path, id: &str) -> Result<String, AppError> {
+    let pack = load_pack(profiles_dir, id)?;
+    let json = serde_json::to_string(&pack)
+        .map_err(|e| AppError::Parse(format!("serialize pack: {e}")))?;
+    Ok(BASE64_STANDARD.encode(json.as_bytes()))
+}
+
+/// Import a pack from a standard Base64-encoded JSON manifest string.
+/// Decodes Base64, validates UTF-8, and verifies manifest contents.
+pub fn import_pack_base64(profiles_dir: &Path, encoded: &str) -> Result<Pack, AppError> {
+    let trimmed = encoded.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Parse("pack code cannot be empty".into()));
+    }
+    let bytes = BASE64_STANDARD
+        .decode(trimmed)
+        .map_err(|e| AppError::Parse(format!("invalid base64 encoding: {e}")))?;
+    let json = std::str::from_utf8(&bytes)
+        .map_err(|e| AppError::Parse(format!("invalid UTF-8 in decoded pack data: {e}")))?;
+    import_pack(profiles_dir, json)
 }
 
 // ---------------------------------------------------------------------------
@@ -560,5 +585,121 @@ mod tests {
         assert!(validate_mods(vec![pm("bad name!", "1.0", true)]).is_err());
         assert!(validate_mods(vec![pm("a", "not a version!", true)]).is_err());
         assert!(validate_mods(vec![pm("base", "2.0", true)]).is_err(), "base-only pack is empty");
+    }
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("axial-packs-test-{tag}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn base64_roundtrip_exports_and_imports() {
+        let dir = unique_dir("base64-roundtrip");
+        let orig = create_pack(
+            &dir,
+            "Space Exploration Test",
+            vec![
+                pm("space-exploration", "0.6.120", true),
+                pm("alien-biomes", "0.6.8", false),
+            ],
+        )
+        .expect("create pack");
+
+        let b64 = export_pack_base64(&dir, &orig.id).expect("export base64");
+        assert!(!b64.is_empty());
+
+        let imported = import_pack_base64(&dir, &b64).expect("import base64");
+        assert_eq!(imported.name, "Space Exploration Test");
+        assert_ne!(imported.id, orig.id, "fresh id generated on import");
+        assert_eq!(imported.mods.len(), 2);
+        assert_eq!(imported.mods[0].name, "space-exploration");
+        assert_eq!(imported.mods[0].version, "0.6.120");
+        assert!(imported.mods[0].enabled);
+        assert_eq!(imported.mods[1].name, "alien-biomes");
+        assert_eq!(imported.mods[1].version, "0.6.8");
+        assert!(!imported.mods[1].enabled);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_tolerates_surrounding_whitespace() {
+        let dir = unique_dir("base64-whitespace");
+        let orig = create_pack(
+            &dir,
+            "Whitespace Pack",
+            vec![pm("flib", "0.14.1", true)],
+        )
+        .expect("create pack");
+
+        let b64 = export_pack_base64(&dir, &orig.id).expect("export base64");
+        let padded = format!("\n  \t  {b64}  \r\n\n ");
+        let imported = import_pack_base64(&dir, &padded).expect("import base64 with whitespace");
+        assert_eq!(imported.name, "Whitespace Pack");
+        assert_eq!(imported.mods.len(), 1);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_fails_on_empty_input() {
+        let dir = unique_dir("base64-empty");
+        let err = import_pack_base64(&dir, "   \n\t  ").unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("pack code cannot be empty")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_fails_on_invalid_base64() {
+        let dir = unique_dir("base64-invalid-b64");
+        let err = import_pack_base64(&dir, "this is definitely not valid base64!@#%^&*").unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("invalid base64 encoding")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_fails_on_malformed_json() {
+        let dir = unique_dir("base64-malformed-json");
+        let bad_json_b64 = BASE64_STANDARD.encode(b"{not valid json}");
+        let err = import_pack_base64(&dir, &bad_json_b64).unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("malformed pack JSON")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_fails_on_invalid_manifest_content() {
+        let dir = unique_dir("base64-invalid-manifest");
+        // Valid JSON, but mods list has invalid mod name
+        let json = r#"{"name":"Bad Mod Pack","mods":[{"name":"Invalid Name!","version":"1.0.0","enabled":true}]}"#;
+        let b64 = BASE64_STANDARD.encode(json.as_bytes());
+        let err = import_pack_base64(&dir, &b64).unwrap_err();
+        match err {
+            AppError::Config(msg) => assert!(msg.contains("invalid mod name")),
+            other => panic!("expected AppError::Config, got {other:?}"),
+        }
+
+        // Valid JSON, but empty mods
+        let json_empty = r#"{"name":"Empty Pack","mods":[]}"#;
+        let b64_empty = BASE64_STANDARD.encode(json_empty.as_bytes());
+        let err_empty = import_pack_base64(&dir, &b64_empty).unwrap_err();
+        match err_empty {
+            AppError::Config(msg) => assert!(msg.contains("pack has no mods")),
+            other => panic!("expected AppError::Config, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }

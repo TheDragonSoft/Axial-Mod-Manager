@@ -3,7 +3,7 @@ import { Camera, ClipboardPaste, Network } from "lucide-react";
 import {
   createPackFromInstalled,
   createPackFromMods,
-  importPack,
+  importPackBase64,
   resolveInstallPlan,
   toAppError,
 } from "../../lib/api";
@@ -30,8 +30,8 @@ const OPTIONS: { id: Exclude<Mode, "choose">; icon: typeof Camera; title: string
   {
     id: "import",
     icon: ClipboardPaste,
-    title: "Paste exported JSON",
-    hint: "Import a pack someone shared with you.",
+    title: "Paste pack code",
+    hint: "Import a pack from a shared Base64 code string.",
   },
 ];
 
@@ -47,7 +47,7 @@ export default function NewPackModal({
   const [rootName, setRootName] = useState("");
   const [rootVersion, setRootVersion] = useState("");
   const [plan, setPlan] = useState<ResolutionPlan | null>(null);
-  const [importJson, setImportJson] = useState("");
+  const [importCode, setImportCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,7 +80,7 @@ export default function NewPackModal({
   }
 
   const back = (
-    <Button variant="ghost" onClick={() => { setPlan(null); setError(null); setMode("choose"); }}>
+    <Button variant="ghost" onClick={() => { setPlan(null); setError(null); setImportCode(""); setMode("choose"); }}>
       Back
     </Button>
   );
@@ -98,7 +98,7 @@ export default function NewPackModal({
             ? "Snapshot current mods"
             : mode === "root"
               ? "Build from a root mod"
-              : "Import pack JSON"
+              : "Import pack code"
       }
       subtitle={
         mode === "choose"
@@ -245,18 +245,30 @@ export default function NewPackModal({
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
-            void run(() => importPack(importJson));
+            void run(() => importPackBase64(importCode));
           }}
         >
-          <textarea
-            autoFocus
-            value={importJson}
-            onChange={(e) => setImportJson(e.target.value)}
-            placeholder='{"name":"SeaBlock","mods":[…]}'
-            rows={10}
-            className={`w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-xs text-stone-200 placeholder-stone-600 focus:border-stone-500 focus:outline-none ${INPUT_CLASS}`}
-          />
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
+              Pack code (Base64)
+            </span>
+            <textarea
+              autoFocus
+              value={importCode}
+              onChange={(e) => {
+                setImportCode(e.target.value);
+                if (error) setError(null);
+              }}
+              placeholder="Paste Base64 pack code here…"
+              rows={8}
+              className={`w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-xs text-stone-200 placeholder-stone-600 focus:border-stone-500 focus:outline-none ${INPUT_CLASS}`}
+            />
+          </label>
+          {error && (
+            <div className="rounded-lg border border-red-900/60 bg-red-950/40 p-3 text-xs text-red-300">
+              {error}
+            </div>
+          )}
         </form>
       )}
 
@@ -278,7 +290,7 @@ export default function NewPackModal({
               variant="primary"
               type="submit"
               form="new-pack-form"
-              disabled={busy || !importJson.trim()}
+              disabled={busy || !importCode.trim()}
             >
               {busy ? "Importing…" : "Import"}
             </Button>

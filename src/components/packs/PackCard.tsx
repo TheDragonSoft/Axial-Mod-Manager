@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
-import { activatePack, activateVanilla, deletePack, exportPack, getPack, toAppError } from "../../lib/api";
+import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
+import { activatePack, activateVanilla, deletePack, exportPackBase64, getPack, toAppError } from "../../lib/api";
 import { useAppStore } from "../../store/useAppStore";
 import { useQueueStore } from "../../store/useQueueStore";
 import Badge from "../ui/Badge";
@@ -27,7 +27,7 @@ export default function PackCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [pack, setPack] = useState<Pack | null>(null);
-  const [exported, setExported] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const del = useConfirm();
   const confirm = useConfirm();
 
@@ -134,9 +134,13 @@ export default function PackCard({
     }
   }
 
-  async function doExport() {
+  async function doCopyCode() {
     try {
-      setExported(await exportPack(meta.id));
+      const code = await exportPackBase64(meta.id);
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      onStatus({ kind: "ok", text: `Pack "${meta.name}" code copied to clipboard.` });
     } catch (e) {
       onStatus({ kind: "err", text: toAppError(e).message });
     }
@@ -213,24 +217,25 @@ export default function PackCard({
         </ul>
       )}
 
-      {exported !== null && (
-        <div className="mt-4">
-          <p className="text-xs text-stone-500">
-            Export JSON — select all and copy to share this pack:
-          </p>
-          <textarea
-            readOnly
-            value={exported}
-            onFocus={(e) => e.currentTarget.select()}
-            rows={6}
-            className="mt-2 w-full rounded-lg border border-line bg-app p-2 font-mono text-[11px] text-stone-400 focus:outline-none"
-          />
-        </div>
-      )}
-
       <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
-        <Button variant="ghost" size="sm" onClick={() => void doExport()}>
-          Export
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void doCopyCode()}
+          title="Copy pack code to clipboard"
+          aria-label={`Copy code for ${meta.name} to clipboard`}
+        >
+          {copied ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-accent" />
+              <span>Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5 text-stone-400" />
+              <span>Copy Code to Clipboard</span>
+            </>
+          )}
         </Button>
         <Button
           variant={del.confirming === meta.id ? "danger" : "ghost"}

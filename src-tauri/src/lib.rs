@@ -167,6 +167,8 @@ pub fn run() {
             commands::packs::delete_pack,
             commands::packs::import_pack,
             commands::packs::export_pack,
+            commands::packs::import_pack_base64,
+            commands::packs::export_pack_base64,
             commands::packs::activate_pack,
             commands::packs::activate_vanilla,
         ])
