@@ -110,9 +110,11 @@ pub fn run() {
                     if name.is_empty() || version.is_empty() {
                         continue;
                     }
+                    // No release details at recovery time — the re-downloaded
+                    // file gets the zip-structure check only.
                     match queue
                         .clone()
-                        .enqueue(handle.clone(), mods_dir.clone(), name.to_string(), version.to_string())
+                        .enqueue(handle.clone(), mods_dir.clone(), name.to_string(), version.to_string(), None)
                         .await
                     {
                         Ok(_) => tracing::info!("re-enqueued interrupted download: {name} {version}"),

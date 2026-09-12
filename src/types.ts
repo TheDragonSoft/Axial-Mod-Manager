@@ -79,6 +79,8 @@ export interface ModRelease {
   releasedAt: string | null;
   downloadsCount: number | null;
   fileSize: number | null;
+  /** SHA1 of the release zip as published by the official portal (null = not published). */
+  sha1?: string | null;
   /** Dependency strings from this release's info.json (mirror enrichment; empty = unknown). */
   dependencies: string[];
 }

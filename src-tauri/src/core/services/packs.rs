@@ -291,10 +291,13 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
                     ));
                     continue;
                 }
+                // Pack manifests (axial-pack/1) carry only name/version — no
+                // release info to hash against, so verification here degrades
+                // to the downloader's zip-structure check.
                 match state
                     .queue
                     .clone()
-                    .enqueue(app.clone(), mods_dir.clone(), m.name.clone(), m.version.clone())
+                    .enqueue(app.clone(), mods_dir.clone(), m.name.clone(), m.version.clone(), None)
                     .await
                 {
                     Ok(_) => {

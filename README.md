@@ -73,7 +73,7 @@ It contains `settings.json`, your pack manifests (`profiles/`), and logs (`logs/
 
 ## A note on downloads
 
-Mod metadata comes from the official portal API (read-only, no authentication). Mod archives are downloaded from a community mirror (`mods-storage.re146.dev`) because official downloads require portal authentication. As with any third-party source, exercise normal caution with the mods you install.
+Mod metadata comes from the official portal API (read-only, no authentication). Mod archives are downloaded from a community mirror (`mods-storage.re146.dev`) because official downloads require portal authentication. Every archive is verified against the SHA1 hash published for that release by the official portal before it reaches your mods directory. As with any third-party source, exercise normal caution with the mods you install.
 
 ## License
 

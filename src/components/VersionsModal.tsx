@@ -50,7 +50,8 @@ export default function VersionsModal({
   async function install(version: string) {
     setInstalling(version);
     try {
-      await enqueueDownload(mod.name, version);
+      const sha1 = details?.releases.find((r) => r.version === version)?.sha1 ?? null;
+      await enqueueDownload(mod.name, version, sha1);
       onClose();
       useQueueStore.getState().open();
     } catch (e) {

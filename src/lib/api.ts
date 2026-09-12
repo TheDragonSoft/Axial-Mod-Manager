@@ -79,8 +79,17 @@ export async function indexHealthCheck(): Promise<IndexHealth> {
 
 // ---- Downloads ----
 
-export async function enqueueDownload(modName: string, version: string): Promise<QueueItem> {
-  return invoke<QueueItem>("enqueue_download", { modName, version });
+export async function enqueueDownload(
+  modName: string,
+  version: string,
+  /** Portal-published SHA1 of the release zip; the backend verifies against it. */
+  expectedSha1?: string | null,
+): Promise<QueueItem> {
+  return invoke<QueueItem>("enqueue_download", {
+    modName,
+    version,
+    expectedSha1: expectedSha1 ?? null,
+  });
 }
 
 export async function cancelDownload(id: number): Promise<void> {

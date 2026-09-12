@@ -141,6 +141,7 @@ mod tests {
                     released_at: None,
                     downloads_count: None,
                     file_size: None,
+                    sha1: None,
                     dependencies: vec![],
                 }]
             };

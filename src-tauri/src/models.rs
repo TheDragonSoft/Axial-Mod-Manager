@@ -88,6 +88,11 @@ pub struct ModRelease {
     pub released_at: Option<String>,
     pub downloads_count: Option<u64>,
     pub file_size: Option<u64>,
+    /// SHA1 of the release zip as published by the official portal; used by the
+    /// downloader to verify mirror downloads. None = not published (verify
+    /// degrades to the zip-structure check).
+    #[serde(default)]
+    pub sha1: Option<String>,
     /// Dependency strings from this release's own info.json (community-mirror
     /// enrichment; the official API no longer publishes them). Empty = unknown.
     pub dependencies: Vec<String>,

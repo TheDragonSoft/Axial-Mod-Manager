@@ -155,6 +155,7 @@ mod tests {
             released_at: None,
             downloads_count: None,
             file_size: None,
+            sha1: None,
             download_url: None,
             dependencies: vec![],
             info_json: Some(info_json),
@@ -177,6 +178,7 @@ mod tests {
                     released_at: None,
                     downloads_count: None,
                     file_size: None,
+                    sha1: None,
                     dependencies: vec![],
                 })
                 .collect(),
@@ -274,6 +276,7 @@ mod tests {
         d.dependencies = vec!["official".into()];
         d.releases[0].dependencies = vec!["official-rel".into()];
         d.releases[0].factorio_version = "2.0".into();
+        d.releases[0].sha1 = Some("official-hash".into());
         let m = mirror(
             "a",
             vec![mirror_release(
@@ -285,5 +288,8 @@ mod tests {
         assert_eq!(d.releases[0].dependencies, vec!["official-rel"]);
         assert_eq!(d.releases[0].factorio_version, "2.0");
         assert_eq!(d.dependencies, vec!["official"]);
+        // The portal-published hash must survive enrichment untouched — the
+        // downloader compares mirror bytes against it.
+        assert_eq!(d.releases[0].sha1.as_deref(), Some("official-hash"));
     }
 }

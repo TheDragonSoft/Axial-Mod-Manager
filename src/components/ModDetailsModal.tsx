@@ -109,7 +109,8 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
     : [];
 
   const startDownload = (version: string) => {
-    void enqueueDownload(mod.name, version);
+    const sha1 = details?.releases.find((r) => r.version === version)?.sha1 ?? null;
+    void enqueueDownload(mod.name, version, sha1);
     useQueueStore.getState().open();
   };
 

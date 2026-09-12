@@ -47,6 +47,16 @@ pub struct PortalRelease {
     pub downloads_count: Option<u64>,
     #[serde(default)]
     pub file_size: Option<u64>,
+    /// ASSUMPTION (verified against the live portal API, 2026-09-12): every
+    /// object in `releases` of `GET /api/mods/<name>` carries `sha1` — the
+    /// 40-char lowercase hex digest of the release zip (checked on Bottleneck:
+    /// all 70+ releases back to 2016 have it, e.g. 0.12.1 →
+    /// "01a5bc5083079905137cd943363c4b3c9bc04b27"). Note the `<name>` path
+    /// segment is case-sensitive ("bottleneck" → "Mod not found"; the portal's
+    /// own mixed-case name works). We never fall back to the mirror's copy of
+    /// this hash — verification must stay anchored to the official portal.
+    #[serde(default)]
+    pub sha1: Option<String>,
     #[serde(default)]
     #[allow(dead_code)]
     pub download_url: Option<String>,
@@ -240,6 +250,7 @@ fn map_release(r: PortalRelease) -> ModRelease {
         released_at: r.released_at,
         downloads_count: r.downloads_count,
         file_size: r.file_size,
+        sha1: r.sha1,
         // The official API no longer publishes per-release dependencies;
         // mirror_client fills these in from the community mirror.
         dependencies: Vec::new(),
@@ -491,6 +502,7 @@ mod tests {
         "releases": [
             {
                 "version": "2.1.2", "file_size": 99,
+                "sha1": "3f2a9c1d0e8b7a65544333221100ffeeddccbbaa",
                 "info_json": { "factorio_version": "2.1",
                                "dependencies": ["base", "+ ChangeInserterDropLane", "? aircraft"] }
             },
@@ -536,6 +548,16 @@ mod tests {
         let d = parse_details(DETAILS_FIXTURE).expect("fixture must parse");
         assert_eq!(d.releases[0].factorio_version, "2.1", "embedded info_json wins");
         assert_eq!(d.releases[1].factorio_version, "1.1", "top-level still honored");
+    }
+
+    #[test]
+    fn details_parses_release_sha1_and_tolerates_absence() {
+        let d = parse_details(DETAILS_FIXTURE).expect("fixture must parse");
+        assert_eq!(
+            d.releases[0].sha1.as_deref(),
+            Some("3f2a9c1d0e8b7a65544333221100ffeeddccbbaa")
+        );
+        assert_eq!(d.releases[1].sha1, None, "release without sha1 degrades to None");
     }
 
     #[test]

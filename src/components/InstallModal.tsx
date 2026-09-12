@@ -220,7 +220,7 @@ export default function InstallModal({
     setEnqueueErrors([]);
     const errors: string[] = [];
     try {
-      await enqueueDownload(mod.name, selectedVersion);
+      await enqueueDownload(mod.name, selectedVersion, selectedRelease?.sha1 ?? null);
     } catch (e) {
       errors.push(`${mod.name}: ${toAppError(e).message}`);
     }
@@ -238,7 +238,7 @@ export default function InstallModal({
       try {
         const d = await getModDetails(optName);
         const v = pickLatestCompatible(d.releases, plan.target);
-        if (v) await enqueueDownload(optName, v);
+        if (v) await enqueueDownload(optName, v, d.releases.find((r) => r.version === v)?.sha1 ?? null);
         else errors.push(`${optName}: no compatible release found`);
       } catch (e) {
         errors.push(`${optName}: ${toAppError(e).message}`);

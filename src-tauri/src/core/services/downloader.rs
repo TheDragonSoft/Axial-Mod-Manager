@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures_util::StreamExt;
+use sha1::{Digest, Sha1};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
@@ -33,6 +34,7 @@ pub struct DownloadUpdate {
     pub error: Option<String>,
 }
 
+#[derive(Debug)]
 enum JobFail {
     Cancelled,
     /// (message, transient) — transient failures are retried with backoff.
@@ -76,12 +78,15 @@ impl DownloadQueue {
 
     /// Register a download and return immediately with its queued item.
     /// Progress/completion is delivered via "download-updated" events.
+    /// `expected_sha1` is the portal-published hash of the release zip;
+    /// None (or an unusable value) degrades to the zip-structure check only.
     pub async fn enqueue(
         self: Arc<Self>,
         app: AppHandle,
         mods_dir: PathBuf,
         mod_name: String,
         version: String,
+        expected_sha1: Option<String>,
     ) -> Result<DownloadUpdate, AppError> {
         let mod_name = mod_name.trim().to_string();
         let version = version.trim().to_string();
@@ -91,6 +96,7 @@ impl DownloadQueue {
         if !plausible_version(&version) {
             return Err(AppError::Config(format!("invalid version: {version:?}")));
         }
+        let expected_sha1 = normalize_expected_sha1(expected_sha1);
 
         let ensure_dir = mods_dir.clone();
         tauri::async_runtime::spawn_blocking(move || std::fs::create_dir_all(&ensure_dir))
@@ -135,7 +141,7 @@ impl DownloadQueue {
         let _ = app.emit("download-updated", &base);
 
         tauri::async_runtime::spawn(async move {
-            let done = run_job(&self, &app, &flag, mods_dir, mod_name, version, id).await;
+            let done = run_job(&self, &app, &flag, mods_dir, mod_name, version, expected_sha1, id).await;
             self.handles.lock().expect("queue lock poisoned").remove(&id);
             self.in_flight.lock().expect("queue lock poisoned").remove(&format!("{}|{}", done.mod_name, done.version));
             let _ = app.emit("download-updated", &done);
@@ -152,6 +158,7 @@ async fn run_job(
     mods_dir: PathBuf,
     mod_name: String,
     version: String,
+    expected_sha1: Option<String>,
     id: u64,
 ) -> DownloadUpdate {
     let mut item = DownloadUpdate {
@@ -200,7 +207,7 @@ async fn run_job(
                 &DownloadUpdate { received: 0, total: 0, ..item.clone() },
             );
         }
-        match download_and_verify(&queue.http, cancel, &url, &part, app, &item).await {
+        match download_and_verify(&queue.http, cancel, &url, &part, app, &item, expected_sha1.as_deref()).await {
             Ok(total) => {
                 outcome = Ok(total);
                 break;
@@ -278,6 +285,7 @@ async fn download_and_verify(
     part: &Path,
     app: &AppHandle,
     item: &DownloadUpdate,
+    expected_sha1: Option<&str>,
 ) -> Result<u64, JobFail> {
     if cancel.load(Ordering::SeqCst) {
         return Err(JobFail::Cancelled);
@@ -337,9 +345,7 @@ async fn download_and_verify(
     }
     drop(file);
 
-    if let Err(e) = verify_mod_zip(part, &item.mod_name, &item.version).await {
-        return Err(JobFail::Error(e.to_string(), false));
-    }
+    verify_downloaded_file(part, &item.mod_name, &item.version, expected_sha1).await?;
 
     Ok(if total == 0 { received } else { total })
 }
@@ -407,6 +413,102 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
     Ok(())
 }
 
+/// Post-download checks on the `.part` file: zip structure (name/version)
+/// first, then — when the portal published a hash for this release — the
+/// SHA1 comparison. A hash mismatch is a permanent failure: retrying cannot
+/// change the bytes the mirror serves.
+async fn verify_downloaded_file(
+    part: &Path,
+    mod_name: &str,
+    version: &str,
+    expected_sha1: Option<&str>,
+) -> Result<(), JobFail> {
+    if let Err(e) = verify_mod_zip(part, mod_name, version).await {
+        return Err(JobFail::Error(e.to_string(), false));
+    }
+    let expected = match expected_sha1.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(e) => e,
+        None => {
+            tracing::warn!(mod = mod_name, %version, "no portal sha1 for this release — verifying zip structure only");
+            return Ok(());
+        }
+    };
+    match verify_sha1(part, expected).await {
+        Ok(outcome) if outcome.matches => Ok(()),
+        Ok(outcome) => Err(JobFail::Error(
+            format!(
+                "integrity check failed: expected SHA1 {expected}, downloaded file is {}",
+                outcome.actual
+            ),
+            false,
+        )),
+        Err(e) => Err(JobFail::Error(format!("integrity check failed: {e}"), false)),
+    }
+}
+
+/// Trim + shape-check the portal-published hash. A malformed expectation
+/// means our upstream assumption broke — not that the file is tampered — so
+/// degrade to "no expectation" instead of permanently failing every download
+/// of the affected mod.
+fn normalize_expected_sha1(raw: Option<String>) -> Option<String> {
+    let t = raw?.trim().to_ascii_lowercase();
+    if t.is_empty() {
+        return None;
+    }
+    if t.len() != 40 || !t.chars().all(|c| c.is_ascii_hexdigit()) {
+        tracing::warn!(expected = %t, "ignoring malformed expected sha1");
+        return None;
+    }
+    Some(t)
+}
+
+/// Result of comparing a file's actual SHA1 against the expected digest.
+struct Sha1Outcome {
+    matches: bool,
+    /// Lowercase hex of the file's digest — reported in failure messages.
+    actual: String,
+}
+
+/// Sync hash check moved off the async runtime (same reason as verify_mod_zip).
+async fn verify_sha1(path: &Path, expected: &str) -> Result<Sha1Outcome, AppError> {
+    let path = path.to_path_buf();
+    let expected = expected.to_string();
+    tauri::async_runtime::spawn_blocking(move || verify_sha1_sync(&path, &expected))
+        .await
+        .map_err(|e| AppError::Parse(format!("hash task failed: {e}")))?
+}
+
+/// Stream-hash `path` (SHA1 over 64 KiB chunks — never loads the whole zip)
+/// and compare against `expected`, case-insensitively.
+fn verify_sha1_sync(path: &Path, expected: &str) -> Result<Sha1Outcome, AppError> {
+    use std::io::Read as _;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha1::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let actual = to_hex(&hasher.finalize());
+    Ok(Sha1Outcome {
+        matches: actual.eq_ignore_ascii_case(expected.trim()),
+        actual,
+    })
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+
 /// Delete `{name}_*.zip` files whose filename differs from `keep`.
 /// Best-effort: a locked file (game running) is skipped silently.
 fn remove_other_versions(dir: &Path, keep: &str, mod_name: &str) -> std::io::Result<()> {
@@ -433,4 +535,145 @@ fn anticache_token() -> String {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     format!("0.{nanos:09}")
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// SHA1("abc") — the canonical NIST test vector; pins our hex encoding.
+    const ABC_SHA1: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
+    const WRONG_SHA1: &str = "0000000000000000000000000000000000000000";
+
+    /// Per-test scratch dir under the system temp dir, removed on drop.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("axial-dl-test-{tag}-{}", std::process::id()));
+            std::fs::create_dir_all(&path).expect("create scratch dir");
+            TempDir(path)
+        }
+
+        fn path(&self, name: &str) -> PathBuf {
+            self.0.join(name)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write_mod_zip(path: &Path, name: &str, version: &str) {
+        use std::io::Write as _;
+        let file = std::fs::File::create(path).expect("create zip file");
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default())
+            .expect("start info.json entry");
+        write!(zip, r#"{{"name":"{name}","version":"{version}"}}"#).expect("write info.json");
+        zip.finish().expect("finish zip");
+    }
+
+    #[test]
+    fn sha1_match_passes() {
+        let dir = TempDir::new("match");
+        let f = dir.path("mod.zip");
+        std::fs::write(&f, b"abc").expect("write temp file");
+        let out = verify_sha1_sync(&f, ABC_SHA1).expect("hash must compute");
+        assert!(out.matches);
+        assert_eq!(out.actual, ABC_SHA1);
+    }
+
+    #[test]
+    fn sha1_comparison_is_case_insensitive() {
+        let dir = TempDir::new("case");
+        let f = dir.path("mod.zip");
+        std::fs::write(&f, b"abc").expect("write temp file");
+        let upper = ABC_SHA1.to_ascii_uppercase();
+        assert!(verify_sha1_sync(&f, &upper).expect("hash must compute").matches);
+    }
+
+    #[test]
+    fn sha1_mismatch_reports_actual_hash() {
+        let dir = TempDir::new("mismatch");
+        let f = dir.path("mod.zip");
+        std::fs::write(&f, b"abc").expect("write temp file");
+        let out = verify_sha1_sync(&f, WRONG_SHA1).expect("hash must compute");
+        assert!(!out.matches);
+        assert_eq!(out.actual, ABC_SHA1, "actual digest feeds the error message");
+    }
+
+    #[test]
+    fn sha1_streams_multi_chunk_files() {
+        let dir = TempDir::new("chunks");
+        let f = dir.path("big.zip");
+        let data = vec![0x5a_u8; 200_000]; // several 64 KiB read chunks
+        std::fs::write(&f, &data).expect("write temp file");
+        // Oracle value from the same crate; to_hex itself is pinned by the
+        // known-vector tests above.
+        let expected = to_hex(&Sha1::digest(&data));
+        assert!(verify_sha1_sync(&f, &expected).expect("hash must compute").matches);
+    }
+
+    #[test]
+    fn normalize_expected_sha1_filters_garbage() {
+        assert_eq!(normalize_expected_sha1(None), None);
+        assert_eq!(normalize_expected_sha1(Some(String::new())), None);
+        assert_eq!(normalize_expected_sha1(Some("   ".into())), None);
+        assert_eq!(normalize_expected_sha1(Some("not-a-hash".into())), None);
+        assert_eq!(normalize_expected_sha1(Some(ABC_SHA1.into())), Some(ABC_SHA1.into()));
+        assert_eq!(
+            normalize_expected_sha1(Some(ABC_SHA1.to_ascii_uppercase())),
+            Some(ABC_SHA1.into()),
+            "uppercase input is accepted and folded to lowercase"
+        );
+    }
+
+    #[tokio::test]
+    async fn absent_or_empty_expectation_degrades_to_zip_check_only() {
+        let dir = TempDir::new("absent");
+        let f = dir.path("mod.zip");
+        write_mod_zip(&f, "a-mod", "1.0.0");
+        verify_downloaded_file(&f, "a-mod", "1.0.0", None)
+            .await
+            .expect("no expectation → zip-structure check only");
+        verify_downloaded_file(&f, "a-mod", "1.0.0", Some(""))
+            .await
+            .expect("blank expectation is treated as absent");
+    }
+
+    #[tokio::test]
+    async fn matching_expectation_passes_after_zip_check() {
+        let dir = TempDir::new("pass");
+        let f = dir.path("mod.zip");
+        write_mod_zip(&f, "a-mod", "1.0.0");
+        let actual = verify_sha1_sync(&f, WRONG_SHA1).expect("hash must compute").actual;
+        verify_downloaded_file(&f, "a-mod", "1.0.0", Some(&actual))
+            .await
+            .expect("valid zip + matching hash passes");
+    }
+
+    #[tokio::test]
+    async fn sha1_mismatch_is_a_permanent_failure() {
+        let dir = TempDir::new("permanent");
+        let f = dir.path("mod.zip");
+        write_mod_zip(&f, "a-mod", "1.0.0");
+        let err = verify_downloaded_file(&f, "a-mod", "1.0.0", Some(WRONG_SHA1))
+            .await
+            .expect_err("mismatched hash must fail");
+        match err {
+            JobFail::Error(msg, transient) => {
+                assert!(!transient, "the mirror's bytes cannot change on retry");
+                assert!(msg.contains("integrity check failed"), "message for the queue UI: {msg}");
+            }
+            JobFail::Cancelled => panic!("expected an error, got Cancelled"),
+        }
+    }
 }

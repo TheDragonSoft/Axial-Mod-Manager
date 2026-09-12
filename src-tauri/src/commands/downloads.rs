@@ -10,13 +10,16 @@ pub async fn enqueue_download(
     state: State<'_, AppState>,
     mod_name: String,
     version: String,
+    // SHA1 of the release zip as published by the official portal; callers
+    // holding the release details pass it so the download can be verified.
+    expected_sha1: Option<String>,
 ) -> Result<DownloadUpdate, AppError> {
     let config = state.config.read().expect("config lock poisoned").clone();
     let mods_dir = crate::core::services::mod_store::resolve_dir(&config)?;
     state
         .queue
         .clone()
-        .enqueue(app, mods_dir, mod_name, version)
+        .enqueue(app, mods_dir, mod_name, version, expected_sha1)
         .await
 }
 
