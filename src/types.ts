@@ -46,6 +46,13 @@ export interface DetectedGame {
   source: string;
 }
 
+/** Mirror of Rust's DetectionStatus (serde camelCase). */
+export interface DetectionStatus {
+  isDetected: boolean;
+  game: DetectedGame | null;
+  effectiveModsDir: string | null;
+}
+
 /** Facts about a candidate game directory; game is set when it is an install. */
 export interface GameDirStatus {
   path: string;

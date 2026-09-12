@@ -117,13 +117,13 @@ impl CachedHttp {
         let response = request
             .send()
             .await
-            .map_err(|e| AppError::Http(format!("request failed: {e}")))?;
+            .map_err(|e| AppError::Network(format!("request failed: {e}")))?;
 
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|e| AppError::Http(format!("could not read response body: {e}")))?;
+            .map_err(|e| AppError::Network(format!("could not read response body: {e}")))?;
 
         if !status.is_success() {
             let excerpt: String = body.chars().take(200).collect();

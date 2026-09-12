@@ -13,9 +13,11 @@ import {
   enqueueDownload,
   getModDetails,
   getSettings,
+  isNetworkOrHttpError,
   resolveInstallPlan,
   toAppError,
 } from "../lib/api";
+import { useAppStore } from "../store/useAppStore";
 import { useQueueStore } from "../store/useQueueStore";
 import { useThumbnails, useThumbnailUrl } from "../lib/thumbnails";
 import { compareVersions, formatBytes } from "../lib/format";
@@ -26,7 +28,7 @@ import Modal from "./ui/Modal";
 import Select from "./ui/Select";
 import Spinner from "./ui/Spinner";
 import Toggle from "./ui/Toggle";
-import type { ModDetails, ModRelease, ModSummary, ResolutionPlan } from "../types";
+import type { AppError, ModDetails, ModRelease, ModSummary, ResolutionPlan } from "../types";
 
 function pickLatestCompatible(
   releases: ModRelease[],
@@ -136,15 +138,19 @@ export default function InstallModal({
   mod: ModSummary;
   onClose: () => void;
 }) {
+  const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
+  const effectiveModsDir = useAppStore((s) => s.effectiveModsDir);
+  const setActiveTab = useAppStore((s) => s.setActiveTab);
+
   const [details, setDetails] = useState<ModDetails | null>(null);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [detailsError, setDetailsError] = useState<AppError | null>(null);
   const [loading, setLoading] = useState(true);
   const [target, setTarget] = useState("2.0");
   const [modsDir, setModsDir] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const [showAllVersions, setShowAllVersions] = useState(false);
   const [plan, setPlan] = useState<ResolutionPlan | null>(null);
-  const [planError, setPlanError] = useState<string | null>(null);
+  const [planError, setPlanError] = useState<AppError | null>(null);
   const [planLoading, setPlanLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [installing, setInstalling] = useState(false);
@@ -160,7 +166,7 @@ export default function InstallModal({
         setModsDir(s.modsDir);
         setSelectedVersion((v) => v ?? pickLatestCompatible(d.releases, s.targetFactorioVersion));
       })
-      .catch((e) => setDetailsError(toAppError(e).message))
+      .catch((e) => setDetailsError(toAppError(e)))
       .finally(() => setLoading(false));
   }, [mod.name]);
 
@@ -189,7 +195,7 @@ export default function InstallModal({
       );
     } catch (e) {
       setPlan(null);
-      setPlanError(toAppError(e).message);
+      setPlanError(toAppError(e));
     } finally {
       setPlanLoading(false);
     }
@@ -222,14 +228,24 @@ export default function InstallModal({
     try {
       await enqueueDownload(mod.name, selectedVersion, selectedRelease?.sha1 ?? null);
     } catch (e) {
-      errors.push(`${mod.name}: ${toAppError(e).message}`);
+      const err = toAppError(e);
+      if (err.kind === "not_found") {
+        errors.push("Factorio not found — set your mods folder in Settings.");
+      } else {
+        errors.push(`${mod.name}: ${err.message}`);
+      }
     }
     for (const dep of requiredDeps) {
       if (!selected.has(dep.name)) continue;
       try {
         await enqueueDownload(dep.name, dep.version);
       } catch (e) {
-        errors.push(`${dep.name}: ${toAppError(e).message}`);
+        const err = toAppError(e);
+        if (err.kind === "not_found") {
+          errors.push("Factorio not found — set your mods folder in Settings.");
+        } else {
+          errors.push(`${dep.name}: ${err.message}`);
+        }
       }
     }
     // Optionals have no resolver-provided version — pick latest compatible.
@@ -241,7 +257,12 @@ export default function InstallModal({
         if (v) await enqueueDownload(optName, v, d.releases.find((r) => r.version === v)?.sha1 ?? null);
         else errors.push(`${optName}: no compatible release found`);
       } catch (e) {
-        errors.push(`${optName}: ${toAppError(e).message}`);
+        const err = toAppError(e);
+        if (err.kind === "not_found") {
+          errors.push("Factorio not found — set your mods folder in Settings.");
+        } else {
+          errors.push(`${optName}: ${err.message}`);
+        }
       }
     }
     setInstalling(false);
@@ -297,7 +318,12 @@ export default function InstallModal({
             <Button
               variant="primary"
               onClick={() => void install()}
-              disabled={installing || loading || planLoading || hasConflicts || !selectedVersion}
+              disabled={isFactorioDetected === false || installing || loading || planLoading || hasConflicts || !selectedVersion}
+              title={
+                isFactorioDetected === false
+                  ? "Factorio not found — set your mods folder in Settings"
+                  : undefined
+              }
             >
               {installing ? (
                 <Spinner className="text-stone-500" />
@@ -313,6 +339,27 @@ export default function InstallModal({
       }
     >
       <p className="text-sm leading-relaxed text-stone-400">{mod.summary}</p>
+
+      {isFactorioDetected === false && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-amber-900/60 bg-amber-950/30 p-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+            <p className="text-xs text-amber-300">
+              Factorio not found — set your mods folder in Settings before installing.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              onClose();
+              setActiveTab("settings");
+            }}
+          >
+            Open Settings
+          </Button>
+        </div>
+      )}
 
       {/* ---- Version / File ---- */}
       <section className="mt-5 border-t border-line pt-4">
@@ -336,14 +383,27 @@ export default function InstallModal({
             <Spinner /> Loading releases…
           </p>
         )}
-        {detailsError && (
-          <div className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 p-3">
-            <p className="text-xs text-red-400">{detailsError}</p>
-            <Button variant="ghost" size="sm" onClick={loadDetails} className="mt-2">
-              Retry
-            </Button>
-          </div>
-        )}
+        {detailsError &&
+          (isNetworkOrHttpError(detailsError) ? (
+            <div className="mt-3 flex items-center justify-between rounded-lg border border-amber-900/60 bg-amber-950/30 p-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                <p className="text-xs text-amber-300">
+                  Can't reach the portal to load mod details.
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={loadDetails}>
+                Retry
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 p-3">
+              <p className="text-xs text-red-400">{detailsError.message}</p>
+              <Button variant="ghost" size="sm" onClick={loadDetails} className="mt-2">
+                Retry
+              </Button>
+            </div>
+          ))}
 
         {!loading && !detailsError && releases.length === 0 && (
           <p className="mt-3 text-sm text-stone-500">No releases available.</p>
@@ -461,19 +521,36 @@ export default function InstallModal({
             </p>
           </div>
         )}
-        {planError && (
-          <div className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 p-3">
-            <p className="text-xs text-red-400">{planError}</p>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void loadPlan()}
-              className="mt-2"
-            >
-              Retry
-            </Button>
-          </div>
-        )}
+        {planError &&
+          (isNetworkOrHttpError(planError) ? (
+            <div className="mt-3 flex items-center justify-between rounded-lg border border-amber-900/60 bg-amber-950/30 p-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+                <p className="text-xs text-amber-300">
+                  Can't reach the portal or community mirror to resolve dependencies.
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void loadPlan()}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 p-3">
+              <p className="text-xs text-red-400">{planError.message}</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void loadPlan()}
+                className="mt-2"
+              >
+                Retry
+              </Button>
+            </div>
+          ))}
 
         {plan && plan.conflicts.length > 0 && (
           <div className="mt-3 rounded-lg border border-red-900/60 bg-red-950/40 p-3">
@@ -568,7 +645,9 @@ export default function InstallModal({
         <section className="mt-4 border-t border-line pt-4">
           <div className="rounded-lg border border-line bg-surface px-4 py-2">
             <KeyValue label="Target Directory" mono>
-              {modsDir ?? "auto-detected on launch"}
+              {isFactorioDetected === false
+                ? "Factorio not found — set in Settings"
+                : modsDir ?? effectiveModsDir ?? "auto-detected on launch"}
             </KeyValue>
             <KeyValue label="File Name" mono>
               {`${mod.name}_${selectedRelease.version}.zip`}

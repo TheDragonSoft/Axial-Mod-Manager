@@ -10,6 +10,9 @@ pub enum AppError {
     #[error("HTTP error: {0}")]
     Http(String),
 
+    #[error("Network error: {0}")]
+    Network(String),
+
     #[error("Parse error: {0}")]
     Parse(String),
 
@@ -30,6 +33,7 @@ impl AppError {
         match self {
             AppError::Io(_) => "io",
             AppError::Http(_) => "http",
+            AppError::Network(_) => "network",
             AppError::Parse(_) => "parse",
             AppError::NotFound(_) => "not_found",
             AppError::Config(_) => "config",

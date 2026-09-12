@@ -7,10 +7,12 @@ import {
   Heart,
   Search,
   SearchX,
+  WifiOff,
 } from "lucide-react";
 import {
   getModDetails,
   indexHealthCheck,
+  isNetworkOrHttpError,
   searchMods,
   toAppError,
 } from "../lib/api";
@@ -152,6 +154,15 @@ function FavoritesView({
   }
 
   if (details.length === 0) {
+    if (favorites.length > 0) {
+      return (
+        <EmptyState
+          icon={WifiOff}
+          title="Can't reach the portal"
+          hint="Axial couldn't reach the portal to load your favorites."
+        />
+      );
+    }
     return (
       <EmptyState
         icon={Heart}
@@ -284,25 +295,40 @@ export default function BrowsePage() {
             </div>
           )}
 
-          {error && (
-            <div className="mt-4 rounded-xl border border-red-900/60 bg-red-950/40 p-4">
-              <p className="text-sm text-red-400">
-                <Badge tone="red" className="mr-2 font-mono uppercase">
-                  {error.kind}
-                </Badge>
-                {error.message}
-              </p>
-              <div className="mt-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setReloadKey((k) => k + 1)}
-                >
-                  Retry
-                </Button>
+          {error &&
+            (isNetworkOrHttpError(error) ? (
+              <EmptyState
+                icon={WifiOff}
+                title="Can't reach the portal"
+                hint="Axial couldn't connect to the Factorio mod portal. Check your internet connection."
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => setReloadKey((k) => k + 1)}
+                  >
+                    Retry
+                  </Button>
+                }
+              />
+            ) : (
+              <div className="mt-4 rounded-xl border border-red-900/60 bg-red-950/40 p-4">
+                <p className="text-sm text-red-400">
+                  <Badge tone="red" className="mr-2 font-mono uppercase">
+                    {error.kind}
+                  </Badge>
+                  {error.message}
+                </p>
+                <div className="mt-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setReloadKey((k) => k + 1)}
+                  >
+                    Retry
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
+            ))}
 
           {showSkeletons && (
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

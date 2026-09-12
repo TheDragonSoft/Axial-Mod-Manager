@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import {
   detectGameInstall,
-  detectModsDir,
+  getDetectionStatus,
   getSettings,
   setSettings,
   toAppError,
@@ -144,6 +144,7 @@ function DirStatusLine({ status }: { status: ModsDirStatus }) {
 }
 
 export default function SettingsPage() {
+  const effectiveModsDir = useAppStore((s) => s.effectiveModsDir);
   const [section, setSection] = useState<Section>("storage");
   const [modsDirInput, setModsDirInput] = useState("");
   const [gameDirInput, setGameDirInput] = useState("");
@@ -152,7 +153,6 @@ export default function SettingsPage() {
   const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
   const [status, setStatus] = useState<ModsDirStatus | null>(null);
   const [gameStatus, setGameStatus] = useState<GameDirStatus | null>(null);
-  const [modsDirWasAutoDetected, setModsDirWasAutoDetected] = useState(false);
   const [gameDirWasAutoDetected, setGameDirWasAutoDetected] = useState(false);
   const [scanningGame, setScanningGame] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -162,12 +162,13 @@ export default function SettingsPage() {
 
   async function refreshStatus(path: string) {
     const trimmed = path.trim();
-    if (!trimmed) {
+    const probePath = trimmed || useAppStore.getState().effectiveModsDir;
+    if (!probePath) {
       setStatus(null);
       return;
     }
     try {
-      setStatus(await validateModsDir(trimmed));
+      setStatus(await validateModsDir(probePath));
     } catch {
       setStatus(null);
     }
@@ -244,12 +245,11 @@ export default function SettingsPage() {
           setModsDirInput(s.modsDir);
           await refreshStatus(s.modsDir);
         } else {
-          // Nothing saved yet: offer the platform default as a prefill.
-          const detected = await detectModsDir();
-          if (detected) {
-            setModsDirInput(detected.path);
-            setModsDirWasAutoDetected(true);
-            await refreshStatus(detected.path);
+          setModsDirInput("");
+          const det = await getDetectionStatus();
+          useAppStore.getState().setDetectionStatus(det);
+          if (det.effectiveModsDir) {
+            await refreshStatus(det.effectiveModsDir);
           }
         }
         if (s.gameDir) {
@@ -268,7 +268,6 @@ export default function SettingsPage() {
   }, []);
 
   function markDirty() {
-    setModsDirWasAutoDetected(false);
     setGameDirWasAutoDetected(false);
     setSaveState("idle");
     setSaveError(null);
@@ -328,7 +327,6 @@ export default function SettingsPage() {
         checkForUpdates,
         dismissedUpdateVersion,
       });
-      setModsDirWasAutoDetected(false);
       setGameDirWasAutoDetected(false);
       setSaveState("saved");
     } catch (err) {
@@ -412,11 +410,22 @@ export default function SettingsPage() {
                   </Button>
                 </div>
               </label>
-              {status && <DirStatusLine status={status} />}
-              {modsDirWasAutoDetected && (
-                <p className="mt-1 text-xs text-accent/80">
-                  Auto-detected — click Save to keep it.
-                </p>
+              {!modsDirInput.trim() ? (
+                effectiveModsDir ? (
+                  <div className="mt-2 space-y-1">
+                    <p className="text-xs text-stone-400">
+                      Active: <span className="font-mono text-stone-200">{effectiveModsDir}</span>{" "}
+                      <span className="text-accent">(auto-detected)</span>
+                    </p>
+                    {status && <DirStatusLine status={status} />}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-amber-400">
+                    No mods folder detected — set your Factorio mods directory above or leave empty to auto-detect when Factorio is installed.
+                  </p>
+                )
+              ) : (
+                status && <DirStatusLine status={status} />
               )}
             </Panel>
           )}

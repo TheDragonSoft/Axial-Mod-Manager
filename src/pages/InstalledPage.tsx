@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpCircle, ChevronRight, History, Package, RefreshCw, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpCircle,
+  ChevronRight,
+  History,
+  Package,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import Toggle from "../components/ui/Toggle";
 import VersionsModal from "../components/VersionsModal";
 import {
   checkUpdates,
   enqueueDownload,
+  isNetworkOrHttpError,
   listInstalled,
   toAppError,
   toggleMod,
@@ -198,11 +207,16 @@ function GameVersionBadge({ factorioVersion }: { factorioVersion: string }) {
 }
 
 export default function InstalledPage() {
+  const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
+  const effectiveModsDir = useAppStore((s) => s.effectiveModsDir);
+  const setActiveTab = useAppStore((s) => s.setActiveTab);
+
   const [snapshot, setSnapshot] = useState<Awaited<
     ReturnType<typeof listInstalled>
   > | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [busyFile, setBusyFile] = useState<string | null>(null);
   const [report, setReport] = useState<UpdatesReport | null>(null);
   const [checking, setChecking] = useState(false);
@@ -222,7 +236,14 @@ export default function InstalledPage() {
       setSnapshot(snap);
       setError(null);
     } catch (e) {
-      setError(toAppError(e).message);
+      const err = toAppError(e);
+      if (err.kind === "not_found") {
+        // Factorio not found — gracefully surfaced via empty state
+        setSnapshot(null);
+        setError(null);
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -270,6 +291,7 @@ export default function InstalledPage() {
 
   async function runCheck() {
     setChecking(true);
+    setUpdateError(null);
     try {
       const r = await checkUpdates();
       setReport(r);
@@ -277,7 +299,14 @@ export default function InstalledPage() {
         .getState()
         .setUpdateCount(r.updates.length > 0 ? r.updates.length : null);
     } catch (e) {
-      setError(toAppError(e).message);
+      const err = toAppError(e);
+      if (isNetworkOrHttpError(err)) {
+        setUpdateError("Can't reach the portal to check for updates.");
+      } else if (err.kind === "not_found") {
+        setUpdateError("Factorio not found — set your mods folder in Settings.");
+      } else {
+        setError(err.message);
+      }
     } finally {
       setChecking(false);
     }
@@ -367,39 +396,47 @@ export default function InstalledPage() {
       <PageHeader
         icon={Package}
         title="Installed"
-        subtitle={snapshot?.modsDir ?? "Scanning mods folder…"}
+        subtitle={
+          isFactorioDetected === false
+            ? "Factorio not found — set your mods folder in Settings"
+            : snapshot?.modsDir ?? effectiveModsDir ?? "Scanning mods folder…"
+        }
         actions={
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => void runCheck()}
-              disabled={checking}
-            >
-              {checking ? <Spinner /> : <RefreshCw className="h-4 w-4" />}
-              Check for updates
-            </Button>
-            {report && report.updates.length > 0 && (
-              <Button variant="primary" onClick={() => void updateAll()}>
-                Update all ({report.updates.length})
+          isFactorioDetected === false ? undefined : (
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => void runCheck()}
+                disabled={checking}
+              >
+                {checking ? <Spinner /> : <RefreshCw className="h-4 w-4" />}
+                Check for updates
               </Button>
-            )}
-          </>
+              {report && report.updates.length > 0 && (
+                <Button variant="primary" onClick={() => void updateAll()}>
+                  Update all ({report.updates.length})
+                </Button>
+              )}
+            </>
+          )
         }
       />
 
-      <p className="-mt-3 mb-4 text-xs text-stone-600">
-        {loading
-          ? "Scanning mods folder…"
-          : `${mods.length} mod${mods.length === 1 ? "" : "s"} on disk`}
-        {snapshot &&
-          !snapshot.modListExists &&
-          " · mod-list.json not found — everything counts as enabled until first toggle"}
-        {report &&
-          ` · ${report.updates.length} update${report.updates.length === 1 ? "" : "s"} · ${report.upToDate.length} up to date · target ${report.target}`}
-        {report &&
-          report.errors.length > 0 &&
-          ` · ${report.errors.length} could not be checked`}
-      </p>
+      {isFactorioDetected !== false && (
+        <p className="-mt-3 mb-4 text-xs text-stone-600">
+          {loading
+            ? "Scanning mods folder…"
+            : `${mods.length} mod${mods.length === 1 ? "" : "s"} on disk`}
+          {snapshot &&
+            !snapshot.modListExists &&
+            " · mod-list.json not found — everything counts as enabled until first toggle"}
+          {report &&
+            ` · ${report.updates.length} update${report.updates.length === 1 ? "" : "s"} · ${report.upToDate.length} up to date · target ${report.target}`}
+          {report &&
+            report.errors.length > 0 &&
+            ` · ${report.errors.length} could not be checked`}
+        </p>
+      )}
 
       {report && report.errors.length > 0 && (
         <p className="mb-4 text-[11px] text-stone-600">
@@ -411,13 +448,36 @@ export default function InstalledPage() {
         </p>
       )}
 
+      {updateError && (
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-amber-900/60 bg-amber-950/30 p-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+            <p className="text-xs text-amber-300">{updateError}</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => void runCheck()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 rounded-xl border border-red-900/60 bg-red-950/40 p-3">
           <p className="text-xs text-red-400">{error}</p>
         </div>
       )}
 
-      {loading ? (
+      {isFactorioDetected === false || (!loading && snapshot === null && !error) ? (
+        <EmptyState
+          icon={AlertTriangle}
+          title="Factorio not found"
+          hint="Set your mods folder in Settings to view and manage installed mods."
+          action={
+            <Button variant="secondary" onClick={() => setActiveTab("settings")}>
+              Open Settings
+            </Button>
+          }
+        />
+      ) : loading ? (
         <div className="space-y-3">
           {Array.from({ length: 5 }, (_, i) => (
             <div

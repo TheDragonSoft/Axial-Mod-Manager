@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { DetectedGame, DetectionStatus } from "../types";
 
 export type Tab = "dashboard" | "browse" | "installed" | "packs" | "settings";
 
@@ -29,6 +30,12 @@ interface AppState {
    * pack-activated arrives. Drives the in-progress toggle state. */
   activatingPackId: string | null;
   setActivatingPackId: (id: string | null) => void;
+  /** Factorio detection facts — cached across pages. */
+  isFactorioDetected: boolean | null;
+  detectedGame: DetectedGame | null;
+  effectiveModsDir: string | null;
+  detectionChecked: boolean;
+  setDetectionStatus: (status: DetectionStatus) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -48,4 +55,15 @@ export const useAppStore = create<AppState>((set) => ({
   setActivePackId: (id) => set({ activePackId: id }),
   activatingPackId: null,
   setActivatingPackId: (id) => set({ activatingPackId: id }),
+  isFactorioDetected: null,
+  detectedGame: null,
+  effectiveModsDir: null,
+  detectionChecked: false,
+  setDetectionStatus: (status: DetectionStatus) =>
+    set({
+      isFactorioDetected: status.isDetected,
+      detectedGame: status.game,
+      effectiveModsDir: status.effectiveModsDir,
+      detectionChecked: true,
+    }),
 }));

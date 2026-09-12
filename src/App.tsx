@@ -16,7 +16,7 @@ import { useAppStore, type Tab } from "./store/useAppStore";
 import { useQueueStore } from "./store/useQueueStore";
 import { useActivityStore } from "./store/useActivityStore";
 import { onDownloadUpdated, onPackActivated, onSettingsChanged } from "./lib/events";
-import { getSettings, ping, setSettings } from "./lib/api";
+import { getDetectionStatus, getSettings, ping, setSettings } from "./lib/api";
 
 export type BridgeStatus = "connecting" | "online" | "error";
 
@@ -142,19 +142,28 @@ export default function App() {
     };
   }, []);
 
-  // Target game version for the compat badges — loaded once, kept fresh by
-  // settings-changed so badge coloring survives a settings save.
-  // Also keeps activePackId in sync with the backend Config.
+  // Target game version for compat badges, active pack ID, and detection status —
+  // loaded once at startup and kept fresh by settings-changed.
   useEffect(() => {
+    const refreshDetection = () => {
+      getDetectionStatus()
+        .then((st) => useAppStore.getState().setDetectionStatus(st))
+        .catch(() => undefined);
+    };
+
     getSettings()
       .then((s) => {
         useAppStore.getState().setTargetFactorioVersion(s.targetFactorioVersion);
         useAppStore.getState().setActivePackId(s.activePackId);
       })
       .catch(() => undefined);
+
+    refreshDetection();
+
     const unlisten = onSettingsChanged((s) => {
       useAppStore.getState().setTargetFactorioVersion(s.targetFactorioVersion);
       useAppStore.getState().setActivePackId(s.activePackId);
+      refreshDetection();
     });
     return () => {
       void unlisten.then((f) => f());

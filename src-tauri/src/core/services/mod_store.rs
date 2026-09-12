@@ -8,8 +8,11 @@ use std::time::SystemTime;
 use serde_json::json;
 
 use crate::config::Config;
+use crate::core::services::game_detect;
 use crate::error::AppError;
-use crate::models::{DetectedDir, InstalledMod, InstalledSnapshot, ModsDirStatus};
+use crate::models::{
+    DetectedDir, DetectedGame, DetectionStatus, InstalledMod, InstalledSnapshot, ModsDirStatus,
+};
 
 const MOD_LIST_FILE: &str = "mod-list.json";
 
@@ -129,20 +132,79 @@ fn count_zips(dir: &Path) -> u32 {
 // Path resolution (Phase 5)
 // ---------------------------------------------------------------------------
 
-/// Effective mods directory: configured path, else platform detect.
-pub fn resolve_dir(config: &Config) -> Result<PathBuf, AppError> {
-    if let Some(p) = &config.mods_dir {
-        if !p.trim().is_empty() {
-            return Ok(PathBuf::from(p));
+/// Pure resolution logic over candidate directory probes.
+///
+/// Order of precedence:
+/// 1. Explicitly configured path in `config.mods_dir` (if non-empty).
+/// 2. Auto-detected platform mods directory if it actually exists.
+/// 3. Detected game install's portable mods directory if present and existing.
+/// 4. Detected game install's standard platform mods directory (game exists on machine,
+///    so default mods path is valid even if empty/uncreated yet).
+/// 5. NotFound error if none of the above match.
+pub fn decide_mods_dir(
+    configured: Option<&str>,
+    platform_dir: Option<&DetectedDir>,
+    game: Option<&DetectedGame>,
+) -> Result<PathBuf, AppError> {
+    if let Some(p) = configured {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed));
         }
     }
-    detect()
-        .map(|d| PathBuf::from(d.path))
-        .ok_or_else(|| {
-            AppError::Config(
-                "could not determine the Factorio mods directory — set it in Settings".into(),
-            )
-        })
+    if let Some(d) = platform_dir {
+        if d.exists {
+            return Ok(PathBuf::from(&d.path));
+        }
+    }
+    if let Some(g) = game {
+        if let Some(p) = &g.portable_mods_dir {
+            return Ok(PathBuf::from(p));
+        }
+        if let Some(d) = platform_dir {
+            return Ok(PathBuf::from(&d.path));
+        }
+    }
+    Err(AppError::NotFound(
+        "Factorio not found — set your mods folder in Settings".into(),
+    ))
+}
+
+/// Effective mods directory: configured path, else platform detect or game-hinted path.
+pub fn resolve_dir(config: &Config) -> Result<PathBuf, AppError> {
+    let platform = detect();
+    let game = if let Some(p) = config.game_dir.as_deref() {
+        if !p.trim().is_empty() {
+            game_detect::inspect_install(Path::new(p), "custom")
+        } else {
+            game_detect::detect()
+        }
+    } else {
+        game_detect::detect()
+    };
+    decide_mods_dir(config.mods_dir.as_deref(), platform.as_ref(), game.as_ref())
+}
+
+/// Complete detection state: whether Factorio was found, the detected game,
+/// and the effective mods directory.
+pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
+    let game = if let Some(p) = config.game_dir.as_deref() {
+        if !p.trim().is_empty() {
+            game_detect::inspect_install(Path::new(p), "custom")
+        } else {
+            game_detect::detect()
+        }
+    } else {
+        game_detect::detect()
+    };
+    let platform = detect();
+    let effective = decide_mods_dir(config.mods_dir.as_deref(), platform.as_ref(), game.as_ref()).ok();
+    let is_detected = effective.is_some() || game.is_some();
+    DetectionStatus {
+        is_detected,
+        game,
+        effective_mods_dir: effective.map(|p| p.to_string_lossy().into_owned()),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -683,7 +745,7 @@ pub fn disable_all_mods(dir: &Path) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{disable_all_mods, fallback_name_version, scan_installed, ZipInfoCache};
+    use super::*;
     use std::fs;
     use std::io::Write;
     use std::path::{Path, PathBuf};
@@ -874,5 +936,78 @@ mod tests {
         }
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn decide_mods_dir_respects_configured_directory() {
+        let res = decide_mods_dir(Some("  /custom/mods/dir  "), None, None).unwrap();
+        assert_eq!(res, PathBuf::from("/custom/mods/dir"));
+
+        let platform = DetectedDir {
+            path: "/platform/mods".into(),
+            exists: true,
+        };
+        let res2 = decide_mods_dir(Some("/custom/mods/dir"), Some(&platform), None).unwrap();
+        assert_eq!(res2, PathBuf::from("/custom/mods/dir"));
+    }
+
+    #[test]
+    fn decide_mods_dir_uses_existing_platform_dir_when_unconfigured() {
+        let platform = DetectedDir {
+            path: "/platform/mods".into(),
+            exists: true,
+        };
+        let res = decide_mods_dir(None, Some(&platform), None).unwrap();
+        assert_eq!(res, PathBuf::from("/platform/mods"));
+    }
+
+    #[test]
+    fn decide_mods_dir_uses_portable_mods_dir_from_detected_game() {
+        let platform = DetectedDir {
+            path: "/platform/mods".into(),
+            exists: false,
+        };
+        let game = DetectedGame {
+            install_dir: "/game".into(),
+            exe_path: Some("/game/bin/factorio".into()),
+            version: Some("2.0.0".into()),
+            target_version: Some("2.0".into()),
+            portable_mods_dir: Some("/game/mods".into()),
+            source: "standalone".into(),
+        };
+        let res = decide_mods_dir(None, Some(&platform), Some(&game)).unwrap();
+        assert_eq!(res, PathBuf::from("/game/mods"));
+    }
+
+    #[test]
+    fn decide_mods_dir_uses_platform_dir_when_game_detected_even_if_dir_missing() {
+        let platform = DetectedDir {
+            path: "/platform/mods".into(),
+            exists: false,
+        };
+        let game = DetectedGame {
+            install_dir: "/game".into(),
+            exe_path: Some("/game/bin/factorio".into()),
+            version: Some("2.0.0".into()),
+            target_version: Some("2.0".into()),
+            portable_mods_dir: None,
+            source: "steam".into(),
+        };
+        let res = decide_mods_dir(None, Some(&platform), Some(&game)).unwrap();
+        assert_eq!(res, PathBuf::from("/platform/mods"));
+    }
+
+    #[test]
+    fn decide_mods_dir_returns_not_found_when_detection_fails() {
+        let platform = DetectedDir {
+            path: "/platform/mods".into(),
+            exists: false,
+        };
+        let err = decide_mods_dir(None, Some(&platform), None).unwrap_err();
+        assert_eq!(err.kind(), "not_found");
+        assert!(err.to_string().contains("Factorio not found"));
+
+        let err2 = decide_mods_dir(None, None, None).unwrap_err();
+        assert_eq!(err2.kind(), "not_found");
     }
 }

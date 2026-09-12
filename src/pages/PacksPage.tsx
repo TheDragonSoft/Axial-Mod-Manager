@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Boxes, Leaf, Plus } from "lucide-react";
+import { AlertTriangle, Boxes, Leaf, Plus } from "lucide-react";
 import { activateVanilla, listPacks, toAppError } from "../lib/api";
 import { onPackActivated } from "../lib/events";
 import { useAppStore } from "../store/useAppStore";
@@ -17,6 +17,8 @@ import Toggle from "../components/ui/Toggle";
 import { useConfirm } from "../components/ui/useConfirm";
 
 export default function PacksPage() {
+  const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
+  const setActiveTab = useAppStore((s) => s.setActiveTab);
   const [packs, setPacks] = useState<PackMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +113,27 @@ export default function PacksPage() {
         pack (never deletes them).
       </p>
 
+      {isFactorioDetected === false && (
+        <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-xl border border-amber-900/60 bg-amber-950/30 p-4">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-amber-200">Factorio not found</p>
+              <p className="text-xs text-amber-400/80">
+                Set your mods folder in Settings before activating packs.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setActiveTab("settings")}
+          >
+            Open Settings
+          </Button>
+        </div>
+      )}
+
       {status && (
         <div
           className={`mb-4 rounded-xl border p-3 text-xs ${
@@ -144,7 +167,12 @@ export default function PacksPage() {
             <Toggle
               checked={isVanillaActive}
               onChange={(v) => void handleVanillaToggle(v)}
-              disabled={anyActivating || isVanillaActive}
+              disabled={isFactorioDetected === false || anyActivating || isVanillaActive}
+              title={
+                isFactorioDetected === false
+                  ? "Factorio not found — set your mods folder in Settings"
+                  : undefined
+              }
               label={isVanillaActive ? "Vanilla is active" : "Activate Vanilla"}
             />
           )}
@@ -166,17 +194,30 @@ export default function PacksPage() {
           ))}
         </div>
       ) : packs.length === 0 ? (
-        <EmptyState
-          icon={Boxes}
-          title="No mod packs yet"
-          hint="Snapshot your current setup, build one from a root mod like SeaBlock, or import a shared JSON manifest."
-          action={
-            <Button variant="primary" onClick={() => setShowNew(true)}>
-              <Plus className="h-4 w-4" />
-              New Pack
-            </Button>
-          }
-        />
+        isFactorioDetected === false ? (
+          <EmptyState
+            icon={AlertTriangle}
+            title="Factorio not found"
+            hint="Set your mods folder in Settings to manage mod packs."
+            action={
+              <Button variant="secondary" onClick={() => setActiveTab("settings")}>
+                Open Settings
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={Boxes}
+            title="No mod packs yet"
+            hint="Snapshot your current setup, build one from a root mod like SeaBlock, or import a shared JSON manifest."
+            action={
+              <Button variant="primary" onClick={() => setShowNew(true)}>
+                <Plus className="h-4 w-4" />
+                New Pack
+              </Button>
+            }
+          />
+        )
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {packs.map((p) => (

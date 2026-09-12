@@ -11,7 +11,7 @@ pub struct DetectedDir {
 }
 
 /// A detected local Factorio installation, consumed by the Settings UI.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetectedGame {
     /// Directory containing data/ (on macOS the .app bundle's Contents/).
@@ -26,6 +26,15 @@ pub struct DetectedGame {
     pub portable_mods_dir: Option<String>,
     /// Where the install was found: steam | gog | standalone | game-log | custom.
     pub source: String,
+}
+
+/// Overall detection status of Factorio and the mods directory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectionStatus {
+    pub is_detected: bool,
+    pub game: Option<DetectedGame>,
+    pub effective_mods_dir: Option<String>,
 }
 
 /// Facts about a candidate game directory, consumed by the Settings UI.

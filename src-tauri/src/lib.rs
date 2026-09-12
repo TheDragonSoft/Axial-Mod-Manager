@@ -148,6 +148,7 @@ pub fn run() {
             commands::settings::detect_mods_dir,
             commands::settings::detect_game,
             commands::settings::validate_game_dir,
+            commands::settings::get_detection_status,
             commands::installed::validate_mods_dir,
             commands::installed::list_installed,
             commands::installed::toggle_mod,

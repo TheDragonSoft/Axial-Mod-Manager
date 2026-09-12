@@ -31,6 +31,7 @@ export default function PackCard({
   const del = useConfirm();
   const confirm = useConfirm();
 
+  const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
   const activePackId = useAppStore((s) => s.activePackId);
   const activatingPackId = useAppStore((s) => s.activatingPackId);
   const setActivatingPackId = useAppStore((s) => s.setActivatingPackId);
@@ -172,7 +173,12 @@ export default function PackCard({
             <Toggle
               checked={isActive}
               onChange={(v) => void handleToggle(v)}
-              disabled={anyActivating}
+              disabled={isFactorioDetected === false || anyActivating}
+              title={
+                isFactorioDetected === false
+                  ? "Factorio not found — set your mods folder in Settings"
+                  : undefined
+              }
               label={isActive ? `Deactivate ${meta.name}` : `Activate ${meta.name}`}
             />
           )}

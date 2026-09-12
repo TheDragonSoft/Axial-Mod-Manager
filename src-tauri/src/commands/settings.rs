@@ -5,7 +5,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::config::Config;
 use crate::core::services::{game_detect, mod_store};
 use crate::error::AppError;
-use crate::models::{DetectedDir, DetectedGame, GameDirStatus};
+use crate::models::{DetectedDir, DetectedGame, DetectionStatus, GameDirStatus};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -101,4 +101,17 @@ pub async fn validate_game_dir(path: String) -> GameDirStatus {
             // than fabricating a status.
             game_detect::dir_status(Path::new(&fallback_path))
         })
+}
+
+/// Overall detection status of Factorio and the mods directory.
+#[tauri::command]
+pub async fn get_detection_status(
+    state: State<'_, AppState>,
+) -> Result<DetectionStatus, AppError> {
+    let config = state.config.read().expect("config lock poisoned").clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(mod_store::resolve_detection_status(&config))
+    })
+    .await
+    .map_err(|e| AppError::Parse(format!("background task failed: {e}")))?
 }

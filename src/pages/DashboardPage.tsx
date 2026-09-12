@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowUpCircle,
   Boxes,
   CheckCircle2,
@@ -15,8 +16,8 @@ import {
 } from "lucide-react";
 import {
   checkUpdates,
-  detectGameInstall,
   getSettings,
+  isNetworkOrHttpError,
   listInstalled,
   listPacks,
   ping,
@@ -24,7 +25,6 @@ import {
 } from "../lib/api";
 import { onInstalledChanged } from "../lib/events";
 import type {
-  DetectedGame,
   InstalledSnapshot,
   ModsDirStatus,
   PackMeta,
@@ -83,16 +83,19 @@ export default function DashboardPage() {
   const updatesChecked = useAppStore((s) => s.updatesChecked);
   const setUpdatesChecked = useAppStore((s) => s.setUpdatesChecked);
   const activity = useActivityStore((s) => s.entries);
+  const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
+  const detectedGame = useAppStore((s) => s.detectedGame);
+  const effectiveModsDir = useAppStore((s) => s.effectiveModsDir);
+  const detectionChecked = useAppStore((s) => s.detectionChecked);
 
   const [snapshot, setSnapshot] = useState<InstalledSnapshot | null>(null);
   const [packs, setPacks] = useState<PackMeta[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [dirStatus, setDirStatus] = useState<ModsDirStatus | null>(null);
-  const [game, setGame] = useState<DetectedGame | null>(null);
-  const [gameChecked, setGameChecked] = useState(false);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [report, setReport] = useState<UpdatesReport | null>(null);
   const [checking, setChecking] = useState(false);
+  const [updateOffline, setUpdateOffline] = useState(false);
 
   const refreshInstalled = useCallback(() => {
     listInstalled()
@@ -106,31 +109,25 @@ export default function DashboardPage() {
       .then(() => setBackendOk(true))
       .catch(() => setBackendOk(false));
     getSettings()
-      .then((s) => {
-        setSettings(s);
-        if (s.modsDir) {
-          validateModsDir(s.modsDir)
-            .then(setDirStatus)
-            .catch(() => setDirStatus(null));
-        } else {
-          setDirStatus(null);
-        }
-      })
+      .then((s) => setSettings(s))
       .catch(() => setSettings(null));
     refreshInstalled();
     listPacks()
       .then(setPacks)
       .catch(() => setPacks([]));
-    detectGameInstall()
-      .then((g) => {
-        setGame(g);
-        setGameChecked(true);
-      })
-      .catch(() => {
-        setGame(null);
-        setGameChecked(true);
-      });
   }, [refreshInstalled]);
+
+  // When effectiveModsDir or settings.modsDir is available, validate the mods directory
+  useEffect(() => {
+    const targetDir = settings?.modsDir || effectiveModsDir;
+    if (targetDir) {
+      validateModsDir(targetDir)
+        .then(setDirStatus)
+        .catch(() => setDirStatus(null));
+    } else {
+      setDirStatus(null);
+    }
+  }, [settings?.modsDir, effectiveModsDir]);
 
   // Downloads/toggles elsewhere keep the installed stats honest while visible.
   useEffect(() => {
@@ -142,6 +139,7 @@ export default function DashboardPage() {
 
   const runUpdateCheck = useCallback(async () => {
     setChecking(true);
+    setUpdateOffline(false);
     try {
       const r = await checkUpdates();
       setReport(r);
@@ -156,8 +154,10 @@ export default function DashboardPage() {
             `target Factorio ${r.target}`,
           );
       }
-    } catch {
-      /* leave the card in "not checked" state */
+    } catch (e) {
+      if (isNetworkOrHttpError(e)) {
+        setUpdateOffline(true);
+      }
     } finally {
       setChecking(false);
     }
@@ -199,19 +199,39 @@ export default function DashboardPage() {
         }
       />
 
+      {/* Factorio not found alert banner */}
+      {detectionChecked && isFactorioDetected === false && (
+        <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-xl border border-amber-900/60 bg-amber-950/30 p-4">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-stone-200">Factorio not found</p>
+              <p className="text-xs text-stone-400">
+                Set your mods folder in Settings to manage installed mods, updates, and packs.
+              </p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => setActiveTab("settings")} className="shrink-0">
+            Open Settings
+          </Button>
+        </div>
+      )}
+
       {/* Stat row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Installed Mods"
           icon={Package}
           iconTone="blue"
-          value={snapshot ? snapshot.mods.length : "—"}
+          value={isFactorioDetected === false ? "—" : snapshot ? snapshot.mods.length : "—"}
           sub={
-            snapshot
+            isFactorioDetected === false
+              ? "Factorio not found — set in Settings"
+              : snapshot
               ? `${enabledCount} enabled${problemCount > 0 ? ` · ${problemCount} problem(s)` : ""}`
-              : "mods directory not configured"
+              : "loading mods…"
           }
-          onClick={() => setActiveTab("installed")}
+          onClick={() => setActiveTab(isFactorioDetected === false ? "settings" : "installed")}
         />
         <StatCard
           label="Updates"
@@ -220,16 +240,22 @@ export default function DashboardPage() {
           value={
             checking ? (
               <Spinner className="h-7 w-7 text-stone-500" />
+            ) : isFactorioDetected === false ? (
+              "—"
             ) : (
               (updateCount ?? "—")
             )
           }
           sub={
-            report
+            isFactorioDetected === false
+              ? "Factorio not found"
+              : updateOffline
+              ? "can't reach the portal"
+              : report
               ? `${report.upToDate.length} up to date${report.errors.length > 0 ? ` · ${report.errors.length} error(s)` : ""}`
               : "not checked yet"
           }
-          onClick={() => setActiveTab("installed")}
+          onClick={() => setActiveTab(isFactorioDetected === false ? "settings" : "installed")}
         />
         <StatCard
           label="Mod Packs"
@@ -243,13 +269,15 @@ export default function DashboardPage() {
           label="On Disk"
           icon={HardDrive}
           iconTone="orange"
-          value={dirStatus ? dirStatus.zipCount : "—"}
+          value={isFactorioDetected === false ? "—" : dirStatus ? dirStatus.zipCount : "—"}
           sub={
-            dirStatus
+            isFactorioDetected === false
+              ? "Factorio not found — set in Settings"
+              : dirStatus
               ? dirStatus.writable
                 ? "directory writable"
                 : "directory not writable"
-              : "no mods directory"
+              : "scanning…"
           }
           onClick={() => setActiveTab("settings")}
         />
@@ -281,7 +309,34 @@ export default function DashboardPage() {
               )}
             </StatusRow>
             <StatusRow label="Mods directory">
-              {!settings?.modsDir ? (
+              {isFactorioDetected === false ? (
+                <>
+                  <StatusDot tone="amber" />
+                  <button
+                    className="text-amber-400 hover:underline"
+                    onClick={() => setActiveTab("settings")}
+                  >
+                    Factorio not found — set your mods folder in Settings
+                  </button>
+                </>
+              ) : effectiveModsDir && dirStatus?.writable ? (
+                <>
+                  <StatusDot tone="green" />
+                  <span className="truncate font-mono text-xs text-stone-300">
+                    {effectiveModsDir}
+                  </span>
+                  {!settings?.modsDir && (
+                    <span className="text-stone-500 font-sans text-xs">(auto-detected)</span>
+                  )}
+                </>
+              ) : effectiveModsDir ? (
+                <>
+                  <StatusDot tone="red" />
+                  <span className="truncate font-mono text-xs text-red-400">
+                    {effectiveModsDir}
+                  </span>
+                </>
+              ) : (
                 <>
                   <StatusDot tone="amber" />
                   <button
@@ -291,29 +346,15 @@ export default function DashboardPage() {
                     Not configured — set it in Settings
                   </button>
                 </>
-              ) : dirStatus?.writable ? (
-                <>
-                  <StatusDot tone="green" />
-                  <span className="truncate font-mono text-xs text-stone-300">
-                    {settings.modsDir}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <StatusDot tone="red" />
-                  <span className="truncate font-mono text-xs text-red-400">
-                    {settings.modsDir}
-                  </span>
-                </>
               )}
             </StatusRow>
             <StatusRow label="Factorio install">
-              {game ? (
+              {detectedGame ? (
                 <>
                   <StatusDot tone="green" />
                   <span className="text-stone-300">
-                    {game.version ?? "unknown version"}{" "}
-                    <span className="text-stone-600">via {game.source}</span>
+                    {detectedGame.version ?? "unknown version"}{" "}
+                    <span className="text-stone-600">via {detectedGame.source}</span>
                   </span>
                 </>
               ) : (
@@ -332,18 +373,16 @@ export default function DashboardPage() {
               <span className="text-stone-300">
                 Factorio {settings?.targetFactorioVersion ?? "—"}
               </span>
-              {gameChecked && (
-                game?.targetVersion ? (
-                  <span className="text-stone-500">(detected)</span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("settings")}
-                    className="text-stone-500 hover:text-stone-300 underline decoration-stone-700 transition-colors"
-                  >
-                    (set your game folder)
-                  </button>
-                )
+              {detectedGame?.targetVersion ? (
+                <span className="text-stone-500">(detected)</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("settings")}
+                  className="text-stone-500 hover:text-stone-300 underline decoration-stone-700 transition-colors"
+                >
+                  (set your game folder)
+                </button>
               )}
             </StatusRow>
           </div>
@@ -421,19 +460,30 @@ export default function DashboardPage() {
             <div>
               <p className="text-xs text-stone-600">Mods directory</p>
               <p className="mt-0.5 truncate font-mono text-xs text-stone-300">
-                {settings?.modsDir ?? "not configured"}
+                {isFactorioDetected === false ? (
+                  <span className="text-amber-400 font-sans">Factorio not found — set in Settings</span>
+                ) : (
+                  <>
+                    {effectiveModsDir ?? settings?.modsDir ?? "not configured"}
+                    {!settings?.modsDir && effectiveModsDir && (
+                      <span className="text-stone-500 font-sans"> (auto-detected)</span>
+                    )}
+                  </>
+                )}
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg border border-line bg-surface-2 p-3">
                 <p className="text-lg font-bold text-stone-200">
-                  {dirStatus?.zipCount ?? "—"}
+                  {isFactorioDetected === false ? "—" : dirStatus?.zipCount ?? "—"}
                 </p>
                 <p className="text-xs text-stone-600">mod zips</p>
               </div>
               <div className="rounded-lg border border-line bg-surface-2 p-3">
                 <p className="flex items-center gap-1.5 text-lg font-bold text-stone-200">
-                  {dirStatus ? (
+                  {isFactorioDetected === false ? (
+                    "—"
+                  ) : dirStatus ? (
                     dirStatus.hasModList ? (
                       <CheckCircle2 className="h-4 w-4 text-accent" />
                     ) : (

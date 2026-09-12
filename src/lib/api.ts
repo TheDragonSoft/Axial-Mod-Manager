@@ -4,6 +4,7 @@ import type {
   AppError,
   DetectedDir,
   DetectedGame,
+  DetectionStatus,
   GameDirStatus,
   IndexHealth,
   InstalledSnapshot,
@@ -26,6 +27,12 @@ export function toAppError(e: unknown): AppError {
     return e as AppError;
   }
   return { kind: "unknown", message: String(e) };
+}
+
+/** Check if an error was caused by offline / network or HTTP failure. */
+export function isNetworkOrHttpError(e: unknown): boolean {
+  const err = toAppError(e);
+  return err.kind === "network" || err.kind === "http";
 }
 
 export async function ping(name: string): Promise<string> {
@@ -53,6 +60,10 @@ export async function validateModsDir(path: string): Promise<ModsDirStatus> {
 
 export async function detectGameInstall(): Promise<DetectedGame | null> {
   return invoke<DetectedGame | null>("detect_game");
+}
+
+export async function getDetectionStatus(): Promise<DetectionStatus> {
+  return invoke<DetectionStatus>("get_detection_status");
 }
 
 export async function validateGameDir(path: string): Promise<GameDirStatus> {

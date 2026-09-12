@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check } from "lucide-react";
-import { enqueueDownload, getModDetails, toAppError } from "../lib/api";
+import { AlertTriangle, Check } from "lucide-react";
+import { enqueueDownload, getModDetails, isNetworkOrHttpError, toAppError } from "../lib/api";
 import { compareVersions, formatBytes } from "../lib/format";
 import { useQueueStore } from "../store/useQueueStore";
 import { useThumbnailUrl } from "../lib/thumbnails";
@@ -55,7 +55,15 @@ export default function VersionsModal({
       onClose();
       useQueueStore.getState().open();
     } catch (e) {
-      setError(toAppError(e));
+      const err = toAppError(e);
+      if (err.kind === "not_found") {
+        setError({
+          kind: "not_found",
+          message: "Factorio not found — set your mods folder in Settings.",
+        });
+      } else {
+        setError(err);
+      }
     } finally {
       setInstalling(null);
     }
@@ -76,14 +84,31 @@ export default function VersionsModal({
       icon={<ModTile name={mod.name} url={thumbnail} size="md" />}
     >
       {loading && <p className="text-sm text-stone-500">Loading releases…</p>}
-      {error && (
-        <div className="rounded-lg border border-red-900/60 bg-red-950/40 p-3">
-          <p className="text-xs text-red-400">{error.message}</p>
-          <Button variant="ghost" size="sm" onClick={load} className="mt-2">
-            Retry
-          </Button>
-        </div>
-      )}
+      {error &&
+        (isNetworkOrHttpError(error) ? (
+          <div className="mb-3 flex items-center justify-between rounded-lg border border-amber-900/60 bg-amber-950/30 p-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+              <p className="text-xs text-amber-300">
+                Can't reach the portal to load versions.
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={load}>
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <div className="mb-3 rounded-lg border border-red-900/60 bg-red-950/40 p-3">
+            <p className="text-xs text-red-400">
+              {error.kind === "not_found"
+                ? "Factorio not found — set your mods folder in Settings."
+                : error.message}
+            </p>
+            <Button variant="ghost" size="sm" onClick={load} className="mt-2">
+              Retry
+            </Button>
+          </div>
+        ))}
 
       {details && (
         <ul className="divide-y divide-line rounded-lg border border-line">

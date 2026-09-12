@@ -18,12 +18,10 @@ import { useActivityStore } from "../store/useActivityStore";
 import {
   activatePack,
   activateVanilla,
-  detectGameInstall,
   launchGame,
   listPacks,
   toAppError,
 } from "../lib/api";
-import { onSettingsChanged } from "../lib/events";
 import type { PackMeta } from "../types";
 import type { BridgeStatus } from "../App";
 import Button from "./ui/Button";
@@ -73,29 +71,9 @@ export default function Sidebar({
 
   const [packs, setPacks] = useState<PackMeta[]>([]);
   const [version, setVersion] = useState<string | null>(null);
-  const [hasGame, setHasGame] = useState<boolean>(false);
+  const detectedGame = useAppStore((s) => s.detectedGame);
+  const hasGame = detectedGame !== null;
   const [launching, setLaunching] = useState<boolean>(false);
-
-  useEffect(() => {
-    let mounted = true;
-    const checkGame = () => {
-      detectGameInstall()
-        .then((g) => {
-          if (mounted) setHasGame(g !== null);
-        })
-        .catch(() => {
-          if (mounted) setHasGame(false);
-        });
-    };
-    checkGame();
-    const unlisten = onSettingsChanged(() => {
-      checkGame();
-    });
-    return () => {
-      mounted = false;
-      void unlisten.then((f) => f());
-    };
-  }, []);
 
   async function handleLaunchGame() {
     if (!hasGame || launching) return;
