@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpCircle, History, Package, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowUpCircle, ChevronRight, History, Package, RefreshCw, Trash2 } from "lucide-react";
 import Toggle from "../components/ui/Toggle";
 import VersionsModal from "../components/VersionsModal";
 import {
@@ -14,6 +14,7 @@ import { onInstalledChanged, onSettingsChanged } from "../lib/events";
 import { useAppStore } from "../store/useAppStore";
 import { useQueueStore } from "../store/useQueueStore";
 import { useThumbnails, useThumbnailUrl } from "../lib/thumbnails";
+import { fetchSummary, useSummary } from "../lib/summaries";
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
 import Card from "../components/ui/Card";
@@ -24,89 +25,162 @@ import Spinner from "../components/ui/Spinner";
 import { useConfirm } from "../components/ui/useConfirm";
 import type { InstalledMod, UpdatesReport } from "../types";
 
+/** Prevent interactive controls inside the row from toggling expansion. */
+function stopRow(e: React.MouseEvent) {
+  e.stopPropagation();
+}
+
 function ModRow({
   mod,
   confirming,
   busy,
   updateTo,
+  expanded,
   onToggle,
   onUninstall,
   onUpdate,
   onVersions,
+  onToggleExpand,
 }: {
   mod: InstalledMod;
   confirming: boolean;
   busy: boolean;
   updateTo: string | null;
+  expanded: boolean;
   onToggle: (mod: InstalledMod, next: boolean) => void;
   onUninstall: (mod: InstalledMod) => void;
   onUpdate: (mod: InstalledMod) => void;
   onVersions: (mod: InstalledMod) => void;
+  onToggleExpand: (mod: InstalledMod) => void;
 }) {
   const thumbnail = useThumbnailUrl(mod.name);
+  const summary = useSummary(mod.name);
 
   return (
-    <Card className="flex items-center gap-4 p-4">
-      <ModTile name={mod.name} url={thumbnail} />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate font-medium text-stone-100">{mod.name}</p>
-          {mod.problem && (
-            <Badge tone="red" title={mod.problem}>
-              problem
-            </Badge>
+    <Card className="overflow-hidden">
+      {/* Clickable header — acts as the accordion trigger */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={`${mod.name} — ${expanded ? "collapse" : "expand"} details`}
+        className="flex cursor-pointer items-center gap-4 p-4 transition-colors hover:bg-surface-2/40"
+        onClick={() => onToggleExpand(mod)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggleExpand(mod);
+          }
+        }}
+      >
+        {/* Chevron affordance with rotation transition */}
+        <ChevronRight
+          className={`h-4 w-4 shrink-0 text-stone-500 transition-transform duration-150 ${
+            expanded ? "rotate-90" : ""
+          }`}
+        />
+
+        <ModTile name={mod.name} url={thumbnail} />
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-medium text-stone-100">{mod.name}</p>
+            {mod.problem && (
+              <Badge tone="red" title={mod.problem}>
+                problem
+              </Badge>
+            )}
+            {updateTo && <Badge tone="green">update → v{updateTo}</Badge>}
+          </div>
+          {/* Secondary facts shown in collapsed state; moved into expanded area when open */}
+          {!expanded && (
+            <p className="mt-0.5 truncate font-mono text-xs text-stone-500">
+              v{mod.version} · Factorio{" "}
+              <GameVersionBadge factorioVersion={mod.factorioVersion} /> ·{" "}
+              {mod.dependencies.length} deps
+            </p>
           )}
-          {updateTo && <Badge tone="green">update → v{updateTo}</Badge>}
+          {!expanded && mod.problem && (
+            <p className="mt-0.5 max-w-md truncate text-[11px] text-red-400" title={mod.problem}>
+              {mod.problem}
+            </p>
+          )}
         </div>
-        <p className="mt-0.5 truncate font-mono text-xs text-stone-500">
-          v{mod.version} · Factorio{" "}
-          <GameVersionBadge factorioVersion={mod.factorioVersion} /> ·{" "}
-          {mod.dependencies.length} deps
-        </p>
-        {mod.problem && (
-          <p className="mt-0.5 max-w-md truncate text-[11px] text-red-400" title={mod.problem}>
-            {mod.problem}
-          </p>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        {updateTo && (
-          <Button variant="secondary" size="sm" onClick={() => onUpdate(mod)}>
-            <ArrowUpCircle className="h-3.5 w-3.5 text-accent" />
-            Update
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          title="Versions"
-          aria-label={`Versions of ${mod.name}`}
-          onClick={() => onVersions(mod)}
-        >
-          <History className="h-4 w-4" />
-        </Button>
-        <Button
-          variant={confirming ? "danger" : "ghost"}
-          size="sm"
-          onClick={() => onUninstall(mod)}
-          disabled={busy}
-          title="Remove"
-          aria-label={`Remove ${mod.name}`}
-        >
-          {busy ? (
-            <Spinner />
-          ) : confirming ? (
-            "Confirm remove?"
-          ) : (
-            <Trash2 className="h-4 w-4" />
+
+        {/* Controls — stopPropagation so they don't toggle expansion */}
+        <div className="flex shrink-0 items-center gap-1.5" onClick={stopRow}>
+          {updateTo && (
+            <Button variant="secondary" size="sm" onClick={() => onUpdate(mod)}>
+              <ArrowUpCircle className="h-3.5 w-3.5 text-accent" />
+              Update
+            </Button>
           )}
-        </Button>
-        <div className="ml-2">
-          <Toggle
-            checked={mod.enabled}
-            onChange={(v) => onToggle(mod, v)}
-            label={`Enable ${mod.name}`}
-          />
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Versions"
+            aria-label={`Versions of ${mod.name}`}
+            onClick={() => onVersions(mod)}
+          >
+            <History className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={confirming ? "danger" : "ghost"}
+            size="sm"
+            onClick={() => onUninstall(mod)}
+            disabled={busy}
+            title="Remove"
+            aria-label={`Remove ${mod.name}`}
+          >
+            {busy ? (
+              <Spinner />
+            ) : confirming ? (
+              "Confirm remove?"
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+          </Button>
+          <div className="ml-2">
+            <Toggle
+              checked={mod.enabled}
+              onChange={(v) => onToggle(mod, v)}
+              label={`Enable ${mod.name}`}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded panel with height transition */}
+      <div
+        className={`grid transition-[grid-template-rows] duration-150 ease-out ${
+          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="border-t border-line bg-surface-2/30 px-4 py-3">
+            {/* Secondary facts moved here when expanded */}
+            <p className="mb-2 font-mono text-xs text-stone-500">
+              v{mod.version} · Factorio{" "}
+              <GameVersionBadge factorioVersion={mod.factorioVersion} /> ·{" "}
+              {mod.dependencies.length} dep{mod.dependencies.length === 1 ? "" : "s"}
+            </p>
+
+            {mod.problem && (
+              <p className="mb-2 max-w-xl text-[11px] text-red-400">{mod.problem}</p>
+            )}
+
+            {/* Portal summary: skeleton / text / unavailable */}
+            {summary === undefined ? (
+              <div className="space-y-1.5">
+                <div className="h-3 w-3/4 animate-pulse rounded bg-stone-800" />
+                <div className="h-3 w-1/2 animate-pulse rounded bg-stone-800" />
+              </div>
+            ) : summary === null ? (
+              <p className="text-xs italic text-stone-600">Description unavailable</p>
+            ) : (
+              <p className="max-w-xl text-sm leading-relaxed text-stone-400">{summary}</p>
+            )}
+          </div>
         </div>
       </div>
     </Card>
@@ -133,6 +207,7 @@ export default function InstalledPage() {
   const [report, setReport] = useState<UpdatesReport | null>(null);
   const [checking, setChecking] = useState(false);
   const [versionsFor, setVersionsFor] = useState<InstalledMod | null>(null);
+  const [expandedName, setExpandedName] = useState<string | null>(null);
   const { confirming, arm, disarm } = useConfirm();
 
   /** Mods dir of the last snapshot — a settings save that changes it needs a
@@ -277,6 +352,16 @@ export default function InstalledPage() {
     }
   }
 
+  /** Toggle accordion expansion; exactly one row at a time.
+   * Lazy-fetches the portal summary on first expand. */
+  function handleToggleExpand(mod: InstalledMod) {
+    const next = expandedName === mod.name ? null : mod.name;
+    setExpandedName(next);
+    if (next) {
+      fetchSummary(mod.name);
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -356,10 +441,12 @@ export default function InstalledPage() {
               confirming={confirming === m.fileName}
               busy={busyFile === m.fileName}
               updateTo={updateByName.get(m.name) ?? null}
+              expanded={expandedName === m.name}
               onToggle={handleToggle}
               onUninstall={handleUninstall}
               onUpdate={handleUpdate}
               onVersions={setVersionsFor}
+              onToggleExpand={handleToggleExpand}
             />
           ))}
         </div>
