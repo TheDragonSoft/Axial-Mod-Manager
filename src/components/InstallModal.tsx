@@ -141,6 +141,7 @@ export default function InstallModal({
   const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
   const effectiveModsDir = useAppStore((s) => s.effectiveModsDir);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
+  const openQueue = useQueueStore((s) => s.open);
 
   const [details, setDetails] = useState<ModDetails | null>(null);
   const [detailsError, setDetailsError] = useState<AppError | null>(null);
@@ -266,10 +267,12 @@ export default function InstallModal({
       }
     }
     setInstalling(false);
-    if (errors.length > 0) setEnqueueErrors(errors);
-    else {
+    if (errors.length > 0) {
+      setEnqueueErrors(errors);
+    } else {
+      // Auto-close the modal and open the queue drawer on successful queue submission
       onClose();
-      useQueueStore.getState().open();
+      openQueue();
     }
   }
 

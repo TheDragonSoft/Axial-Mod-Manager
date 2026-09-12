@@ -139,10 +139,13 @@ export default function QueueDrawer() {
   return (
     <>
       {isOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50" onClick={close} />
+        <div
+          className="fixed inset-0 z-40 bg-black/50 animate-fade-in"
+          onClick={close}
+        />
       )}
       <aside
-        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ${
+        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ease-out ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
