@@ -89,6 +89,7 @@ export default function DashboardPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [dirStatus, setDirStatus] = useState<ModsDirStatus | null>(null);
   const [game, setGame] = useState<DetectedGame | null>(null);
+  const [gameChecked, setGameChecked] = useState(false);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [report, setReport] = useState<UpdatesReport | null>(null);
   const [checking, setChecking] = useState(false);
@@ -121,8 +122,14 @@ export default function DashboardPage() {
       .then(setPacks)
       .catch(() => setPacks([]));
     detectGameInstall()
-      .then(setGame)
-      .catch(() => setGame(null));
+      .then((g) => {
+        setGame(g);
+        setGameChecked(true);
+      })
+      .catch(() => {
+        setGame(null);
+        setGameChecked(true);
+      });
   }, [refreshInstalled]);
 
   // Downloads/toggles elsewhere keep the installed stats honest while visible.
@@ -325,6 +332,19 @@ export default function DashboardPage() {
               <span className="text-stone-300">
                 Factorio {settings?.targetFactorioVersion ?? "—"}
               </span>
+              {gameChecked && (
+                game?.targetVersion ? (
+                  <span className="text-stone-500">(detected)</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("settings")}
+                    className="text-stone-500 hover:text-stone-300 underline decoration-stone-700 transition-colors"
+                  >
+                    (set your game folder)
+                  </button>
+                )
+              )}
             </StatusRow>
           </div>
         </Panel>

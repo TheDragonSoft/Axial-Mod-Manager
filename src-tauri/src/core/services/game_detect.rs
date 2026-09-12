@@ -37,6 +37,26 @@ pub fn detect() -> Option<DetectedGame> {
     None
 }
 
+/// Target Factorio version ("2.0", "1.1", ...) extracted from a base-mod
+/// info.json string.
+///
+/// Parses `version` (falling back to `factorio_version`) and reduces it to
+/// the major.minor target shape.
+pub fn target_version_from_info_json(raw: &str) -> Option<String> {
+    version_from_info_json(raw).as_deref().and_then(target_version_of)
+}
+
+/// Detect the target Factorio version ("2.0", "1.1", ...) using the configured
+/// install directory if provided, or by probing candidate locations.
+pub fn detect_target_version(configured_game_dir: Option<&str>) -> Option<String> {
+    if let Some(p) = configured_game_dir {
+        if !p.trim().is_empty() {
+            return inspect_install(Path::new(p), "custom").and_then(|g| g.target_version);
+        }
+    }
+    detect().and_then(|g| g.target_version)
+}
+
 /// Status of a candidate game directory for the Settings UI: plain
 /// exists/is-dir facts plus the install summary when the directory passes
 /// the data/base/info.json gate.
@@ -57,9 +77,9 @@ pub fn inspect_install(dir: &Path, source: &'static str) -> Option<DetectedGame>
     if !info_path.is_file() {
         return None;
     }
-    let version = fs::read_to_string(&info_path)
-        .ok()
-        .and_then(|raw| version_from_info_json(&raw));
+    let raw = fs::read_to_string(&info_path).ok();
+    let version = raw.as_deref().and_then(version_from_info_json);
+    let target_version = raw.as_deref().and_then(target_version_from_info_json);
     let exe = exe_candidates(dir).into_iter().find(|p| p.is_file());
     // Portable (zip) installs keep their mods inside the game directory;
     // flag it when present so Settings can offer it as the mods dir.
@@ -67,7 +87,7 @@ pub fn inspect_install(dir: &Path, source: &'static str) -> Option<DetectedGame>
     Some(DetectedGame {
         install_dir: dir.to_string_lossy().into_owned(),
         exe_path: exe.map(|p| p.to_string_lossy().into_owned()),
-        target_version: version.as_deref().and_then(target_version_of),
+        target_version,
         version,
         portable_mods_dir: portable_mods
             .is_dir()
@@ -388,9 +408,46 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        parse_library_folders_vdf, parse_log_install_dirs, target_version_of,
-        version_from_info_json,
+        parse_library_folders_vdf, parse_log_install_dirs, target_version_from_info_json,
+        target_version_of, version_from_info_json,
     };
+
+    #[test]
+    fn extracts_target_version_from_info_json_fixture() {
+        let raw = r#"{
+            "name": "base",
+            "version": "2.0.28",
+            "title": "Base game",
+            "factorio_version": "2.0"
+        }"#;
+        assert_eq!(target_version_from_info_json(raw).as_deref(), Some("2.0"));
+    }
+
+    #[test]
+    fn extracts_target_version_from_legacy_fixture() {
+        let raw = r#"{
+            "name": "base",
+            "version": "1.1.110",
+            "title": "Base game"
+        }"#;
+        assert_eq!(target_version_from_info_json(raw).as_deref(), Some("1.1"));
+    }
+
+    #[test]
+    fn extracts_target_version_fallback_to_factorio_version() {
+        let raw = r#"{
+            "name": "base",
+            "factorio_version": "1.1"
+        }"#;
+        assert_eq!(target_version_from_info_json(raw).as_deref(), Some("1.1"));
+    }
+
+    #[test]
+    fn target_version_rejects_malformed_fixture() {
+        assert_eq!(target_version_from_info_json("invalid json"), None);
+        assert_eq!(target_version_from_info_json(r#"{"name": "base"}"#), None);
+        assert_eq!(target_version_from_info_json(r#"{"version": "invalid"}"#), None);
+    }
 
     #[test]
     fn reads_game_version_from_base_info_json() {

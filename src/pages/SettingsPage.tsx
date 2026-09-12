@@ -45,19 +45,15 @@ const ADOPT_LINK =
 /** Detected game install summary with one-click adoption of its facts. */
 function GameInstallInfo({
   game,
-  gameVersion,
   modsDirInput,
-  onUseTargetVersion,
   onUsePortableModsDir,
 }: {
   game: DetectedGame;
-  gameVersion: string;
   modsDirInput: string;
-  onUseTargetVersion: (v: string) => void;
   onUsePortableModsDir: (p: string) => void;
 }) {
   const source = SOURCE_LABELS[game.source] ?? game.source;
-  const { targetVersion, portableModsDir } = game;
+  const { portableModsDir } = game;
   return (
     <div className="mt-1.5 space-y-1">
       <p
@@ -70,21 +66,6 @@ function GameInstallInfo({
         {source}
         {game.version ? ` · game version ${game.version}` : " · version unknown"}
       </p>
-      {targetVersion ? (
-        targetVersion !== gameVersion ? (
-          <button
-            type="button"
-            onClick={() => onUseTargetVersion(targetVersion)}
-            className={ADOPT_LINK}
-          >
-            Use detected version ({targetVersion}) for compatibility filtering
-          </button>
-        ) : (
-          <p className="text-xs text-accent/80">
-            Target version matches the installed game ✓
-          </p>
-        )
-      ) : null}
       {portableModsDir && modsDirInput.trim() !== portableModsDir && (
         <button
           type="button"
@@ -101,15 +82,11 @@ function GameInstallInfo({
 /** Human-readable summary of a GameDirStatus, styled by severity. */
 function GameDirStatusLine({
   status,
-  gameVersion,
   modsDirInput,
-  onUseTargetVersion,
   onUsePortableModsDir,
 }: {
   status: GameDirStatus;
-  gameVersion: string;
   modsDirInput: string;
-  onUseTargetVersion: (v: string) => void;
   onUsePortableModsDir: (p: string) => void;
 }) {
   if (!status.exists) {
@@ -133,9 +110,7 @@ function GameDirStatusLine({
   return (
     <GameInstallInfo
       game={status.game}
-      gameVersion={gameVersion}
       modsDirInput={modsDirInput}
-      onUseTargetVersion={onUseTargetVersion}
       onUsePortableModsDir={onUsePortableModsDir}
     />
   );
@@ -171,7 +146,6 @@ export default function SettingsPage() {
   const [section, setSection] = useState<Section>("storage");
   const [modsDirInput, setModsDirInput] = useState("");
   const [gameDirInput, setGameDirInput] = useState("");
-  const [gameVersion, setGameVersion] = useState("2.0");
   const [logLevel, setLogLevel] = useState("info");
   const [status, setStatus] = useState<ModsDirStatus | null>(null);
   const [gameStatus, setGameStatus] = useState<GameDirStatus | null>(null);
@@ -260,7 +234,6 @@ export default function SettingsPage() {
     (async () => {
       try {
         const s = await getSettings();
-        setGameVersion(s.targetFactorioVersion);
         setLogLevel(s.logLevel ?? "info");
         if (s.modsDir) {
           setModsDirInput(s.modsDir);
@@ -344,7 +317,7 @@ export default function SettingsPage() {
       await setSettings({
         modsDir: trimmed || null,
         gameDir: gameDir || null,
-        targetFactorioVersion: gameVersion,
+        targetFactorioVersion: useAppStore.getState().targetFactorioVersion ?? "2.0",
         logLevel,
         activePackId: useAppStore.getState().activePackId,
       });
@@ -478,12 +451,7 @@ export default function SettingsPage() {
                 gameStatus && (
                   <GameDirStatusLine
                     status={gameStatus}
-                    gameVersion={gameVersion}
                     modsDirInput={modsDirInput}
-                    onUseTargetVersion={(v) => {
-                      setGameVersion(v);
-                      markDirty();
-                    }}
                     onUsePortableModsDir={(p) => {
                       setModsDirInput(p);
                       markDirty();
@@ -516,56 +484,30 @@ export default function SettingsPage() {
           )}
 
           {section === "general" && (
-            <div className="space-y-4">
-              <Panel flat icon={SlidersHorizontal} title="Compatibility" subtitle="Which game version mods are filtered against">
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
-                    Target Factorio version
-                  </span>
-                  <Select
-                    value={gameVersion}
-                    onChange={(e) => {
-                      setGameVersion(e.target.value);
-                      markDirty();
-                    }}
-                    className="w-40"
-                  >
-                    <option value="2.1">2.1</option>
-                    <option value="2.0">2.0</option>
-                    <option value="1.1">1.1</option>
-                  </Select>
-                  <span className="mt-1.5 block text-xs text-stone-500">
-                    Used to tag mods as compatible/incompatible across Browse and
-                    update checks.
-                  </span>
-                </label>
-              </Panel>
-
-              <Panel flat icon={SlidersHorizontal} title="Logging" subtitle="File log verbosity">
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
-                    Log level (file log)
-                  </span>
-                  <Select
-                    value={logLevel}
-                    onChange={(e) => {
-                      setLogLevel(e.target.value);
-                      markDirty();
-                    }}
-                    className="w-40"
-                  >
-                    <option value="debug">debug</option>
-                    <option value="info">info</option>
-                    <option value="warn">warn</option>
-                    <option value="error">error</option>
-                  </Select>
-                  <span className="mt-1.5 block text-xs text-stone-500">
-                    Written to app-data/logs/axial.log — level applies after
-                    restart.
-                  </span>
-                </label>
-              </Panel>
-            </div>
+            <Panel flat icon={SlidersHorizontal} title="Logging" subtitle="File log verbosity">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
+                  Log level (file log)
+                </span>
+                <Select
+                  value={logLevel}
+                  onChange={(e) => {
+                    setLogLevel(e.target.value);
+                    markDirty();
+                  }}
+                  className="w-40"
+                >
+                  <option value="debug">debug</option>
+                  <option value="info">info</option>
+                  <option value="warn">warn</option>
+                  <option value="error">error</option>
+                </Select>
+                <span className="mt-1.5 block text-xs text-stone-500">
+                  Written to app-data/logs/axial.log — level applies after
+                  restart.
+                </span>
+              </label>
+            </Panel>
           )}
 
           {/* Save bar */}

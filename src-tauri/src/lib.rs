@@ -56,9 +56,22 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let config_path = data_dir.join("settings.json");
-            let config = config::Config::load(&config_path).unwrap_or_default();
+            let is_first_run = !config_path.exists();
+            let mut config = config::Config::load(&config_path).unwrap_or_default();
 
             init_logging(&data_dir, &config.log_level);
+
+            // Auto-detect target Factorio version from data/base/info.json.
+            // On detection success: update and persist cache.
+            // On detection failure: keep cached value (or "2.0" default on true first run).
+            let detected = core::services::game_detect::detect_target_version(config.game_dir.as_deref());
+            let version_changed = config.apply_detected_version(detected);
+            if version_changed || (is_first_run && config_path.parent().is_some()) {
+                if let Err(e) = config.save(&config_path) {
+                    tracing::warn!("failed to persist settings on startup: {e}");
+                }
+            }
+
             tracing::info!(
                 "starting — target game {}, mods dir {:?}, log level {}",
                 config.target_factorio_version,

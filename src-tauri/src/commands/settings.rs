@@ -21,9 +21,30 @@ pub fn get_settings(state: State<AppState>) -> Result<Config, AppError> {
 #[tauri::command]
 pub async fn set_settings(
     app: AppHandle,
-    new_config: Config,
+    mut new_config: Config,
     state: State<'_, AppState>,
 ) -> Result<Config, AppError> {
+    let (old_game_dir, cached_target_version) = {
+        let cfg = state.config.read().expect("config lock poisoned");
+        (cfg.game_dir.clone(), cfg.target_factorio_version.clone())
+    };
+
+    // Keep the cached target version; target_factorio_version is auto-detected.
+    new_config.target_factorio_version = cached_target_version;
+
+    // Whenever game_dir changes, detect version from data/base/info.json and persist.
+    // Detection failure -> keep cached value.
+    if new_config.game_dir != old_game_dir {
+        let game_dir = new_config.game_dir.clone();
+        let detected = tauri::async_runtime::spawn_blocking(move || {
+            game_detect::detect_target_version(game_dir.as_deref())
+        })
+        .await
+        .map_err(|e| AppError::Parse(format!("background task failed: {e}")))?;
+
+        new_config.apply_detected_version(detected);
+    }
+
     let to_save = new_config.clone();
     let path = state.config_path.clone();
     tauri::async_runtime::spawn_blocking(move || to_save.save(&path))
