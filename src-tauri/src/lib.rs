@@ -127,6 +127,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::system::ping,
+            commands::system::launch_game,
             commands::settings::get_settings,
             commands::settings::set_settings,
             commands::settings::detect_mods_dir,

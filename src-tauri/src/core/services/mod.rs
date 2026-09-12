@@ -2,6 +2,7 @@ pub mod deps;
 pub mod downloader;
 pub mod game_detect;
 pub mod index_client;
+pub mod launcher;
 pub mod mirror_client;
 pub mod mod_store;
 pub mod packs;

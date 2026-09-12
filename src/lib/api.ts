@@ -158,4 +158,11 @@ export async function checkUpdates(): Promise<UpdatesReport> {
   return invoke<UpdatesReport>("check_updates");
 }
 
+// ---- Launcher (Phase 2c) ----
+
+export async function launchGame(): Promise<void> {
+  return invoke<void>("launch_game");
+}
+
+
 

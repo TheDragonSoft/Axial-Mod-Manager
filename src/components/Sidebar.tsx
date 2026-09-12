@@ -8,13 +8,25 @@ import {
   Leaf,
   LayoutDashboard,
   Package,
+  Play,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { useAppStore, type Tab } from "../store/useAppStore";
 import { useQueueStore } from "../store/useQueueStore";
-import { activatePack, activateVanilla, listPacks, toAppError } from "../lib/api";
+import { useActivityStore } from "../store/useActivityStore";
+import {
+  activatePack,
+  activateVanilla,
+  detectGameInstall,
+  launchGame,
+  listPacks,
+  toAppError,
+} from "../lib/api";
+import { onSettingsChanged } from "../lib/events";
 import type { PackMeta } from "../types";
 import type { BridgeStatus } from "../App";
+import Button from "./ui/Button";
+import Spinner from "./ui/Spinner";
 import StatusDot from "./ui/StatusDot";
 
 const NAV: { id: Tab; label: string; icon: typeof Compass }[] = [
@@ -60,6 +72,44 @@ export default function Sidebar({
 
   const [packs, setPacks] = useState<PackMeta[]>([]);
   const [version, setVersion] = useState<string | null>(null);
+  const [hasGame, setHasGame] = useState<boolean>(false);
+  const [launching, setLaunching] = useState<boolean>(false);
+
+  useEffect(() => {
+    let mounted = true;
+    const checkGame = () => {
+      detectGameInstall()
+        .then((g) => {
+          if (mounted) setHasGame(g !== null);
+        })
+        .catch(() => {
+          if (mounted) setHasGame(false);
+        });
+    };
+    checkGame();
+    const unlisten = onSettingsChanged(() => {
+      checkGame();
+    });
+    return () => {
+      mounted = false;
+      void unlisten.then((f) => f());
+    };
+  }, []);
+
+  async function handleLaunchGame() {
+    if (!hasGame || launching) return;
+    setLaunching(true);
+    try {
+      await launchGame();
+      useActivityStore
+        .getState()
+        .push("game-launched", "Factorio", "Game launched");
+    } catch (e) {
+      console.error("Failed to launch Factorio:", toAppError(e).message);
+    } finally {
+      setLaunching(false);
+    }
+  }
 
   useEffect(() => {
     listPacks()
@@ -127,6 +177,27 @@ export default function Sidebar({
           <p className="text-sm font-bold text-stone-200">Axial</p>
           <p className="text-[10px] text-stone-600">Factorio Mod Manager</p>
         </div>
+      </div>
+
+      {/* Launch Factorio */}
+      <div
+        className="px-3 pb-4"
+        title={!hasGame ? "Factorio not found — set the game folder in Settings" : undefined}
+      >
+        <Button
+          variant="primary"
+          className="w-full justify-center"
+          disabled={!hasGame || launching}
+          title={!hasGame ? "Factorio not found — set the game folder in Settings" : undefined}
+          onClick={handleLaunchGame}
+        >
+          {launching ? (
+            <Spinner className="h-4 w-4" />
+          ) : (
+            <Play className="h-4 w-4 fill-current" />
+          )}
+          <span>Launch Factorio</span>
+        </Button>
       </div>
 
       {/* Navigation */}

@@ -5,7 +5,8 @@ export type ActivityKind =
   | "download-completed"
   | "download-failed"
   | "pack-activated"
-  | "updates-found";
+  | "updates-found"
+  | "game-launched";
 
 export interface ActivityEntry {
   id: number;

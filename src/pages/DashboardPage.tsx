@@ -8,6 +8,7 @@ import {
   HardDrive,
   LayoutDashboard,
   Package,
+  Play,
   RefreshCw,
   Settings as SettingsIcon,
   XCircle,
@@ -57,6 +58,7 @@ const ACTIVITY_ICONS: Record<
   "download-failed": { icon: XCircle, className: "text-red-400" },
   "pack-activated": { icon: Boxes, className: "text-[#DA9FF8]" },
   "updates-found": { icon: ArrowUpCircle, className: "text-amber-400" },
+  "game-launched": { icon: Play, className: "text-accent" },
 };
 
 function StatusRow({

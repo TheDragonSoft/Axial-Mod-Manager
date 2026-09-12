@@ -59,6 +59,7 @@ Rules:
 | `packs.rs`        | Pack manifests stored as `profiles/<id>.json`. Import is tolerant (`format` accepted, not enforced). **Activation is target-state reconciliation**: diff target vs installed, download missing, finalize via `PendingActivation` state when downloads land, emit `pack-activated`. |
 | `updates.rs`      | Newest release compatible with the configured target game version vs installed version. |
 | `mirror_client.rs` | Community mirror client (`re146.dev/factorio/mods`). Enriches `ModDetails` with per-release dependencies from embedded `info.json` (official API omits them). `PortalWithMirrorDeps` wraps `IndexClient` with mirror fallback. |
+| `launcher.rs`     | Pure per-OS executable path resolution and detached process spawning for launching Factorio directly. |
 
 `AppState` (`state.rs`) holds: `RwLock<Config>`, config path, profiles dir, boxed `IndexClient`, `Arc<DownloadQueue>`, `pending_activation`. Long-running work (activation finalize, crash recovery) is spawned via `tauri::async_runtime`.
 
