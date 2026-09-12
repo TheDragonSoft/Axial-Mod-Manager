@@ -97,8 +97,8 @@ Rules:
 
 ## Current state / known gaps
 
-- Phases 1–9 complete (see git history): browse → download/install → deps resolver → packs → updates/ops polish. v0.1.0.
-- `experiment/new-ui` branch: full UI redesign (DashboardPage, DiscoPanel-style dark theme with white primaries + green accent, thumbnails, favorites, Quick Access). Develop the new UI there; `main` is the stable pre-redesign app. Work happens in the `Axial-NewUI` git worktree.
+- Phases 1–9 complete (see git history): browse → download/install → deps resolver → packs → updates/ops polish, plus the full frontend redesign — all on `main`, v0.2.0. The 1.0 push is tracked in `docs/1.0-release-plan.md`.
+- The full UI redesign (DashboardPage, warm-stone dark theme with green accent, thumbnails, favorites, Quick Access) landed on `main` in `e446ad2` (v0.2.0). The old `experiment/new-ui` / `experimental/perf-improvements` branches and their worktrees were deleted after content-verification against `main`.
 - No frontend tests; CI runs `cargo test` + `tsc` only.
 - Dependency info comes from community mirror enrichment (`mirror_client.rs`) because the official portal API omits per-release dependencies. If the mirror lacks info or is unreachable, the resolver degrades gracefully with a badge warning instead of failing.
 - Download mirror is third-party (see `downloader.rs`); official authenticated portal downloads are a possible future feature (would need user token handling in Settings).
