@@ -27,6 +27,7 @@ import Panel from "../components/ui/Panel";
 import SegmentedTabs from "../components/ui/SegmentedTabs";
 import Select from "../components/ui/Select";
 import Spinner from "../components/ui/Spinner";
+import Toggle from "../components/ui/Toggle";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 type Section = "storage" | "game" | "general";
@@ -147,6 +148,8 @@ export default function SettingsPage() {
   const [modsDirInput, setModsDirInput] = useState("");
   const [gameDirInput, setGameDirInput] = useState("");
   const [logLevel, setLogLevel] = useState("info");
+  const [checkForUpdates, setCheckForUpdates] = useState(true);
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
   const [status, setStatus] = useState<ModsDirStatus | null>(null);
   const [gameStatus, setGameStatus] = useState<GameDirStatus | null>(null);
   const [modsDirWasAutoDetected, setModsDirWasAutoDetected] = useState(false);
@@ -235,6 +238,8 @@ export default function SettingsPage() {
       try {
         const s = await getSettings();
         setLogLevel(s.logLevel ?? "info");
+        setCheckForUpdates(s.checkForUpdates ?? true);
+        setDismissedUpdateVersion(s.dismissedUpdateVersion ?? null);
         if (s.modsDir) {
           setModsDirInput(s.modsDir);
           await refreshStatus(s.modsDir);
@@ -320,6 +325,8 @@ export default function SettingsPage() {
         targetFactorioVersion: useAppStore.getState().targetFactorioVersion ?? "2.0",
         logLevel,
         activePackId: useAppStore.getState().activePackId,
+        checkForUpdates,
+        dismissedUpdateVersion,
       });
       setModsDirWasAutoDetected(false);
       setGameDirWasAutoDetected(false);
@@ -484,30 +491,53 @@ export default function SettingsPage() {
           )}
 
           {section === "general" && (
-            <Panel flat icon={SlidersHorizontal} title="Logging" subtitle="File log verbosity">
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
-                  Log level (file log)
-                </span>
-                <Select
-                  value={logLevel}
-                  onChange={(e) => {
-                    setLogLevel(e.target.value);
-                    markDirty();
-                  }}
-                  className="w-40"
-                >
-                  <option value="debug">debug</option>
-                  <option value="info">info</option>
-                  <option value="warn">warn</option>
-                  <option value="error">error</option>
-                </Select>
-                <span className="mt-1.5 block text-xs text-stone-500">
-                  Written to app-data/logs/axial.log — level applies after
-                  restart.
-                </span>
-              </label>
-            </Panel>
+            <div className="space-y-4">
+              <Panel flat icon={RefreshCw} title="Updates" subtitle="Automatic application updates">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-stone-200">
+                      Check for updates automatically
+                    </p>
+                    <p className="text-xs text-stone-500">
+                      Check for new Axial releases on startup and notify when an update is available.
+                    </p>
+                  </div>
+                  <Toggle
+                    checked={checkForUpdates}
+                    onChange={(val) => {
+                      setCheckForUpdates(val);
+                      markDirty();
+                    }}
+                    label="Check for updates automatically"
+                  />
+                </div>
+              </Panel>
+
+              <Panel flat icon={SlidersHorizontal} title="Logging" subtitle="File log verbosity">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
+                    Log level (file log)
+                  </span>
+                  <Select
+                    value={logLevel}
+                    onChange={(e) => {
+                      setLogLevel(e.target.value);
+                      markDirty();
+                    }}
+                    className="w-40"
+                  >
+                    <option value="debug">debug</option>
+                    <option value="info">info</option>
+                    <option value="warn">warn</option>
+                    <option value="error">error</option>
+                  </Select>
+                  <span className="mt-1.5 block text-xs text-stone-500">
+                    Written to app-data/logs/axial.log — level applies after
+                    restart.
+                  </span>
+                </label>
+              </Panel>
+            </div>
           )}
 
           {/* Save bar */}

@@ -13,6 +13,8 @@ export interface Settings {
   targetFactorioVersion: string;
   logLevel: string;
   activePackId: string | null;
+  checkForUpdates: boolean;
+  dismissedUpdateVersion: string | null;
 }
 
 // ---- Mods directory detection/validation (Phase 3) ----
