@@ -29,10 +29,81 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
       - run: pnpm install --frozen-lockfile
+
+      # --- macOS Code Signing & Notarization (Dormant) ---
+      # Automatically activates if APPLE_CERTIFICATE secret is configured; skips silently otherwise.
+      - name: Setup macOS code signing and notarization
+        if: matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE != ''
+        run: |
+          echo "APPLE_CERTIFICATE=${{ secrets.APPLE_CERTIFICATE }}" >> $GITHUB_ENV
+          echo "APPLE_CERTIFICATE_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" >> $GITHUB_ENV
+          echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> $GITHUB_ENV
+          echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> $GITHUB_ENV
+          echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}" >> $GITHUB_ENV
+          echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> $GITHUB_ENV
+
       - run: pnpm tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      # --- Windows Azure Trusted Signing (Dormant) ---
+      # Automatically activates if AZURE_CLIENT_ID secret is configured; skips silently otherwise.
+      - name: Sign Windows bundles (Azure Trusted Signing)
+        if: matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_ENDPOINT || 'https://eus.codesigning.azure.net' }}
+          trusted-signing-account-name: ${{ secrets.AZURE_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE_NAME }}
+          files-folder: src-tauri/target/release/bundle
+          files-folder-filter: exe,msi
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # --- Windows Authenticode / PFX Signing (Dormant) ---
+      # Automatically activates if WINDOWS_CERTIFICATE secret is configured; skips silently otherwise.
+      - name: Sign Windows bundles (PFX Certificate)
+        if: matrix.platform == 'windows-latest' && secrets.WINDOWS_CERTIFICATE != ''
+        shell: pwsh
+        run: |
+          $pfxBytes = [System.Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE }}")
+          $pfxPath = "$env:RUNNER_TEMP\cert.pfx"
+          [System.IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          $password = "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}"
+
+          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Select-Object -First 1).FullName
+          if (-not $signtool) {
+            Write-Error "signtool.exe not found in Windows Kits"
+            exit 1
+          }
+
+          Get-ChildItem -Path "src-tauri\target\release\bundle" -Include *.exe,*.msi -Recurse | ForEach-Object {
+            Write-Host "Signing $($_.FullName)..."
+            & $signtool sign /f $pfxPath /p $password /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $_.FullName
+          }
+          Remove-Item $pfxPath
+
+      # --- Refresh Windows Updater Signatures (if post-build signing modified binaries) ---
+      - name: Refresh Windows updater signatures
+        if: matrix.platform == 'windows-latest' && (secrets.AZURE_CLIENT_ID != '' || secrets.WINDOWS_CERTIFICATE != '') && secrets.TAURI_SIGNING_PRIVATE_KEY != ''
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          Get-ChildItem -Path "src-tauri\target\release\bundle" -Filter "*.sig" -Recurse | ForEach-Object {
+            $target = $_.FullName.Substring(0, $_.FullName.Length - 4)
+            if (Test-Path $target) {
+              Write-Host "Re-signing $target for updater..."
+              pnpm tauri signer sign $target
+            }
+          }
       - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:

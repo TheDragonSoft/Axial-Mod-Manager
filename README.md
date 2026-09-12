@@ -23,6 +23,34 @@ Axial lets you browse the official Factorio mod portal, install and update mods 
 | Frontend | React 19, TypeScript, Vite 8, Tailwind CSS 4, Zustand 5          |
 | CI       | GitHub Actions — tests on every push/PR, multi-platform builds on `v*` tags |
 
+## Installation & First Launch
+
+Download the installer or package for your operating system from the latest [GitHub Release](https://github.com/TheDragonSoft/Axial-Mod-Manager/releases/latest).
+
+Because Axial is an independent open-source project distributed directly without commercial certificate authorities, your operating system may prompt for confirmation on first launch:
+
+### Windows
+- Run the installer (`Axial_<version>_x64-setup.exe` or `.msi`).
+- If Windows Defender SmartScreen shows *"Windows protected your PC"*, click **More info** and then click **Run anyway**.
+
+### macOS
+- Download the `.dmg` (`aarch64` for Apple Silicon, `x64` for Intel), open it, and drag `Axial.app` to your `/Applications` folder.
+- On first launch, macOS Gatekeeper may report that Apple cannot check the app for malicious software.
+- **To launch:** Right-click (or Control-click) `Axial.app` in `/Applications`, select **Open**, and click **Open** in the dialog. (Alternatively, run `xattr -cr /Applications/Axial.app` in Terminal). Once authorized, macOS remembers your choice and opens normally on subsequent double-clicks.
+
+### Linux
+- **AppImage:** Make it executable and run:
+  ```sh
+  chmod +x Axial_<version>_amd64.AppImage
+  ./Axial_<version>_amd64.AppImage
+  ```
+- **Debian / Ubuntu (.deb):**
+  ```sh
+  sudo dpkg -i Axial_<version>_amd64.deb
+  ```
+
+*(For details on code signing and project status, see [docs/signing.md](docs/signing.md)).*
+
 ## Getting started
 
 Prerequisites: [pnpm](https://pnpm.io/) 9+, Rust (stable), and the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/) for your OS.
