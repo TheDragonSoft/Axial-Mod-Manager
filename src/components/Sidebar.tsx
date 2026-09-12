@@ -20,8 +20,6 @@ import {
 } from "../store/useQueueStore";
 import { useActivityStore } from "../store/useActivityStore";
 import {
-  activatePack,
-  activateVanilla,
   launchGame,
   listPacks,
   toAppError,
@@ -31,6 +29,7 @@ import type { BridgeStatus } from "../App";
 import Button from "./ui/Button";
 import Spinner from "./ui/Spinner";
 import StatusDot from "./ui/StatusDot";
+import PackModal from "./packs/PackModal";
 
 const NAV: { id: Tab; label: string; icon: typeof Compass }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -62,15 +61,14 @@ export default function Sidebar({
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const updateCount = useAppStore((s) => s.updateCount);
   const packsVersion = useAppStore((s) => s.packsVersion);
-  const setOpenPackId = useAppStore((s) => s.setOpenPackId);
   const activePackId = useAppStore((s) => s.activePackId);
   const activatingPackId = useAppStore((s) => s.activatingPackId);
-  const setActivatingPackId = useAppStore((s) => s.setActivatingPackId);
   const queueToggle = useQueueStore((s) => s.toggle);
   const activeDownloads = useQueueStore(selectActiveCount);
   const failedDownloads = useQueueStore(selectFailedCount);
 
   const [packs, setPacks] = useState<PackMeta[]>([]);
+  const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const detectedGame = useAppStore((s) => s.detectedGame);
   const hasGame = detectedGame !== null;
@@ -103,47 +101,12 @@ export default function Sidebar({
       .catch(() => setVersion(null));
   }, []);
 
-  async function handleVanillaClick() {
-    if (activatingPackId !== null) return;
-    setActiveTab("packs");
-    if (activePackId === "vanilla") {
-      return;
-    }
-    setActivatingPackId("vanilla");
-    try {
-      await activateVanilla();
-    } catch (e) {
-      setActivatingPackId(null);
-      console.error("Vanilla activation failed:", toAppError(e).message);
-    }
+  function handleVanillaClick() {
+    setSelectedPackId("vanilla");
   }
 
-  async function handlePackClick(p: PackMeta) {
-    if (activatingPackId !== null) return;
-    setOpenPackId(p.id);
-    setActiveTab("packs");
-
-    if (activePackId === p.id) {
-      // Active pack switch turned OFF -> switch to Vanilla
-      setActivatingPackId("vanilla");
-      try {
-        await activateVanilla();
-      } catch (e) {
-        setActivatingPackId(null);
-        console.error("Vanilla activation failed:", toAppError(e).message);
-      }
-    } else {
-      // Inactive pack switch turned ON -> switch to this pack
-      setActivatingPackId(p.id);
-      try {
-        const diff = await activatePack(p.id);
-        if (diff.toDownload.length > 0) useQueueStore.getState().open();
-        if (diff.toDownload.length === 0) setActivatingPackId(null);
-      } catch (e) {
-        setActivatingPackId(null);
-        console.error("Pack activation failed:", toAppError(e).message);
-      }
-    }
+  function handlePackClick(p: PackMeta) {
+    setSelectedPackId(p.id);
   }
 
   return (
@@ -231,7 +194,7 @@ export default function Sidebar({
       <div className="space-y-0.5 overflow-y-auto px-3 pb-2">
         {/* Vanilla — pinned first */}
         <button
-          onClick={() => void handleVanillaClick()}
+          onClick={handleVanillaClick}
           className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <StatusDot
@@ -245,7 +208,7 @@ export default function Sidebar({
         {packs.map((p) => (
           <button
             key={p.id}
-            onClick={() => void handlePackClick(p)}
+            onClick={() => handlePackClick(p)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             <StatusDot
@@ -278,6 +241,13 @@ export default function Sidebar({
           Axial{version ? ` v${version}` : ""}
         </p>
       </div>
+
+      {selectedPackId && (
+        <PackModal
+          packId={selectedPackId}
+          onClose={() => setSelectedPackId(null)}
+        />
+      )}
     </aside>
   );
 }
