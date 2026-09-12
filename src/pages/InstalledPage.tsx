@@ -66,14 +66,22 @@ function ModRow({
   const summary = useSummary(mod.name);
 
   return (
-    <Card className="overflow-hidden">
+    <Card
+      className={`overflow-hidden transition-opacity duration-150 ${
+        mod.enabled
+          ? ""
+          : "opacity-60 hover:opacity-90 focus-within:opacity-100"
+      }`}
+    >
       {/* Clickable header — acts as the accordion trigger */}
       <div
         role="button"
         tabIndex={0}
         aria-expanded={expanded}
         aria-label={`${mod.name} — ${expanded ? "collapse" : "expand"} details`}
-        className="flex cursor-pointer items-center gap-4 p-4 transition-colors hover:bg-surface-2/40"
+        className={`flex cursor-pointer items-center gap-4 p-4 transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent ${
+          mod.enabled ? "hover:bg-surface-2/40" : "hover:bg-surface-2/25"
+        }`}
         onClick={() => onToggleExpand(mod)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -84,16 +92,22 @@ function ModRow({
       >
         {/* Chevron affordance with rotation transition */}
         <ChevronRight
-          className={`h-4 w-4 shrink-0 text-stone-500 transition-transform duration-150 ${
-            expanded ? "rotate-90" : ""
-          }`}
+          className={`h-4 w-4 shrink-0 transition-transform duration-150 ${
+            mod.enabled ? "text-stone-500" : "text-stone-600"
+          } ${expanded ? "rotate-90" : ""}`}
         />
 
         <ModTile name={mod.name} url={thumbnail} />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="truncate font-medium text-stone-100">{mod.name}</p>
+            <p
+              className={`truncate font-medium ${
+                mod.enabled ? "text-stone-100" : "text-stone-400"
+              }`}
+            >
+              {mod.name}
+            </p>
             {mod.problem && (
               <Badge tone="red" title={mod.problem}>
                 problem
@@ -103,9 +117,13 @@ function ModRow({
           </div>
           {/* Secondary facts shown in collapsed state; moved into expanded area when open */}
           {!expanded && (
-            <p className="mt-0.5 truncate font-mono text-xs text-stone-500">
+            <p
+              className={`mt-0.5 truncate font-mono text-xs ${
+                mod.enabled ? "text-stone-500" : "text-stone-600"
+              }`}
+            >
               v{mod.version} · Factorio{" "}
-              <GameVersionBadge factorioVersion={mod.factorioVersion} /> ·{" "}
+              <GameVersionBadge factorioVersion={mod.factorioVersion} enabled={mod.enabled} /> ·{" "}
               {mod.dependencies.length} deps
             </p>
           )}
@@ -153,7 +171,7 @@ function ModRow({
             <Toggle
               checked={mod.enabled}
               onChange={(v) => onToggle(mod, v)}
-              label={`Enable ${mod.name}`}
+              label={mod.enabled ? `Disable ${mod.name}` : `Enable ${mod.name}`}
             />
           </div>
         </div>
@@ -168,9 +186,13 @@ function ModRow({
         <div className="overflow-hidden">
           <div className="border-t border-line bg-surface-2/30 px-4 py-3">
             {/* Secondary facts moved here when expanded */}
-            <p className="mb-2 font-mono text-xs text-stone-500">
+            <p
+              className={`mb-2 font-mono text-xs ${
+                mod.enabled ? "text-stone-500" : "text-stone-600"
+              }`}
+            >
               v{mod.version} · Factorio{" "}
-              <GameVersionBadge factorioVersion={mod.factorioVersion} /> ·{" "}
+              <GameVersionBadge factorioVersion={mod.factorioVersion} enabled={mod.enabled} /> ·{" "}
               {mod.dependencies.length} dep{mod.dependencies.length === 1 ? "" : "s"}
             </p>
 
@@ -187,7 +209,13 @@ function ModRow({
             ) : summary === null ? (
               <p className="text-xs italic text-stone-600">Description unavailable</p>
             ) : (
-              <p className="max-w-xl text-sm leading-relaxed text-stone-400">{summary}</p>
+              <p
+                className={`max-w-xl text-sm leading-relaxed ${
+                  mod.enabled ? "text-stone-400" : "text-stone-500"
+                }`}
+              >
+                {summary}
+              </p>
             )}
           </div>
         </div>
@@ -198,11 +226,29 @@ function ModRow({
 
 /** Green when the mod targets the configured game version (not a hardcoded
  * "2.0" — gray until the real target is loaded). */
-function GameVersionBadge({ factorioVersion }: { factorioVersion: string }) {
+function GameVersionBadge({
+  factorioVersion,
+  enabled = true,
+}: {
+  factorioVersion: string;
+  enabled?: boolean;
+}) {
   const target = useAppStore((s) => s.targetFactorioVersion);
   const compatible = target !== null && factorioVersion === target;
   return (
-    <span className={compatible ? "text-green-400" : "text-zinc-500"}>{factorioVersion}</span>
+    <span
+      className={
+        compatible
+          ? enabled
+            ? "text-green-400"
+            : "text-green-500/70"
+          : enabled
+          ? "text-stone-500"
+          : "text-stone-600"
+      }
+    >
+      {factorioVersion}
+    </span>
   );
 }
 
@@ -281,6 +327,25 @@ export default function InstalledPage() {
   }, [scheduleRefresh]);
 
   const mods = snapshot?.mods ?? [];
+
+  const { enabledMods, disabledMods } = useMemo(() => {
+    const enabled: InstalledMod[] = [];
+    const disabled: InstalledMod[] = [];
+    for (const m of mods) {
+      if (m.enabled) {
+        enabled.push(m);
+      } else {
+        disabled.push(m);
+      }
+    }
+    const cmp = (a: InstalledMod, b: InstalledMod) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+      a.name.localeCompare(b.name);
+    enabled.sort(cmp);
+    disabled.sort(cmp);
+    return { enabledMods: enabled, disabledMods: disabled };
+  }, [mods]);
+
   useThumbnails(mods.map((m) => m.name));
 
   const updateByName = useMemo(() => {
@@ -494,7 +559,27 @@ export default function InstalledPage() {
         />
       ) : (
         <div className="space-y-3">
-          {mods.map((m) => (
+          {enabledMods.map((m) => (
+            <ModRow
+              key={m.fileName}
+              mod={m}
+              confirming={confirming === m.fileName}
+              busy={busyFile === m.fileName}
+              updateTo={updateByName.get(m.name) ?? null}
+              expanded={expandedName === m.name}
+              onToggle={handleToggle}
+              onUninstall={handleUninstall}
+              onUpdate={handleUpdate}
+              onVersions={setVersionsFor}
+              onToggleExpand={handleToggleExpand}
+            />
+          ))}
+
+          {enabledMods.length > 0 && disabledMods.length > 0 && (
+            <hr className="border-0 border-t border-line my-1" />
+          )}
+
+          {disabledMods.map((m) => (
             <ModRow
               key={m.fileName}
               mod={m}
