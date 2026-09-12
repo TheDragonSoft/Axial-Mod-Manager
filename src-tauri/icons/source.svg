@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background Tile Gradient (Warm stone scale: #1E1A17 -> #141210 -> #0A0908) -->
+    <linearGradient id="axialTileBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E1A17" />
+      <stop offset="50%" stop-color="#141210" />
+      <stop offset="100%" stop-color="#0A0908" />
+    </linearGradient>
+
+    <!-- Outer Border Gradient (Warm stone bevel rim: #3D3733 -> #1C1917) -->
+    <linearGradient id="axialTileBorder" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3D3733" />
+      <stop offset="100%" stop-color="#1C1917" />
+    </linearGradient>
+
+    <!-- Soft Green Accent Atmosphere Glow -->
+    <radialGradient id="axialGlow" cx="50%" cy="46%" r="48%">
+      <stop offset="0%" stop-color="#00CC46" stop-opacity="0.22" />
+      <stop offset="55%" stop-color="#00CC46" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#00CC46" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Primary Glyph Accent Gradient (#3BF07E -> #00CC46 -> #00A337) -->
+    <linearGradient id="axialAccentGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3BF07E" />
+      <stop offset="38%" stop-color="#00CC46" />
+      <stop offset="100%" stop-color="#00A337" />
+    </linearGradient>
+
+    <!-- Subtle Drop Shadow for depth -->
+    <filter id="axialDropShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.6" />
+    </filter>
+  </defs>
+
+  <!-- Base Squircle Tile (864x864, centered at 512,512 with rx=196) -->
+  <rect x="80" y="80" width="864" height="864" rx="196" fill="url(#axialTileBg)" stroke="url(#axialTileBorder)" stroke-width="14" />
+
+  <!-- Inner delicate accent ring -->
+  <rect x="90" y="90" width="844" height="844" rx="186" fill="none" stroke="#00CC46" stroke-opacity="0.18" stroke-width="2" />
+
+  <!-- Ambient status glow behind the glyph -->
+  <rect x="80" y="80" width="864" height="864" rx="196" fill="url(#axialGlow)" />
+
+  <!-- Axial Mark with Drop Shadow -->
+  <g filter="url(#axialDropShadow)">
+    <!-- Main Glyph Body: Capital 'A' with Upward Conveyor Chevron Crossbar -->
+    <path d="
+      M 456,212
+      L 568,212
+      C 584,212 598,224 604,240
+      L 806,746
+      C 814,764 800,784 780,784
+      L 676,784
+      C 660,784 646,774 640,758
+      L 602,660
+      L 512,588
+      L 422,660
+      L 384,758
+      C 378,774 364,784 348,784
+      L 244,784
+      C 224,784 210,764 218,746
+      L 420,240
+      C 426,224 440,212 456,212 Z
+      M 512,308
+      L 444,496
+      L 512,438
+      L 580,496 Z
+    " fill="url(#axialAccentGrad)" fill-rule="evenodd" />
+  </g>
+</svg>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { clsx } from "clsx";
+import logoSvg from "../assets/logo.svg";
 import {
   Boxes,
   Compass,
@@ -170,9 +171,11 @@ export default function Sidebar({
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-surface">
       {/* Brand */}
       <div className="flex items-center gap-2.5 px-5 pt-5 pb-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-accent/25 bg-accent/15 text-sm font-black text-accent">
-          A
-        </div>
+        <img
+          src={logoSvg}
+          alt="Axial"
+          className="h-8 w-8 shrink-0 select-none rounded-lg"
+        />
         <div className="leading-tight">
           <p className="text-sm font-bold text-stone-200">Axial</p>
           <p className="text-[10px] text-stone-600">Factorio Mod Manager</p>
