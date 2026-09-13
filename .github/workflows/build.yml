@@ -12,6 +12,14 @@ jobs:
       matrix:
         platform: [windows-latest, macos-latest, ubuntu-22.04]
     runs-on: ${{ matrix.platform }}
+    # The secrets context is not allowed in if: conditionals — GitHub rejects the
+    # whole workflow file at parse time. Secret *presence* flags go through env
+    # instead; the secrets themselves are still read in the gated steps.
+    env:
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' }}
+      HAS_WINDOWS_PFX: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -33,7 +41,7 @@ jobs:
       # --- macOS Code Signing & Notarization (Dormant) ---
       # Automatically activates if APPLE_CERTIFICATE secret is configured; skips silently otherwise.
       - name: Setup macOS code signing and notarization
-        if: matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE != ''
+        if: matrix.platform == 'macos-latest' && env.HAS_APPLE_CERT == 'true'
         run: |
           echo "APPLE_CERTIFICATE=${{ secrets.APPLE_CERTIFICATE }}" >> $GITHUB_ENV
           echo "APPLE_CERTIFICATE_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" >> $GITHUB_ENV
@@ -50,7 +58,7 @@ jobs:
       # --- Windows Azure Trusted Signing (Dormant) ---
       # Automatically activates if AZURE_CLIENT_ID secret is configured; skips silently otherwise.
       - name: Sign Windows bundles (Azure Trusted Signing)
-        if: matrix.platform == 'windows-latest' && secrets.AZURE_CLIENT_ID != ''
+        if: matrix.platform == 'windows-latest' && env.HAS_AZURE == 'true'
         uses: azure/trusted-signing-action@v0.5.1
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -69,7 +77,7 @@ jobs:
       # --- Windows Authenticode / PFX Signing (Dormant) ---
       # Automatically activates if WINDOWS_CERTIFICATE secret is configured; skips silently otherwise.
       - name: Sign Windows bundles (PFX Certificate)
-        if: matrix.platform == 'windows-latest' && secrets.WINDOWS_CERTIFICATE != ''
+        if: matrix.platform == 'windows-latest' && env.HAS_WINDOWS_PFX == 'true'
         shell: pwsh
         run: |
           $pfxBytes = [System.Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE }}")
@@ -91,7 +99,7 @@ jobs:
 
       # --- Refresh Windows Updater Signatures (if post-build signing modified binaries) ---
       - name: Refresh Windows updater signatures
-        if: matrix.platform == 'windows-latest' && (secrets.AZURE_CLIENT_ID != '' || secrets.WINDOWS_CERTIFICATE != '') && secrets.TAURI_SIGNING_PRIVATE_KEY != ''
+        if: matrix.platform == 'windows-latest' && (env.HAS_AZURE == 'true' || env.HAS_WINDOWS_PFX == 'true') && env.HAS_UPDATER_KEY == 'true'
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
