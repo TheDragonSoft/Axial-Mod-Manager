@@ -24,8 +24,6 @@ export default function PacksPage() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [showNew, setShowNew] = useState(false);
-  const openPackId = useAppStore((s) => s.openPackId);
-  const setOpenPackId = useAppStore((s) => s.setOpenPackId);
   const bumpPacks = useAppStore((s) => s.bumpPacks);
   const activePackId = useAppStore((s) => s.activePackId);
   const activatingPackId = useAppStore((s) => s.activatingPackId);
@@ -61,15 +59,6 @@ export default function PacksPage() {
       void unlisten.then((f) => f());
     };
   }, [bumpPacks]);
-
-  // Consume the Quick Access request after the pack list is available.
-  const [pendingOpen, setPendingOpen] = useState<string | null>(null);
-  useEffect(() => {
-    if (openPackId) {
-      setPendingOpen(openPackId);
-      setOpenPackId(null);
-    }
-  }, [openPackId, setOpenPackId]);
 
   const isVanillaActive = activePackId === "vanilla";
   const isVanillaActivating = activatingPackId === "vanilla";
@@ -224,7 +213,6 @@ export default function PacksPage() {
             <PackCard
               key={p.id}
               meta={p}
-              initiallyOpen={pendingOpen === p.id}
               onStatus={setStatus}
               onRefresh={() => {
                 void refresh();

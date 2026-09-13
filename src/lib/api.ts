@@ -149,14 +149,6 @@ export async function deletePack(id: string): Promise<void> {
   return invoke<void>("delete_pack", { id });
 }
 
-export async function importPack(json: string): Promise<Pack> {
-  return invoke<Pack>("import_pack", { json });
-}
-
-export async function exportPack(id: string): Promise<string> {
-  return invoke<string>("export_pack", { id });
-}
-
 export async function importPackBase64(base64: string): Promise<Pack> {
   return invoke<Pack>("import_pack_base64", { base64 });
 }

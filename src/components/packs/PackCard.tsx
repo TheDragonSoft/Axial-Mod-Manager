@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { activatePack, activateVanilla, deletePack, exportPackBase64, getPack, toAppError } from "../../lib/api";
 import { useAppStore } from "../../store/useAppStore";
@@ -16,12 +16,10 @@ export type Status = { kind: "ok" | "err"; text: string };
 
 export default function PackCard({
   meta,
-  initiallyOpen = false,
   onStatus,
   onRefresh,
 }: {
   meta: PackMeta;
-  initiallyOpen?: boolean;
   onStatus: (s: Status) => void;
   onRefresh: () => void;
 }) {
@@ -38,19 +36,6 @@ export default function PackCard({
   const isActive = activePackId === meta.id;
   const isActivating = activatingPackId === meta.id;
   const anyActivating = activatingPackId !== null;
-
-  // Sidebar Quick Access requests a specific pack to be expanded on entry.
-  useEffect(() => {
-    if (!initiallyOpen) return;
-    (async () => {
-      try {
-        setPack(await getPack(meta.id));
-        setExpanded(true);
-      } catch {
-        /* card stays collapsed; the list itself shows load errors */
-      }
-    })();
-  }, [initiallyOpen, meta.id]);
 
   async function toggleExpanded() {
     if (expanded) {

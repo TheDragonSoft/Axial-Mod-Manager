@@ -197,12 +197,6 @@ pub fn import_pack(profiles_dir: &Path, json: &str) -> Result<Pack, AppError> {
     create_pack(profiles_dir, &imp.name, imp.mods)
 }
 
-pub fn export_pack(profiles_dir: &Path, id: &str) -> Result<String, AppError> {
-    let pack = load_pack(profiles_dir, id)?;
-    serde_json::to_string_pretty(&pack)
-        .map_err(|e| AppError::Parse(format!("serialize pack: {e}")))
-}
-
 /// Export a pack as a standard Base64-encoded JSON manifest string.
 pub fn export_pack_base64(profiles_dir: &Path, id: &str) -> Result<String, AppError> {
     let pack = load_pack(profiles_dir, id)?;

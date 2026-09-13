@@ -54,16 +54,6 @@ pub async fn delete_pack(state: State<'_, AppState>, id: String) -> Result<(), A
 }
 
 #[tauri::command]
-pub async fn import_pack(state: State<'_, AppState>, json: String) -> Result<Pack, AppError> {
-    packs::import_pack(&state.profiles_dir, &json)
-}
-
-#[tauri::command]
-pub async fn export_pack(state: State<'_, AppState>, id: String) -> Result<String, AppError> {
-    packs::export_pack(&state.profiles_dir, &id)
-}
-
-#[tauri::command]
 pub async fn import_pack_base64(state: State<'_, AppState>, base64: String) -> Result<Pack, AppError> {
     packs::import_pack_base64(&state.profiles_dir, &base64)
 }

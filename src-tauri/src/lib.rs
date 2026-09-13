@@ -165,8 +165,6 @@ pub fn run() {
             commands::packs::create_pack_from_installed,
             commands::packs::create_pack_from_mods,
             commands::packs::delete_pack,
-            commands::packs::import_pack,
-            commands::packs::export_pack,
             commands::packs::import_pack_base64,
             commands::packs::export_pack_base64,
             commands::packs::activate_pack,
