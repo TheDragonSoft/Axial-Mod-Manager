@@ -29,7 +29,6 @@ export default function PackCard({
   const [pack, setPack] = useState<Pack | null>(null);
   const [copied, setCopied] = useState(false);
   const del = useConfirm();
-  const confirm = useConfirm();
 
   const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
   const activePackId = useAppStore((s) => s.activePackId);
@@ -71,12 +70,7 @@ export default function PackCard({
 
   async function handleToggle(checked: boolean) {
     if (checked) {
-      // Turning ON this pack — confirm first.
-      if (confirm.confirming !== meta.id) {
-        confirm.arm(meta.id);
-        return;
-      }
-      confirm.disarm();
+      // Turning ON this pack — activate immediately, no confirmation.
       setActivatingPackId(meta.id);
       try {
         const diff: ActivationDiff = await activatePack(meta.id);
@@ -103,12 +97,7 @@ export default function PackCard({
         onStatus({ kind: "err", text: toAppError(e).message });
       }
     } else {
-      // Turning OFF the active pack → activate Vanilla.
-      if (confirm.confirming !== `vanilla-${meta.id}`) {
-        confirm.arm(`vanilla-${meta.id}`);
-        return;
-      }
-      confirm.disarm();
+      // Turning OFF the active pack → activate Vanilla immediately.
       setActivatingPackId("vanilla");
       try {
         await activateVanilla();
@@ -145,14 +134,6 @@ export default function PackCard({
       onStatus({ kind: "err", text: toAppError(e).message });
     }
   }
-
-  // Derive the confirm-prompt text when a confirm is armed.
-  const confirmText =
-    confirm.confirming === meta.id
-      ? "Extras will be disabled — activate?"
-      : confirm.confirming === `vanilla-${meta.id}`
-        ? "This will disable all mods — switch to Vanilla?"
-        : null;
 
   return (
     <Card className="flex flex-col p-5">
@@ -199,10 +180,6 @@ export default function PackCard({
           </button>
         </div>
       </div>
-
-      {confirmText && (
-        <p className="mt-2 text-xs text-amber-400">{confirmText}</p>
-      )}
 
       {expanded && pack && (
         <ul className="mt-4 max-h-56 space-y-1 overflow-y-auto rounded-lg border border-line bg-surface-2 p-3 text-xs">

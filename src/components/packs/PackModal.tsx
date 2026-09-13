@@ -37,7 +37,6 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
   const [status, setStatus] = useState<Status | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const confirm = useConfirm();
   const del = useConfirm();
 
   const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
@@ -98,12 +97,7 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
 
   async function handleToggle(checked: boolean) {
     if (checked) {
-      // Turning ON this pack — confirm first.
-      if (confirm.confirming !== packId) {
-        confirm.arm(packId);
-        return;
-      }
-      confirm.disarm();
+      // Turning ON this pack — activate immediately, no confirmation.
       setActivatingPackId(packId);
       try {
         const diff: ActivationDiff = await activatePack(packId);
@@ -127,12 +121,7 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
         setStatus({ kind: "err", text: toAppError(e).message });
       }
     } else {
-      // Turning OFF the active pack -> activate Vanilla.
-      if (confirm.confirming !== `vanilla-${packId}`) {
-        confirm.arm(`vanilla-${packId}`);
-        return;
-      }
-      confirm.disarm();
+      // Turning OFF the active pack -> activate Vanilla immediately.
       setActivatingPackId("vanilla");
       try {
         await activateVanilla();
@@ -149,11 +138,6 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
 
   async function handleVanillaToggle(checked: boolean) {
     if (checked) {
-      if (confirm.confirming !== "vanilla") {
-        confirm.arm("vanilla");
-        return;
-      }
-      confirm.disarm();
       setActivatingPackId("vanilla");
       try {
         await activateVanilla();
@@ -199,14 +183,6 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
       setStatus({ kind: "err", text: toAppError(e).message });
     }
   }
-
-  const confirmText =
-    confirm.confirming === packId
-      ? "Extras will be disabled — activate?"
-      : confirm.confirming === `vanilla-${packId}` ||
-          confirm.confirming === "vanilla"
-        ? "This will disable all mods — switch to Vanilla?"
-        : null;
 
   const title = isVanilla ? "Vanilla" : (pack?.name ?? "Pack details");
   const subtitle = isVanilla
@@ -386,9 +362,6 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
                 )}
               </div>
             </div>
-            {confirmText && (
-              <p className="mt-2 text-xs text-amber-400">{confirmText}</p>
-            )}
           </Card>
 
           {/* Body Content: Vanilla vs Pack Mods */}
