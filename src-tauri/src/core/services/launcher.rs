@@ -102,7 +102,7 @@ pub fn launch(config: &Config) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use super::*;
 
@@ -112,7 +112,10 @@ mod tests {
         let exe = resolve_executable_for_os(install, TargetOs::Windows);
         assert_eq!(
             exe,
-            PathBuf::from(r"C:\Program Files\Factorio\bin\x64\factorio.exe")
+            Path::new(r"C:\Program Files\Factorio")
+                .join("bin")
+                .join("x64")
+                .join("factorio.exe")
         );
     }
 
