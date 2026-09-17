@@ -2,7 +2,9 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::core::services::{mod_store, updates};
 use crate::error::AppError;
-use crate::models::{InstalledSnapshot, ModsDirStatus, UpdatesReport};
+use crate::models::{
+    CleanOrphansResult, InstalledSnapshot, ModsDirStatus, StorageReport, UpdatesReport,
+};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -95,4 +97,51 @@ pub async fn check_updates(state: State<'_, AppState>) -> Result<UpdatesReport, 
         .await
         .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
     Ok(updates::check(&*state.index, &snapshot, &config.target_factorio_version).await)
+}
+
+/// Mods-dir storage facts: total size, per-mod aggregates, orphan files.
+/// An explicit `path` overrides the effective mods dir (used by Settings while
+/// the user is editing the path before saving); None = effective dir.
+#[tauri::command]
+pub async fn get_storage_report(
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> Result<StorageReport, AppError> {
+    let dir = match path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
+        Some(p) => std::path::PathBuf::from(p),
+        None => {
+            let config = state.config.read().expect("config lock poisoned").clone();
+            mod_store::resolve_dir(&config)?
+        }
+    };
+    let cache = state.zip_cache.clone();
+    let report = tauri::async_runtime::spawn_blocking(move || mod_store::storage_report(&dir, &cache))
+        .await
+        .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
+    Ok(report)
+}
+
+/// Delete provably-orphaned files (unreferenced zips + .part debris). The
+/// backend re-classifies from a fresh scan; the frontend supplies nothing but
+/// an optional path override (same contract as `get_storage_report`).
+#[tauri::command]
+pub async fn clean_orphans(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> Result<CleanOrphansResult, AppError> {
+    let dir = match path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
+        Some(p) => std::path::PathBuf::from(p),
+        None => {
+            let config = state.config.read().expect("config lock poisoned").clone();
+            mod_store::resolve_dir(&config)?
+        }
+    };
+    let cache = state.zip_cache.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || mod_store::clean_orphans(&dir, &cache))
+        .await
+        .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;
+    // Deleted unreferenced zips change what the installed scan lists.
+    let _ = app.emit("installed-changed", ());
+    Ok(result)
 }

@@ -229,6 +229,46 @@ export interface VanillaInfo {
   expansionAvailable: boolean;
 }
 
+// ---- Mods-dir hygiene: storage report + orphans (A4) ----
+
+/** Mirror of Rust's OrphanKind (serde snake_case). */
+export type OrphanKind = "unreferenced_zip" | "missing_entry" | "part_debris";
+
+/** One orphaned item in the mods directory. */
+export interface OrphanFile {
+  /** File name on disk; null for missing mod-list entries. */
+  fileName: string | null;
+  kind: OrphanKind;
+  modName: string | null;
+  /** Reclaimable bytes; 0 for missing entries. */
+  sizeBytes: number;
+}
+
+/** Storage aggregate for one mod (all its zips in the mods directory). */
+export interface ModStorageEntry {
+  name: string;
+  /** More than 1 means duplicate versions on disk. */
+  fileCount: number;
+  sizeBytes: number;
+}
+
+/** Mirror of Rust's StorageReport (serde camelCase). */
+export interface StorageReport {
+  modsDir: string;
+  totalSizeBytes: number;
+  zipCount: number;
+  orphans: OrphanFile[];
+  orphanSizeBytes: number;
+  perMod: ModStorageEntry[];
+}
+
+/** Mirror of Rust's CleanOrphansResult (serde camelCase). */
+export interface CleanOrphansResult {
+  deletedCount: number;
+  freedBytes: number;
+  errors: string[];
+}
+
 // ---- Update detection (Phase 9) ----
 
 export interface UpdateInfo {

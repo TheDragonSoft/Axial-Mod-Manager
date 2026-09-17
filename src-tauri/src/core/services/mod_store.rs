@@ -11,7 +11,8 @@ use crate::config::Config;
 use crate::core::services::game_detect;
 use crate::error::AppError;
 use crate::models::{
-    DetectedDir, DetectedGame, DetectionStatus, InstalledMod, InstalledSnapshot, ModsDirStatus,
+    CleanOrphansResult, DetectedDir, DetectedGame, DetectionStatus, InstalledMod, InstalledSnapshot,
+    ModStorageEntry, ModsDirStatus, OrphanFile, OrphanKind, StorageReport,
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
@@ -730,6 +731,219 @@ pub fn replace_mod_list(dir: &Path, entries: &[(String, bool)]) -> Result<(), Ap
 }
 
 // ---------------------------------------------------------------------------
+// Storage report + orphans (A4) — additive; the installed scan above is
+// deliberately untouched.
+// ---------------------------------------------------------------------------
+
+fn is_zip_file_name(file_name: &str) -> bool {
+    Path::new(file_name)
+        .extension()
+        .map(|ext| ext.eq_ignore_ascii_case("zip"))
+        .unwrap_or(false)
+}
+
+/// Every mod name referenced by mod-list.json, enabled or disabled.
+/// `None` when the file is missing, unreadable, corrupt or malformed — with no
+/// trustworthy reference list it is impossible to *prove* a zip is unused, and
+/// deletion is forever, so the caller must classify nothing as orphan.
+fn referenced_names(dir: &Path) -> Option<HashSet<String>> {
+    let path = mod_list_path(dir);
+    if !path.is_file() {
+        return None;
+    }
+    let raw = fs::read_to_string(&path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let arr = v.get("mods")?.as_array()?;
+    Some(
+        arr.iter()
+            .filter_map(|e| e.get("name").and_then(|n| n.as_str()).map(String::from))
+            .collect(),
+    )
+}
+
+/// Scan the mods directory for storage facts: total size, per-mod aggregates
+/// and provably-orphaned files. Runs its own read_dir pass (does not re-use
+/// `scan_installed`, which only sees zips and would miss `.part` debris and
+/// mod-list entries whose zip vanished). Zip names come from the shared
+/// `ZipInfoCache`, so a report right after a scan costs metadata checks only.
+pub fn storage_report(dir: &Path, cache: &ZipInfoCache) -> StorageReport {
+    let mods_dir = dir.to_string_lossy().into_owned();
+    let mut total_size_bytes = 0u64;
+    struct DiskZip {
+        file_name: String,
+        mod_name: String,
+        size: u64,
+        /// False when the zip could not be read (corrupt/locked): its name is
+        /// then only a filename guess, never grounds for orphan classification.
+        readable: bool,
+    }
+    let mut zips: Vec<DiskZip> = Vec::new();
+    let mut parts: Vec<(String, u64)> = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else { continue };
+            if !meta.is_file() {
+                continue;
+            }
+            let file_name = entry.file_name().to_string_lossy().into_owned();
+            let size = meta.len();
+            total_size_bytes += size;
+            if file_name.to_lowercase().ends_with(".part") {
+                parts.push((file_name, size));
+            } else if is_zip_file_name(&file_name) {
+                let path = dir.join(&file_name);
+                let info = zip_info_cached(dir, cache, &path, &file_name);
+                zips.push(DiskZip {
+                    readable: info.problem.is_none(),
+                    mod_name: info.name,
+                    file_name,
+                    size,
+                });
+            }
+        }
+    }
+
+    let mut orphans: Vec<OrphanFile> = Vec::new();
+    if let Some(referenced) = referenced_names(dir) {
+        let disk_names: HashSet<&str> = zips.iter().map(|z| z.mod_name.as_str()).collect();
+        for z in &zips {
+            // `base` ships inside the game data dir — it is never a mods-dir
+            // zip, so it can neither be an unreferenced zip nor go "missing".
+            if z.readable && z.mod_name != "base" && !referenced.contains(&z.mod_name) {
+                orphans.push(OrphanFile {
+                    file_name: Some(z.file_name.clone()),
+                    kind: OrphanKind::UnreferencedZip,
+                    mod_name: Some(z.mod_name.clone()),
+                    size_bytes: z.size,
+                });
+            }
+        }
+        for name in &referenced {
+            if name != "base" && !disk_names.contains(name.as_str()) {
+                orphans.push(OrphanFile {
+                    file_name: None,
+                    kind: OrphanKind::MissingEntry,
+                    mod_name: Some(name.clone()),
+                    size_bytes: 0,
+                });
+            }
+        }
+    }
+    for (file_name, size) in &parts {
+        orphans.push(OrphanFile {
+            file_name: Some(file_name.clone()),
+            kind: OrphanKind::PartDebris,
+            mod_name: None,
+            size_bytes: *size,
+        });
+    }
+    orphans.sort_by(|a, b| {
+        (a.kind, a.file_name.as_deref().unwrap_or(""), a.mod_name.as_deref().unwrap_or(""))
+            .cmp(&(
+                b.kind,
+                b.file_name.as_deref().unwrap_or(""),
+                b.mod_name.as_deref().unwrap_or(""),
+            ))
+    });
+
+    let mut per_mod: HashMap<String, ModStorageEntry> = HashMap::new();
+    for z in &zips {
+        let entry = per_mod
+            .entry(z.mod_name.clone())
+            .or_insert_with(|| ModStorageEntry {
+                name: z.mod_name.clone(),
+                file_count: 0,
+                size_bytes: 0,
+            });
+        entry.file_count += 1;
+        entry.size_bytes += z.size;
+    }
+    let mut per_mod: Vec<ModStorageEntry> = per_mod.into_values().collect();
+    per_mod.sort_by(|a, b| {
+        b.size_bytes
+            .cmp(&a.size_bytes)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    let orphan_size_bytes = orphans.iter().map(|o| o.size_bytes).sum();
+    let zip_count = zips.len() as u32;
+
+    StorageReport {
+        mods_dir,
+        total_size_bytes,
+        zip_count,
+        orphans,
+        orphan_size_bytes,
+        per_mod,
+    }
+}
+
+/// Delete only provably-orphaned files: unreferenced zips and `.part` debris.
+/// The classification is redone from a fresh scan (nothing is accepted from
+/// the caller), and the directory must pass the same validation as any write
+/// path — the writable-probe `dir_status` — because deletion is forever.
+/// Missing mod-list entries are reported but never touched here: cleaning
+/// them would mean editing Factorio's mod-list.json, which no orphan proves.
+pub fn clean_orphans(dir: &Path, cache: &ZipInfoCache) -> Result<CleanOrphansResult, AppError> {
+    let status = dir_status(&dir.to_string_lossy());
+    if !status.is_dir {
+        return Err(AppError::NotFound(format!(
+            "mods directory {} does not exist",
+            status.path
+        )));
+    }
+    if !status.writable {
+        return Err(AppError::Config(format!(
+            "mods directory {} is not writable",
+            status.path
+        )));
+    }
+
+    let report = storage_report(dir, cache);
+    let mut deleted_count = 0u32;
+    let mut freed_bytes = 0u64;
+    let mut errors = Vec::new();
+    for orphan in &report.orphans {
+        let Some(file_name) = &orphan.file_name else {
+            continue;
+        };
+        // Defense in depth: names come from read_dir, but deletion is forever —
+        // refuse anything that isn't a plain top-level file name.
+        if file_name.contains('/')
+            || file_name.contains('\\')
+            || file_name.contains("..")
+        {
+            continue;
+        }
+        match fs::remove_file(dir.join(file_name)) {
+            Ok(_) => {
+                deleted_count += 1;
+                freed_bytes += orphan.size_bytes;
+            }
+            Err(e) => errors.push(format!("{file_name}: {e}")),
+        }
+    }
+
+    // Drop cache entries of deleted zips — one metadata-only read_dir pass.
+    let live: HashSet<String> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    cache.prune(dir, &live);
+
+    Ok(CleanOrphansResult {
+        deleted_count,
+        freed_bytes,
+        errors,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1000,5 +1214,202 @@ mod tests {
 
         let err2 = decide_mods_dir(None, None, None).unwrap_err();
         assert_eq!(err2.kind(), "not_found");
+    }
+
+    // ---- Storage report + orphans (A4) ----
+
+    fn write_mod_list(dir: &Path, entries: &[(&str, bool)]) {
+        let arr: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|(n, en)| json!({ "name": n, "enabled": en }))
+            .collect();
+        fs::write(
+            dir.join(MOD_LIST_FILE),
+            serde_json::to_string(&json!({ "mods": arr })).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn orphan_kinds(report: &StorageReport) -> Vec<(OrphanKind, String)> {
+        report
+            .orphans
+            .iter()
+            .map(|o| {
+                (
+                    o.kind,
+                    o.file_name.clone().or(o.mod_name.clone()).unwrap_or_default(),
+                )
+            })
+            .collect()
+    }
+
+    /// Fixture: base+ModA enabled, ModB disabled (zip present), GhostMod zip
+    /// not referenced, "Vanished" referenced but zip missing, one .part file.
+    fn orphan_fixture(tag: &str) -> (PathBuf, Vec<(String, PathBuf)>) {
+        let dir = unique_dir(tag);
+        let files = [
+            ("ModA_1.0.0.zip", r#"{"name":"ModA","version":"1.0.0","factorio_version":"2.0"}"#),
+            ("ModB_2.0.0.zip", r#"{"name":"ModB","version":"2.0.0","factorio_version":"2.0"}"#),
+            ("GhostMod_1.0.0.zip", r#"{"name":"GhostMod","version":"1.0.0","factorio_version":"2.0"}"#),
+        ];
+        let mut all: Vec<(String, PathBuf)> = Vec::new();
+        for (name, info) in &files {
+            let path = dir.join(name);
+            write_zip(&path, info);
+            all.push((name.to_string(), path));
+        }
+        let part = dir.join("ModC_1.0.0.zip.part");
+        fs::write(&part, b"partial download bytes").unwrap();
+        all.push(("ModC_1.0.0.zip.part".to_string(), part));
+        write_mod_list(
+            &dir,
+            &[("base", true), ("ModA", true), ("ModB", false), ("Vanished", true)],
+        );
+        (dir, all)
+    }
+
+    #[test]
+    fn storage_report_classifies_all_three_orphan_kinds() {
+        let (dir, files) = orphan_fixture("report");
+        let cache = ZipInfoCache::new();
+
+        let report = storage_report(&dir, &cache);
+
+        assert_eq!(report.zip_count, 3);
+        // Total covers every top-level file: 3 zips + .part + mod-list.json.
+        let expected_total: u64 = files
+            .iter()
+            .map(|(_, p)| fs::metadata(p).unwrap().len())
+            .sum::<u64>()
+            + fs::metadata(dir.join(MOD_LIST_FILE)).unwrap().len();
+        assert_eq!(report.total_size_bytes, expected_total);
+
+        let kinds = orphan_kinds(&report);
+        assert_eq!(
+            kinds,
+            vec![
+                (OrphanKind::UnreferencedZip, "GhostMod_1.0.0.zip".to_string()),
+                (OrphanKind::MissingEntry, "Vanished".to_string()),
+                (OrphanKind::PartDebris, "ModC_1.0.0.zip.part".to_string()),
+            ],
+            "exactly one orphan of each kind; ModA/ModB zips (enabled and disabled entries) are referenced, base is never missing"
+        );
+
+        let orphan_zip_size = fs::metadata(dir.join("GhostMod_1.0.0.zip")).unwrap().len();
+        let part_size = fs::metadata(dir.join("ModC_1.0.0.zip.part")).unwrap().len();
+        assert_eq!(report.orphan_size_bytes, orphan_zip_size + part_size);
+
+        // Per-mod aggregates include referenced and orphaned zips alike.
+        let per_mod: HashMap<String, (u32, u64)> = report
+            .per_mod
+            .iter()
+            .map(|m| (m.name.clone(), (m.file_count, m.size_bytes)))
+            .collect();
+        assert_eq!(per_mod.get("ModA"), Some(&(1, fs::metadata(dir.join("ModA_1.0.0.zip")).unwrap().len())));
+        assert_eq!(per_mod.get("GhostMod"), Some(&(1, orphan_zip_size)));
+        assert!(!per_mod.contains_key("base"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clean_orphans_deletes_only_orphans_and_survivors_stay() {
+        let (dir, _) = orphan_fixture("clean");
+        let cache = ZipInfoCache::new();
+
+        // Sizes must be captured before the clean — the files are gone after.
+        let expected_freed = fs::metadata(dir.join("GhostMod_1.0.0.zip")).unwrap().len()
+            + fs::metadata(dir.join("ModC_1.0.0.zip.part")).unwrap().len();
+
+        let result = clean_orphans(&dir, &cache).unwrap();
+        assert_eq!(result.deleted_count, 2, "orphan zip + .part debris");
+        assert_eq!(result.errors.len(), 0);
+        assert!(dir.join("ModA_1.0.0.zip").exists(), "referenced (enabled) zip survives");
+        assert!(dir.join("ModB_2.0.0.zip").exists(), "zip referenced by a disabled entry survives");
+        assert!(dir.join(MOD_LIST_FILE).exists(), "mod-list.json is never touched");
+        assert!(!dir.join("GhostMod_1.0.0.zip").exists());
+        assert!(!dir.join("ModC_1.0.0.zip.part").exists());
+        assert_eq!(result.freed_bytes, expected_freed);
+        // mod-list.json content (incl. base) unchanged.
+        let raw = fs::read_to_string(dir.join(MOD_LIST_FILE)).unwrap();
+        assert!(raw.contains("\"base\""));
+
+        // Second pass: only the missing entry remains reported, nothing deleted.
+        let report = storage_report(&dir, &cache);
+        assert_eq!(
+            orphan_kinds(&report),
+            vec![(OrphanKind::MissingEntry, "Vanished".to_string())],
+            "missing entries are reported but never deleted"
+        );
+        let result2 = clean_orphans(&dir, &cache).unwrap();
+        assert_eq!(result2.deleted_count, 0);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn storage_report_classifies_nothing_without_a_trustworthy_mod_list() {
+        let dir = unique_dir("no-list");
+        let zip = dir.join("ModA_1.0.0.zip");
+        write_zip(&zip, r#"{"name":"ModA","version":"1.0.0","factorio_version":"2.0"}"#);
+        let cache = ZipInfoCache::new();
+
+        // No mod-list.json at all: Factorio defaults to everything enabled, so
+        // the zip is in use — nothing is provably orphaned.
+        let report = storage_report(&dir, &cache);
+        assert!(report.orphans.is_empty());
+        assert_eq!(clean_orphans(&dir, &cache).unwrap().deleted_count, 0);
+        assert!(zip.exists(), "zip must survive a clean with no reference list");
+
+        // Corrupt JSON: equally untrustworthy.
+        fs::write(dir.join(MOD_LIST_FILE), "{not json").unwrap();
+        assert!(storage_report(&dir, &cache).orphans.is_empty());
+
+        // Malformed shape (no mods array): same policy as the write paths.
+        fs::write(dir.join(MOD_LIST_FILE), r#"{"version": 3}"#).unwrap();
+        assert!(storage_report(&dir, &cache).orphans.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unreadable_zip_is_never_classified_orphan() {
+        let dir = unique_dir("unreadable");
+        write_mod_list(&dir, &[("base", true)]);
+        let broken = dir.join("BrokenMod_1.2.3.zip");
+        fs::write(&broken, b"this is not a zip file").unwrap();
+        let cache = ZipInfoCache::new();
+
+        let report = storage_report(&dir, &cache);
+        assert!(
+            report.orphans.is_empty(),
+            "a corrupt zip's name is only a filename guess — never deletion grounds"
+        );
+        assert_eq!(clean_orphans(&dir, &cache).unwrap().deleted_count, 0);
+        assert!(broken.exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_versions_aggregate_per_mod_but_are_never_orphans() {
+        let dir = unique_dir("dupes");
+        let old = dir.join("ModA_1.0.0.zip");
+        let new = dir.join("ModA_2.0.0.zip");
+        write_zip(&old, r#"{"name":"ModA","version":"1.0.0","factorio_version":"2.0"}"#);
+        write_zip(&new, r#"{"name":"ModA","version":"2.0.0","factorio_version":"2.0"}"#);
+        write_mod_list(&dir, &[("base", true), ("ModA", true)]);
+        let cache = ZipInfoCache::new();
+
+        let report = storage_report(&dir, &cache);
+        assert!(report.orphans.is_empty(), "both zips belong to a referenced mod");
+        let moda = report.per_mod.iter().find(|m| m.name == "ModA").unwrap();
+        assert_eq!(moda.file_count, 2, "duplicate versions surface via the aggregate");
+        assert_eq!(
+            moda.size_bytes,
+            fs::metadata(&old).unwrap().len() + fs::metadata(&new).unwrap().len()
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

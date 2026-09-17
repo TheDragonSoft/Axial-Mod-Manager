@@ -8,17 +8,28 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 import {
+  cleanOrphans,
   detectGameInstall,
   getDetectionStatus,
   getSettings,
+  getStorageReport,
   setSettings,
   toAppError,
   validateGameDir,
   validateModsDir,
 } from "../lib/api";
-import type { DetectedGame, GameDirStatus, ModsDirStatus } from "../types";
+import { formatBytes } from "../lib/format";
+import type {
+  CleanOrphansResult,
+  DetectedGame,
+  GameDirStatus,
+  ModsDirStatus,
+  OrphanKind,
+  StorageReport,
+} from "../types";
 import { useAppStore } from "../store/useAppStore";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
@@ -27,7 +38,9 @@ import Panel from "../components/ui/Panel";
 import SegmentedTabs from "../components/ui/SegmentedTabs";
 import Select from "../components/ui/Select";
 import Spinner from "../components/ui/Spinner";
+import StatusDot from "../components/ui/StatusDot";
 import Toggle from "../components/ui/Toggle";
+import { useConfirm } from "../components/ui/useConfirm";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 type Section = "storage" | "game" | "general";
@@ -117,6 +130,28 @@ function GameDirStatusLine({
   );
 }
 
+const ORPHAN_LABELS: Record<OrphanKind, string> = {
+  unreferenced_zip: "not in mod-list.json",
+  missing_entry: "listed but zip missing",
+  part_debris: "interrupted download",
+};
+
+/** One orphaned file/entry line in the storage panel. */
+function OrphanLine({ name, kind, size }: { name: string; kind: OrphanKind; size: number }) {
+  return (
+    <li className="flex items-center gap-2 text-xs">
+      <StatusDot tone="amber" />
+      <span className="min-w-0 flex-1 truncate font-mono text-stone-300" title={name}>
+        {name}
+      </span>
+      <span className="shrink-0 text-stone-600">{ORPHAN_LABELS[kind]}</span>
+      <span className="w-16 shrink-0 text-right text-stone-500">
+        {size > 0 ? formatBytes(size) : "—"}
+      </span>
+    </li>
+  );
+}
+
 /** Human-readable summary of a ModsDirStatus, styled by severity. */
 function DirStatusLine({ status }: { status: ModsDirStatus }) {
   let tone = "text-stone-500";
@@ -145,7 +180,11 @@ function DirStatusLine({ status }: { status: ModsDirStatus }) {
 
 export default function SettingsPage() {
   const effectiveModsDir = useAppStore((s) => s.effectiveModsDir);
-  const [section, setSection] = useState<Section>("storage");
+  const settingsSection = useAppStore((s) => s.settingsSection);
+  const setSettingsSection = useAppStore((s) => s.setSettingsSection);
+  // Deep-linkable: the store keeps the last-open section so other pages
+  // (Dashboard storage card) can land straight on Storage.
+  const [section, setSection] = useState<Section>(settingsSection);
   const [modsDirInput, setModsDirInput] = useState("");
   const [gameDirInput, setGameDirInput] = useState("");
   const [logLevel, setLogLevel] = useState("info");
@@ -159,6 +198,29 @@ export default function SettingsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanResult, setCleanResult] = useState<CleanOrphansResult | null>(null);
+  const [cleanError, setCleanError] = useState<string | null>(null);
+  const orphanConfirm = useConfirm();
+
+  function switchSection(next: Section) {
+    setSection(next);
+    setSettingsSection(next);
+  }
+
+  async function refreshStorage(path: string) {
+    const probePath = path.trim() || useAppStore.getState().effectiveModsDir;
+    if (!probePath) {
+      setStorageReport(null);
+      return;
+    }
+    try {
+      setStorageReport(await getStorageReport(probePath));
+    } catch {
+      setStorageReport(null);
+    }
+  }
 
   async function refreshStatus(path: string) {
     const trimmed = path.trim();
@@ -172,6 +234,8 @@ export default function SettingsPage() {
     } catch {
       setStatus(null);
     }
+    // Same trigger points as the dir probe: the storage report rides along.
+    void refreshStorage(probePath);
   }
 
   async function refreshGameStatus(path: string) {
@@ -271,6 +335,30 @@ export default function SettingsPage() {
     setGameDirWasAutoDetected(false);
     setSaveState("idle");
     setSaveError(null);
+  }
+
+  /** Two-step destructive confirm: first click arms, second click cleans. */
+  async function handleCleanOrphans() {
+    const id = "orphans";
+    if (orphanConfirm.confirming !== id) {
+      orphanConfirm.arm(id);
+      return;
+    }
+    orphanConfirm.disarm();
+    const path = (modsDirInput.trim() || effectiveModsDir || "").trim();
+    if (!path) return;
+    setCleaning(true);
+    setCleanResult(null);
+    setCleanError(null);
+    try {
+      const r = await cleanOrphans(path);
+      setCleanResult(r);
+      await refreshStorage(path);
+    } catch (e) {
+      setCleanError(toAppError(e).message);
+    } finally {
+      setCleaning(false);
+    }
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -376,12 +464,13 @@ export default function SettingsPage() {
             { id: "general", label: "General", icon: SlidersHorizontal },
           ]}
           active={section}
-          onChange={setSection}
+          onChange={switchSection}
           className="mb-4"
         />
 
         <div className="max-w-2xl">
           {section === "storage" && (
+            <div className="space-y-4">
             <Panel flat icon={HardDrive} title="Mods directory" subtitle="Where mod zips are downloaded and enabled">
               <label className="block">
                 <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
@@ -428,6 +517,148 @@ export default function SettingsPage() {
                 status && <DirStatusLine status={status} />
               )}
             </Panel>
+
+            <Panel
+              flat
+              icon={Trash2}
+              iconTone="orange"
+              title="Storage usage"
+              subtitle="Disk space and orphaned files"
+            >
+              {storageReport ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg border border-line bg-surface-2 p-3">
+                      <p className="text-lg font-bold text-stone-200">
+                        {formatBytes(storageReport.totalSizeBytes)}
+                      </p>
+                      <p className="text-xs text-stone-600">
+                        {storageReport.zipCount} mod zip
+                        {storageReport.zipCount === 1 ? "" : "s"} on disk
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-line bg-surface-2 p-3">
+                      <p
+                        className={`flex items-center gap-1.5 text-lg font-bold ${
+                          storageReport.orphans.length > 0
+                            ? "text-amber-400"
+                            : "text-stone-200"
+                        }`}
+                      >
+                        {storageReport.orphans.length}
+                      </p>
+                      <p className="text-xs text-stone-600">
+                        {storageReport.orphans.length === 0
+                          ? "no orphans"
+                          : `orphans · ${formatBytes(storageReport.orphanSizeBytes)} reclaimable`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {storageReport.orphans.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 text-xs font-medium tracking-wide text-stone-400 uppercase">
+                        Orphans
+                      </p>
+                      <ul className="space-y-1.5">
+                        {storageReport.orphans.slice(0, 6).map((o) => (
+                          <OrphanLine
+                            key={`${o.kind}-${o.fileName ?? o.modName ?? ""}`}
+                            name={o.fileName ?? o.modName ?? "?"}
+                            kind={o.kind}
+                            size={o.sizeBytes}
+                          />
+                        ))}
+                      </ul>
+                      {storageReport.orphans.length > 6 && (
+                        <p className="mt-1.5 text-xs text-stone-600">
+                          +{storageReport.orphans.length - 6} more
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {storageReport.perMod.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 text-xs font-medium tracking-wide text-stone-400 uppercase">
+                        Largest mods
+                      </p>
+                      <ul className="space-y-1.5">
+                        {storageReport.perMod.slice(0, 5).map((m) => (
+                          <li
+                            key={m.name}
+                            className="flex items-center gap-2 text-xs"
+                          >
+                            <span className="min-w-0 flex-1 truncate font-mono text-stone-300">
+                              {m.name}
+                            </span>
+                            <span className="shrink-0 text-stone-600">
+                              {m.fileCount} zip{m.fileCount === 1 ? "" : "s"}
+                            </span>
+                            <span className="w-16 shrink-0 text-right text-stone-500">
+                              {formatBytes(m.sizeBytes)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="min-w-0 text-xs">
+                      {cleanError ? (
+                        <span className="text-red-400">{cleanError}</span>
+                      ) : cleanResult ? (
+                        cleanResult.errors.length > 0 ? (
+                          <span className="text-amber-400">
+                            {cleanResult.deletedCount} deleted ·{" "}
+                            {cleanResult.errors.length} failed
+                          </span>
+                        ) : (
+                          <span className="text-accent">
+                            Deleted {cleanResult.deletedCount} file
+                            {cleanResult.deletedCount === 1 ? "" : "s"} ·{" "}
+                            {formatBytes(cleanResult.freedBytes)} freed
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-stone-600">
+                          Only files not referenced by mod-list.json are ever
+                          deleted.
+                        </span>
+                      )}
+                    </p>
+                    <Button
+                      variant={
+                        orphanConfirm.confirming === "orphans" ? "danger" : "secondary"
+                      }
+                      size="sm"
+                      onClick={() => void handleCleanOrphans()}
+                      disabled={cleaning}
+                      className="shrink-0"
+                    >
+                      {cleaning ? (
+                        <>
+                          <Spinner className="text-stone-500" /> Cleaning…
+                        </>
+                      ) : orphanConfirm.confirming === "orphans" ? (
+                        "Confirm clean"
+                      ) : (
+                        <>
+                          <Trash2 className="h-4 w-4" /> Clean orphans…
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-stone-500">
+                  No mods folder detected — storage usage shows once a mods
+                  directory is set or auto-detected.
+                </p>
+              )}
+            </Panel>
+            </div>
           )}
 
           {section === "game" && (

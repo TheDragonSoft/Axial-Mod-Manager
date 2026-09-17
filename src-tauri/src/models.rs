@@ -272,6 +272,72 @@ pub struct VanillaInfo {
     pub expansion_available: bool,
 }
 
+// ---- Mods-dir hygiene: orphan detection + size report (A4) ----
+
+/// What kind of orphan a storage-report entry is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrphanKind {
+    /// Zip on disk whose mod name is not referenced by any mod-list.json
+    /// entry (enabled or disabled).
+    UnreferencedZip,
+    /// mod-list.json entry (other than `base`) whose zip file is missing.
+    MissingEntry,
+    /// Stray `*.part` download debris (crashed/interrupted download).
+    PartDebris,
+}
+
+/// One orphaned item in the mods directory.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanFile {
+    /// File name on disk; None for missing mod-list entries (nothing on disk).
+    pub file_name: Option<String>,
+    pub kind: OrphanKind,
+    /// Mod name: from the zip's info.json (or filename fallback) for disk
+    /// files, from mod-list.json for missing entries.
+    pub mod_name: Option<String>,
+    /// Reclaimable bytes; 0 for missing entries.
+    pub size_bytes: u64,
+}
+
+/// Storage aggregate for one mod (all its zips in the mods directory).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModStorageEntry {
+    pub name: String,
+    /// Number of zips on disk for this mod — more than 1 means duplicate
+    /// versions (old versions kept after manual updates).
+    pub file_count: u32,
+    pub size_bytes: u64,
+}
+
+/// Full storage report for the mods directory: total size, per-mod aggregates
+/// and provably-orphaned files. Purely additive to the installed scan.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageReport {
+    pub mods_dir: String,
+    /// Sum of every regular file at the top level of the mods directory.
+    pub total_size_bytes: u64,
+    pub zip_count: u32,
+    pub orphans: Vec<OrphanFile>,
+    /// Bytes reclaimable by "Clean orphans" (unreferenced zips + .part debris).
+    pub orphan_size_bytes: u64,
+    /// Per-mod size aggregates, largest first.
+    pub per_mod: Vec<ModStorageEntry>,
+}
+
+/// Result of the "Clean orphans" action.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanOrphansResult {
+    pub deleted_count: u32,
+    pub freed_bytes: u64,
+    /// Per-file deletion failures (deletion continues past individual errors).
+    pub errors: Vec<String>,
+}
+
 // ---- Update detection (Phase 9) ----
 
 #[derive(Debug, Clone, Serialize)]
