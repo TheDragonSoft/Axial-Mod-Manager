@@ -2,7 +2,7 @@ use tauri::{AppHandle, State};
 
 use crate::core::services::{mod_store, packs};
 use crate::error::AppError;
-use crate::models::{ActivationDiff, Pack, PackMeta, PackMod};
+use crate::models::{ActivationDiff, Pack, PackMeta, PackMod, VanillaInfo};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -69,6 +69,16 @@ pub async fn activate_pack(app: AppHandle, id: String) -> Result<ActivationDiff,
 }
 
 #[tauri::command]
-pub async fn activate_vanilla(app: AppHandle) -> Result<(), AppError> {
-    packs::activate_vanilla(&app).await
+pub async fn activate_vanilla(app: AppHandle, expansion: bool) -> Result<(), AppError> {
+    packs::activate_vanilla(&app, expansion).await
+}
+
+#[tauri::command]
+pub async fn get_vanilla_info(state: State<'_, AppState>) -> Result<VanillaInfo, AppError> {
+    let config = state.config.read().expect("config lock poisoned").clone();
+    let cache = state.zip_cache.clone();
+    // Scans every zip in the mods dir — keep it off the IPC thread.
+    tauri::async_runtime::spawn_blocking(move || packs::vanilla_info(&config, &cache))
+        .await
+        .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?
 }

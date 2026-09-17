@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Boxes, Leaf, Plus } from "lucide-react";
-import { activateVanilla, listPacks, toAppError } from "../lib/api";
+import { activateVanilla, VANILLA_EXPANSION_PACK_ID, listPacks, toAppError } from "../lib/api";
 import { onPackActivated } from "../lib/events";
 import { useAppStore } from "../store/useAppStore";
 import type { PackMeta } from "../types";
@@ -28,6 +28,7 @@ export default function PacksPage() {
   const activePackId = useAppStore((s) => s.activePackId);
   const activatingPackId = useAppStore((s) => s.activatingPackId);
   const setActivatingPackId = useAppStore((s) => s.setActivatingPackId);
+  const expansionAvailable = useAppStore((s) => s.expansionAvailable);
 
   const vanillaConfirm = useConfirm();
 
@@ -60,28 +61,53 @@ export default function PacksPage() {
     };
   }, [bumpPacks]);
 
-  const isVanillaActive = activePackId === "vanilla";
-  const isVanillaActivating = activatingPackId === "vanilla";
   const anyActivating = activatingPackId !== null;
 
-  async function handleVanillaToggle(checked: boolean) {
+  // Built-in pseudo-packs, pinned first. The Space Age flavor only appears
+  // when the expansion zip is in the mods dir.
+  const builtIns: { id: string; name: string; blurb: string; expansion: boolean; offText: string }[] = [
+    {
+      id: "vanilla",
+      name: "Vanilla",
+      blurb: "built-in — base game only",
+      expansion: false,
+      offText: "all mods disabled except base.",
+    },
+    ...(expansionAvailable
+      ? [
+          {
+            id: VANILLA_EXPANSION_PACK_ID,
+            name: "Vanilla: Space Age",
+            blurb: "built-in — base game + Space Age expansion",
+            expansion: true,
+            offText: "all mods disabled except base and the expansion.",
+          },
+        ]
+      : []),
+  ];
+
+  async function handleVanillaToggle(id: string, expansion: boolean, checked: boolean) {
     if (checked) {
-      // Turning Vanilla ON — confirm.
-      if (vanillaConfirm.confirming !== "vanilla") {
-        vanillaConfirm.arm("vanilla");
+      // Turning a vanilla flavor ON — confirm.
+      if (vanillaConfirm.confirming !== id) {
+        vanillaConfirm.arm(id);
         return;
       }
       vanillaConfirm.disarm();
-      setActivatingPackId("vanilla");
+      setActivatingPackId(id);
       try {
-        await activateVanilla();
-        setStatus({ kind: "ok", text: "Switched to Vanilla — all mods disabled except base." });
+        const builtIn = builtIns.find((b) => b.id === id);
+        await activateVanilla(expansion);
+        setStatus({
+          kind: "ok",
+          text: `Switched to ${builtIn?.name ?? "Vanilla"} — ${builtIn?.offText ?? "all mods disabled except base."}`,
+        });
       } catch (e) {
         setActivatingPackId(null);
         setStatus({ kind: "err", text: toAppError(e).message });
       }
     }
-    // Turning Vanilla OFF does nothing — user must turn ON another pack instead.
+    // Turning a vanilla flavor OFF does nothing — user must turn ON another pack instead.
   }
 
   return (
@@ -136,41 +162,51 @@ export default function PacksPage() {
       )}
       {error && <p className="mb-4 text-sm text-red-400">Error: {error}</p>}
 
-      {/* Vanilla pseudo-pack — always shown, pinned first */}
-      <div className="mb-4">
-        <Card className="flex items-center gap-3 p-5">
-          <ModTile name="Vanilla" size="lg" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold text-stone-200">Vanilla</p>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <Badge>0 mods</Badge>
-              <span className="text-xs text-stone-600">
-                <Leaf className="mr-0.5 inline h-3 w-3" />
-                built-in — base game only
-              </span>
+      {/* Built-in vanilla pseudo-packs — always pinned first */}
+      <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+        {builtIns.map((b) => {
+          const isActive = activePackId === b.id;
+          const isActivating = activatingPackId === b.id;
+          return (
+            <div key={b.id}>
+              <Card className="flex items-center gap-3 p-5">
+                <ModTile name={b.name} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-stone-200">{b.name}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <Badge>0 mods</Badge>
+                    <span className="text-xs text-stone-600">
+                      <Leaf className="mr-0.5 inline h-3 w-3" />
+                      {b.blurb}
+                    </span>
+                  </div>
+                </div>
+                {isActivating ? (
+                  <Spinner className="h-5 w-5 shrink-0 text-accent" />
+                ) : (
+                  <Toggle
+                    checked={isActive}
+                    onChange={(v) => void handleVanillaToggle(b.id, b.expansion, v)}
+                    disabled={isFactorioDetected === false || anyActivating || isActive}
+                    title={
+                      isFactorioDetected === false
+                        ? "Factorio not found — set your mods folder in Settings"
+                        : undefined
+                    }
+                    label={isActive ? `${b.name} is active` : `Activate ${b.name}`}
+                  />
+                )}
+              </Card>
+              {vanillaConfirm.confirming === b.id && (
+                <p className="mt-1.5 text-xs text-amber-400">
+                  {b.expansion
+                    ? "This will disable all mods except base and the expansion — switch to Vanilla: Space Age?"
+                    : "This will disable all mods — switch to Vanilla?"}
+                </p>
+              )}
             </div>
-          </div>
-          {isVanillaActivating ? (
-            <Spinner className="h-5 w-5 shrink-0 text-accent" />
-          ) : (
-            <Toggle
-              checked={isVanillaActive}
-              onChange={(v) => void handleVanillaToggle(v)}
-              disabled={isFactorioDetected === false || anyActivating || isVanillaActive}
-              title={
-                isFactorioDetected === false
-                  ? "Factorio not found — set your mods folder in Settings"
-                  : undefined
-              }
-              label={isVanillaActive ? "Vanilla is active" : "Activate Vanilla"}
-            />
-          )}
-        </Card>
-        {vanillaConfirm.confirming === "vanilla" && (
-          <p className="mt-1.5 text-xs text-amber-400">
-            This will disable all mods — switch to Vanilla?
-          </p>
-        )}
+          );
+        })}
       </div>
 
       {loading ? (

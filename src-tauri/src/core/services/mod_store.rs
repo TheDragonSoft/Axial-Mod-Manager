@@ -721,24 +721,6 @@ pub fn replace_mod_list(dir: &Path, entries: &[(String, bool)]) -> Result<(), Ap
     save_mod_list(dir, &root)
 }
 
-/// Disable every mod except `base` (which Factorio requires enabled).
-/// Used by Vanilla pack activation: the resulting mod-list.json leaves only
-/// the base game running.
-pub fn disable_all_mods(dir: &Path) -> Result<(), AppError> {
-    let mut root = load_mod_list_for_write(dir)?;
-    if let Some(mods) = root.get_mut("mods").and_then(|m| m.as_array_mut()) {
-        for entry in mods.iter_mut() {
-            let is_base = entry
-                .get("name")
-                .and_then(|n| n.as_str())
-                .map(|n| n == "base")
-                .unwrap_or(false);
-            entry["enabled"] = json!(is_base);
-        }
-    }
-    save_mod_list(dir, &root)
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -899,41 +881,6 @@ mod tests {
             s.mods.iter().map(|m| format!("{m:?}")).collect::<Vec<_>>()
         };
         assert_eq!(debug(&s1), debug(&s2));
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn disable_all_mods_keeps_base_enabled() {
-        let dir = unique_dir("vanilla");
-        let ml = dir.join("mod-list.json");
-        fs::write(
-            &ml,
-            r#"{
-  "mods": [
-    { "name": "base", "enabled": true },
-    { "name": "ModA", "enabled": true },
-    { "name": "ModB", "enabled": true }
-  ]
-}"#,
-        )
-        .unwrap();
-
-        disable_all_mods(&dir).unwrap();
-
-        let raw = fs::read_to_string(&ml).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&raw).expect("valid JSON");
-        let mods = v["mods"].as_array().expect("mods array present");
-        assert_eq!(mods.len(), 3, "all entries preserved");
-        for entry in mods {
-            let name = entry["name"].as_str().unwrap();
-            let enabled = entry["enabled"].as_bool().unwrap();
-            if name == "base" {
-                assert!(enabled, "base must stay enabled");
-            } else {
-                assert!(!enabled, "{name} must be disabled");
-            }
-        }
 
         let _ = fs::remove_dir_all(&dir);
     }

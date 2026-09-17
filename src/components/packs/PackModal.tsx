@@ -7,6 +7,7 @@ import {
   exportPackBase64,
   getPack,
   toAppError,
+  VANILLA_EXPANSION_PACK_ID,
 } from "../../lib/api";
 import { onPackActivated } from "../../lib/events";
 import { useAppStore } from "../../store/useAppStore";
@@ -29,7 +30,8 @@ export interface PackModalProps {
 export type Status = { kind: "ok" | "err"; text: string };
 
 export default function PackModal({ packId, onClose }: PackModalProps) {
-  const isVanilla = packId === "vanilla";
+  const isVanillaExpansion = packId === VANILLA_EXPANSION_PACK_ID;
+  const isVanilla = packId === "vanilla" || isVanillaExpansion;
 
   const [pack, setPack] = useState<Pack | null>(null);
   const [loading, setLoading] = useState(!isVanilla);
@@ -46,12 +48,8 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
   const bumpPacks = useAppStore((s) => s.bumpPacks);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
 
-  const isActive = isVanilla
-    ? activePackId === "vanilla"
-    : activePackId === packId;
-  const isActivating = isVanilla
-    ? activatingPackId === "vanilla"
-    : activatingPackId === packId;
+  const isActive = activePackId === packId;
+  const isActivating = activatingPackId === packId;
   const anyActivating = activatingPackId !== null;
 
   const load = useCallback(async () => {
@@ -75,6 +73,15 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
   useEffect(() => {
     const unlisten = onPackActivated((p) => {
       if (p.packId === packId) {
+        if (isVanilla) {
+          setStatus({
+            kind: "ok",
+            text: isVanillaExpansion
+              ? "Switched to Vanilla: Space Age — all mods disabled except base and the expansion."
+              : "Switched to Vanilla — all mods disabled except base.",
+          });
+          return;
+        }
         setStatus(
           p.missing.length > 0
             ? {
@@ -83,17 +90,12 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
               }
             : { kind: "ok", text: `Pack "${p.packName}" fully activated ✓` },
         );
-      } else if (isVanilla && p.packName === "Vanilla") {
-        setStatus({
-          kind: "ok",
-          text: "Switched to Vanilla — all mods disabled except base.",
-        });
       }
     });
     return () => {
       void unlisten.then((f) => f());
     };
-  }, [packId, isVanilla]);
+  }, [packId, isVanilla, isVanillaExpansion]);
 
   async function handleToggle(checked: boolean) {
     if (checked) {
@@ -138,12 +140,14 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
 
   async function handleVanillaToggle(checked: boolean) {
     if (checked) {
-      setActivatingPackId("vanilla");
+      setActivatingPackId(packId);
       try {
-        await activateVanilla();
+        await activateVanilla(isVanillaExpansion);
         setStatus({
           kind: "ok",
-          text: "Switched to Vanilla — all mods disabled except base.",
+          text: isVanillaExpansion
+            ? "Switched to Vanilla: Space Age — all mods disabled except base and the expansion."
+            : "Switched to Vanilla — all mods disabled except base.",
         });
       } catch (e) {
         setActivatingPackId(null);
@@ -184,15 +188,21 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
     }
   }
 
-  const title = isVanilla ? "Vanilla" : (pack?.name ?? "Pack details");
+  const title = isVanilla
+    ? isVanillaExpansion
+      ? "Vanilla: Space Age"
+      : "Vanilla"
+    : (pack?.name ?? "Pack details");
   const subtitle = isVanilla
-    ? "Built-in — base game only"
+    ? isVanillaExpansion
+      ? "Built-in — base game + Space Age expansion"
+      : "Built-in — base game only"
     : pack
       ? `Created ${new Date(pack.createdAt * 1000).toLocaleDateString()}`
       : undefined;
 
   const icon = isVanilla ? (
-    <ModTile name="Vanilla" size="md" />
+    <ModTile name={title} size="md" />
   ) : pack ? (
     <ModTile name={pack.name} size="md" />
   ) : (
@@ -352,8 +362,8 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
                     label={
                       isVanilla
                         ? isActive
-                          ? "Vanilla is active"
-                          : "Activate Vanilla"
+                          ? `${title} is active`
+                          : `Activate ${title}`
                         : isActive
                           ? `Deactivate ${pack?.name ?? ""}`
                           : `Activate ${pack?.name ?? ""}`
@@ -369,11 +379,12 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
             <div className="rounded-lg border border-line bg-surface p-4 text-xs text-stone-400">
               <div className="flex items-center gap-2 mb-2 text-stone-200 font-medium">
                 <Leaf className="h-4 w-4 text-accent" />
-                <span>Base Game Configuration</span>
+                <span>{isVanillaExpansion ? "Space Age Configuration" : "Base Game Configuration"}</span>
               </div>
               <p>
-                Activating Vanilla disables all installed mods except the
-                built-in Factorio base game. No mods will be deleted.
+                {isVanillaExpansion
+                  ? "Activating Vanilla: Space Age disables all installed mods except the base game and its bundled Space Age expansion (space-age, quality). No mods will be deleted."
+                  : "Activating Vanilla disables all installed mods except the built-in Factorio base game. No mods will be deleted."}
               </p>
             </div>
           ) : pack && (

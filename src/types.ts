@@ -222,6 +222,11 @@ export interface PackActivatedPayload {
   missing: string[];
 }
 
+/** Mirror of Rust's VanillaInfo (serde camelCase). */
+export interface VanillaInfo {
+  expansionAvailable: boolean;
+}
+
 // ---- Update detection (Phase 9) ----
 
 export interface UpdateInfo {

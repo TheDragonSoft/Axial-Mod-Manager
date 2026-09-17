@@ -169,6 +169,7 @@ pub fn run() {
             commands::packs::export_pack_base64,
             commands::packs::activate_pack,
             commands::packs::activate_vanilla,
+            commands::packs::get_vanilla_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
