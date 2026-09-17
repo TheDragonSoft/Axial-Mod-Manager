@@ -49,11 +49,20 @@ export default function PacksPage() {
 
   useEffect(() => {
     const unlisten = onPackActivated((p) => {
-      setStatus(
-        p.missing.length > 0
-          ? { kind: "err", text: `Pack "${p.packName}" finished with missing mods: ${p.missing.join(", ")}` }
-          : { kind: "ok", text: `Pack "${p.packName}" fully activated ✓` },
-      );
+      if (p.versionMismatch.length > 0) {
+        setStatus({
+          kind: "err",
+          text: `Pack "${p.packName}" activated, but ${p.versionMismatch.length} mod${
+            p.versionMismatch.length === 1 ? " is" : "s are"
+          } the wrong version — retry: ${p.versionMismatch.map((m) => m.name).join(", ")}`,
+        });
+      } else {
+        setStatus(
+          p.missing.length > 0
+            ? { kind: "err", text: `Pack "${p.packName}" finished with missing mods: ${p.missing.join(", ")}` }
+            : { kind: "ok", text: `Pack "${p.packName}" fully activated ✓` },
+        );
+      }
       bumpPacks();
     });
     return () => {

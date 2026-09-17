@@ -82,14 +82,24 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
           });
           return;
         }
-        setStatus(
-          p.missing.length > 0
-            ? {
-                kind: "err",
-                text: `Pack "${p.packName}" finished with missing mods: ${p.missing.join(", ")}`,
-              }
-            : { kind: "ok", text: `Pack "${p.packName}" fully activated ✓` },
-        );
+        if (p.versionMismatch.length > 0) {
+          const wrong = p.versionMismatch
+            .map((m) => `${m.name} (pack wants v${m.version})`)
+            .join(", ");
+          setStatus({
+            kind: "err",
+            text: `Activated, but ${p.versionMismatch.length} mod${
+              p.versionMismatch.length === 1 ? " is" : "s are"
+            } the wrong version — retry: ${wrong}`,
+          });
+        } else if (p.missing.length > 0) {
+          setStatus({
+            kind: "err",
+            text: `Pack "${p.packName}" finished with missing mods: ${p.missing.join(", ")}`,
+          });
+        } else {
+          setStatus({ kind: "ok", text: `Pack "${p.packName}" fully activated ✓` });
+        }
       }
     });
     return () => {

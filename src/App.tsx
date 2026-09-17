@@ -131,11 +131,12 @@ export default function App() {
   useEffect(() => {
     const unlisten = onPackActivated((p) => {
       useAppStore.getState().setActivatingPackId(null);
-      useActivityStore.getState().push(
-        "pack-activated",
-        p.packName,
-        p.missing.length > 0 ? `${p.missing.length} download(s) failed` : "all mods ready",
-      );
+      const detail = p.versionMismatch.length > 0
+        ? `${p.versionMismatch.length} wrong-version mod(s) left disabled`
+        : p.missing.length > 0
+          ? `${p.missing.length} download(s) failed`
+          : "all mods ready";
+      useActivityStore.getState().push("pack-activated", p.packName, detail);
     });
     return () => {
       void unlisten.then((f) => f());
