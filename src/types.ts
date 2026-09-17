@@ -220,6 +220,8 @@ export interface PackActivatedPayload {
   packId: string;
   packName: string;
   missing: string[];
+  /** Enabled pack mods found on disk at a different version than the manifest — written disabled. */
+  versionMismatch: PackMod[];
 }
 
 // ---- Update detection (Phase 9) ----

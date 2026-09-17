@@ -242,22 +242,52 @@ fn persist_active_pack(app: &AppHandle, pack_id: Option<&str>) -> Result<(), App
 // Activation
 // ---------------------------------------------------------------------------
 
-/// Pure: the desired mod-list entries for a pack against the mod names
-/// currently on disk. `base` first and always enabled; pack mods enabled only
-/// if marked enabled AND present; everything else on disk disabled (never
-/// deleted).
+/// Output of `compose_entries`: the target mod-list entries plus the enabled
+/// pack mods that are on disk at the wrong manifest version.
+#[derive(Debug, Clone, Default)]
+pub struct ComposedEntries {
+    /// `base` first and always enabled; pack mods enabled only if marked
+    /// enabled AND present at the manifest version; everything else on disk
+    /// disabled (never deleted).
+    pub entries: Vec<(String, bool)>,
+    /// Enabled pack mods whose on-disk version differs from the manifest —
+    /// written disabled so Factorio never boots a version the pack didn't
+    /// vet, and reported so the UI can offer a retry.
+    pub version_mismatch: Vec<PackMod>,
+}
+
+/// Pure: the desired mod-list entries for a pack against the mods currently
+/// on disk (names + versions). `base` first and always enabled; pack mods
+/// enabled only if marked enabled AND present at the manifest version;
+/// everything else on disk disabled (never deleted).
 pub fn compose_entries(
     pack_mods: &[PackMod],
     disk_names: &HashSet<String>,
-) -> Vec<(String, bool)> {
+    disk_versions: &HashMap<String, String>,
+) -> ComposedEntries {
     let mut entries: Vec<(String, bool)> = vec![("base".to_string(), true)];
     let mut pack_names: HashSet<String> = HashSet::new();
+    let mut version_mismatch: Vec<PackMod> = Vec::new();
     for m in pack_mods {
         if m.name == "base" {
             continue;
         }
         pack_names.insert(m.name.clone());
-        entries.push((m.name.clone(), m.enabled && disk_names.contains(&m.name)));
+        // After a failed/cancelled download an older zip may still sit on
+        // disk; enabling it would silently deviate from the manifest, so it
+        // stays off until the matching version actually lands.
+        let wrong_version = m.enabled
+            && disk_names.contains(&m.name)
+            && disk_versions
+                .get(&m.name)
+                .is_some_and(|v| v != &m.version);
+        if wrong_version {
+            version_mismatch.push(m.clone());
+        }
+        entries.push((
+            m.name.clone(),
+            m.enabled && disk_names.contains(&m.name) && !wrong_version,
+        ));
     }
     let mut extras: Vec<&String> = disk_names
         .iter()
@@ -267,7 +297,10 @@ pub fn compose_entries(
     for n in extras {
         entries.push((n.clone(), false));
     }
-    entries
+    ComposedEntries {
+        entries,
+        version_mismatch,
+    }
 }
 
 /// Activate a pack: download what's missing, rewrite mod-list.json to the
@@ -328,13 +361,30 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
                     ));
                     continue;
                 }
-                // Pack manifests (axial-pack/1) carry only name/version — no
-                // release info to hash against, so verification here degrades
-                // to the downloader's zip-structure check.
+                // Pack manifests (axial-pack/1) carry no hash, so the expected
+                // SHA1 is resolved from the portal's release metadata (cached
+                // by the index client, so repeats are cheap). None only when
+                // the portal publishes no hash for that release or the lookup
+                // fails — verification then degrades to the downloader's
+                // zip-structure check.
+                let expected_sha1 = match state.index.mod_details(&m.name).await {
+                    Ok(details) => details
+                        .releases
+                        .iter()
+                        .find(|r| r.version == m.version)
+                        .and_then(|r| r.sha1.clone()),
+                    Err(e) => {
+                        tracing::warn!(
+                            mod = %m.name,
+                            "portal sha1 lookup failed — download verifies zip structure only: {e}"
+                        );
+                        None
+                    }
+                };
                 match state
                     .queue
                     .clone()
-                    .enqueue(app.clone(), mods_dir.clone(), m.name.clone(), m.version.clone(), None)
+                    .enqueue(app.clone(), mods_dir.clone(), m.name.clone(), m.version.clone(), expected_sha1)
                     .await
                 {
                     Ok(_) => {
@@ -350,8 +400,10 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
         }
     }
 
-    // Immediate target-state write: present pack mods on, everything else off.
-    mod_store::replace_mod_list(&mods_dir, &compose_entries(&pack.mods, &disk_names))?;
+    // Immediate target-state write: present pack mods on (unless the on-disk
+    // version deviates from the manifest), everything else off.
+    let composed = compose_entries(&pack.mods, &disk_names, &disk_versions);
+    mod_store::replace_mod_list(&mods_dir, &composed.entries)?;
 
     if remaining.is_empty() {
         let missing = pack
@@ -366,6 +418,7 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
                 pack_id: pack.id.clone(),
                 pack_name: pack.name.clone(),
                 missing,
+                version_mismatch: composed.version_mismatch,
             },
         );
         persist_active_pack(app, Some(&pack.id))?;
@@ -437,6 +490,7 @@ pub async fn maybe_finalize(app: &AppHandle, downloaded_mod: &str) {
                     pack_id,
                     pack_name: format!("<finalize failed: {e}>"),
                     missing: vec![],
+                    version_mismatch: vec![],
                 },
             );
         }
@@ -461,10 +515,16 @@ async fn finalize_now(app: &AppHandle, pack_id: &str) -> Result<(), AppError> {
     .await
     .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
     let disk_names: HashSet<String> = snapshot.mods.iter().map(|m| m.name.clone()).collect();
+    let disk_versions: HashMap<String, String> = snapshot
+        .mods
+        .iter()
+        .map(|m| (m.name.clone(), m.version.clone()))
+        .collect();
 
+    let composed = compose_entries(&pack.mods, &disk_names, &disk_versions);
     mod_store::replace_mod_list(
         mod_store::resolve_dir(&config)?.as_path(),
-        &compose_entries(&pack.mods, &disk_names),
+        &composed.entries,
     )?;
 
     let missing = pack
@@ -479,6 +539,7 @@ async fn finalize_now(app: &AppHandle, pack_id: &str) -> Result<(), AppError> {
             pack_id: pack.id.clone(),
             pack_name: pack.name,
             missing,
+            version_mismatch: composed.version_mismatch,
         },
     );
     persist_active_pack(app, Some(&pack.id))?;
@@ -516,6 +577,7 @@ pub async fn activate_vanilla(app: &AppHandle) -> Result<(), AppError> {
             pack_id: "vanilla".into(),
             pack_name: "Vanilla".into(),
             missing: vec![],
+            version_mismatch: vec![],
         },
     );
     let _ = app.emit("installed-changed", ());
@@ -544,11 +606,19 @@ mod tests {
         items.iter().map(|s| s.to_string()).collect()
     }
 
+    fn versions(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(n, v)| (n.to_string(), v.to_string()))
+            .collect()
+    }
+
     #[test]
     fn compose_disables_extras_and_absent_mods() {
         let pack = vec![pm("a", "1.0.0", true), pm("b", "2.0.0", false)];
         let disk = set(&["a", "b", "c", "base"]);
-        let entries = compose_entries(&pack, &disk);
+        let entries = compose_entries(&pack, &disk, &versions(&[("a", "1.0.0"), ("b", "2.0.0")]))
+            .entries;
         assert_eq!(entries[0], ("base".to_string(), true));
         assert!(entries.contains(&("a".to_string(), true)));
         assert!(entries.contains(&("b".to_string(), false)), "pack-disabled stays off");
@@ -559,9 +629,53 @@ mod tests {
     fn compose_enables_only_present_pack_mods() {
         let pack = vec![pm("a", "1.0.0", true), pm("x", "1.0.0", true)];
         let disk = set(&["a"]);
-        let entries = compose_entries(&pack, &disk);
+        let entries = compose_entries(&pack, &disk, &versions(&[("a", "1.0.0")])).entries;
         assert!(entries.contains(&("a".to_string(), true)));
         assert!(entries.contains(&("x".to_string(), false)), "absent pack mod disabled until download lands");
+    }
+
+    #[test]
+    fn compose_enables_exact_version_match() {
+        let pack = vec![pm("a", "1.0.0", true)];
+        let disk = set(&["a"]);
+        let composed = compose_entries(&pack, &disk, &versions(&[("a", "1.0.0")]));
+        assert!(composed.entries.contains(&("a".to_string(), true)));
+        assert!(composed.version_mismatch.is_empty());
+    }
+
+    #[test]
+    fn compose_disables_and_reports_wrong_version() {
+        let pack = vec![pm("a", "2.0.0", true)];
+        let disk = set(&["a"]);
+        let composed = compose_entries(&pack, &disk, &versions(&[("a", "1.0.0")]));
+        assert!(
+            composed.entries.contains(&("a".to_string(), false)),
+            "wrong-version mod written disabled, not enabled"
+        );
+        assert_eq!(composed.version_mismatch.len(), 1);
+        assert_eq!(composed.version_mismatch[0].name, "a");
+        assert_eq!(composed.version_mismatch[0].version, "2.0.0", "mismatch carries the manifest version");
+    }
+
+    #[test]
+    fn compose_absent_mod_stays_off_without_mismatch() {
+        let pack = vec![pm("a", "1.0.0", true), pm("gone", "3.1.0", true)];
+        let disk = set(&["a"]);
+        let composed = compose_entries(&pack, &disk, &versions(&[("a", "1.0.0")]));
+        assert!(
+            composed.entries.contains(&("gone".to_string(), false)),
+            "absent pack mod disabled until its download lands"
+        );
+        assert!(composed.version_mismatch.is_empty(), "absent is not a version mismatch");
+    }
+
+    #[test]
+    fn compose_disabled_pack_mod_never_counts_as_mismatch() {
+        let pack = vec![pm("a", "2.0.0", false)];
+        let disk = set(&["a"]);
+        let composed = compose_entries(&pack, &disk, &versions(&[("a", "1.0.0")]));
+        assert!(composed.entries.contains(&("a".to_string(), false)));
+        assert!(composed.version_mismatch.is_empty(), "pack-disabled mods are off regardless of version");
     }
 
     #[test]

@@ -257,6 +257,10 @@ pub struct PackActivatedPayload {
     pub pack_name: String,
     /// Enabled pack mods still absent from disk (failed downloads).
     pub missing: Vec<String>,
+    /// Enabled pack mods found on disk at a different version than the
+    /// manifest — written disabled so the game never boots an unvetted
+    /// version; surfaced so the UI can offer a retry.
+    pub version_mismatch: Vec<PackMod>,
 }
 
 // ---- Update detection (Phase 9) ----
