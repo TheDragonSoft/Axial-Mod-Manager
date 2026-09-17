@@ -33,6 +33,10 @@ interface AppState {
   effectiveModsDir: string | null;
   detectionChecked: boolean;
   setDetectionStatus: (status: DetectionStatus) => void;
+  /** Whether the Space Age expansion zip is in the mods dir — controls the
+   * second built-in "Vanilla: Space Age" entry. Null = not fetched yet. */
+  expansionAvailable: boolean | null;
+  setExpansionAvailable: (v: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -61,4 +65,6 @@ export const useAppStore = create<AppState>((set) => ({
       effectiveModsDir: status.effectiveModsDir,
       detectionChecked: true,
     }),
+  expansionAvailable: null,
+  setExpansionAvailable: (v) => set({ expansionAvailable: v }),
 }));

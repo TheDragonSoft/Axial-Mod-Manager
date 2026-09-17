@@ -19,6 +19,7 @@ import type {
   Settings,
   SortKey,
   UpdatesReport,
+  VanillaInfo,
 } from "../types";
 
 /** Normalize any rejection into a known AppError shape. */
@@ -129,6 +130,10 @@ export async function resolveInstallPlan(name: string, version?: string): Promis
 
 // ---- Packs ----
 
+/** Built-in pseudo-pack ids, mirroring the Rust constants in packs.rs. */
+export const VANILLA_PACK_ID = "vanilla";
+export const VANILLA_EXPANSION_PACK_ID = "vanilla-space-age";
+
 export async function listPacks(): Promise<PackMeta[]> {
   return invoke<PackMeta[]>("list_packs");
 }
@@ -161,8 +166,13 @@ export async function activatePack(id: string): Promise<ActivationDiff> {
   return invoke<ActivationDiff>("activate_pack", { id });
 }
 
-export async function activateVanilla(): Promise<void> {
-  return invoke<void>("activate_vanilla");
+export async function activateVanilla(expansion: boolean = false): Promise<void> {
+  return invoke<void>("activate_vanilla", { expansion });
+}
+
+/** Which built-in vanilla flavors the mods dir supports (expansion zip present?). */
+export async function getVanillaInfo(): Promise<VanillaInfo> {
+  return invoke<VanillaInfo>("get_vanilla_info");
 }
 
 export async function checkUpdates(): Promise<UpdatesReport> {

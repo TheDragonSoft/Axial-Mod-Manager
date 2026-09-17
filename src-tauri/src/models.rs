@@ -259,6 +259,15 @@ pub struct PackActivatedPayload {
     pub missing: Vec<String>,
 }
 
+/// Which built-in vanilla flavors the current mods dir supports.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VanillaInfo {
+    /// True when the `space-age` zip is in the mods directory — the
+    /// `Vanilla: Space Age` built-in is offered alongside plain Vanilla.
+    pub expansion_available: bool,
+}
+
 // ---- Update detection (Phase 9) ----
 
 #[derive(Debug, Clone, Serialize)]

@@ -10,17 +10,30 @@ use base64::Engine;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::config::Config;
 use crate::core::services::downloader::plausible_version;
 use crate::core::services::mod_store;
 use crate::core::services::portal_client::plausible_name;
 use crate::error::AppError;
 use crate::models::{
-    ActivationDiff, DownloadPlanItem, Pack, PackActivatedPayload, PackMeta, PackMod,
+    ActivationDiff, DownloadPlanItem, Pack, PackActivatedPayload, PackMeta, PackMod, VanillaInfo,
 };
 use crate::state::AppState;
 
 #[allow(dead_code)]
 pub const EXPORT_FORMAT: &str = "axial-pack/1";
+
+/// Built-in pseudo-pack ids. `"vanilla"` is persisted in `Config.active_pack_id`;
+/// keep the expansion variant distinct so the UI can mark which flavor is active.
+pub const VANILLA_PACK_ID: &str = "vanilla";
+pub const VANILLA_EXPANSION_PACK_ID: &str = "vanilla-space-age";
+
+/// The game-bundled Space Age expansion mods. `quality` is a hard dependency
+/// of `space-age`, so both must be on for the expansion to run.
+/// ASSUMPTION: the DLC ships as zips named `space-age` and `quality` in the
+/// mods directory, with no auth or purchase check needed — the zips only
+/// exist for owners of the expansion.
+const EXPANSION_MODS: [&str; 2] = ["space-age", "quality"];
 
 /// Set while a pack activation is waiting for its downloads to land.
 #[derive(Debug)]
@@ -270,6 +283,44 @@ pub fn compose_entries(
     entries
 }
 
+/// Pure: the desired mod-list entries for the Vanilla pseudo-packs against the
+/// mod names currently on disk. Every disk mod is disabled except `base`
+/// (always enabled) and — with `expansion` set — the expansion mods that are
+/// actually present.
+///
+/// Entries are derived from disk state, not from the flag alone: with
+/// `expansion` set but no expansion zips on disk, nothing extra is enabled
+/// (the expansion-zip-absent fallback — Factorio treats unlisted disk mods as
+/// enabled, so a target state built only from disk names is what makes
+/// "Vanilla" actually mean vanilla).
+pub fn vanilla_entries(disk_names: &HashSet<String>, expansion: bool) -> Vec<(String, bool)> {
+    let mut entries: Vec<(String, bool)> = vec![("base".to_string(), true)];
+    let mut extras: Vec<&String> = disk_names.iter().filter(|n| **n != "base").collect();
+    extras.sort();
+    for n in extras {
+        let enabled = expansion && EXPANSION_MODS.contains(&n.as_str());
+        entries.push((n.clone(), enabled));
+    }
+    entries
+}
+
+/// Pure: is the Space Age expansion available in this mods dir? Detected by
+/// the `space-age` zip on disk — no auth, no purchase check.
+fn expansion_present(disk_names: &HashSet<String>) -> bool {
+    disk_names.contains("space-age")
+}
+
+/// Which built-in vanilla flavors the current mods dir supports. Blocking
+/// (scans zips) — call from a worker thread.
+pub fn vanilla_info(config: &Config, zip_cache: &mod_store::ZipInfoCache) -> Result<VanillaInfo, AppError> {
+    let dir = mod_store::resolve_dir(config)?;
+    let snapshot = mod_store::scan_installed(&dir, zip_cache);
+    let disk_names: HashSet<String> = snapshot.mods.iter().map(|m| m.name.clone()).collect();
+    Ok(VanillaInfo {
+        expansion_available: expansion_present(&disk_names),
+    })
+}
+
 /// Activate a pack: download what's missing, rewrite mod-list.json to the
 /// pack's target state, and finalize (enable everything + emit
 /// `pack-activated`) once all downloads complete.
@@ -490,14 +541,38 @@ async fn finalize_now(app: &AppHandle, pack_id: &str) -> Result<(), AppError> {
 // Vanilla activation
 // ---------------------------------------------------------------------------
 
-/// Activate the built-in Vanilla pseudo-pack: disable every mod except `base`,
-/// clear any in-flight activation, and persist `"vanilla"` as the active pack.
-pub async fn activate_vanilla(app: &AppHandle) -> Result<(), AppError> {
+/// Activate the built-in Vanilla pseudo-pack: reconcile mod-list.json against
+/// the mods directory (every disk mod disabled except `base`, plus the
+/// expansion mods when `expansion` is set and their zips are present), clear
+/// any in-flight activation, and persist the flavor's pack id.
+///
+/// This goes through the same `replace_mod_list` target-state write as pack
+/// activation — the old `disable_all_mods` only flipped entries already in
+/// mod-list.json, leaving unlisted disk mods (notably the bundled
+/// `space-age`/`quality` zips) enabled, which is what Factorio treats them as.
+pub async fn activate_vanilla(app: &AppHandle, expansion: bool) -> Result<(), AppError> {
     let state = app.state::<AppState>();
     let config = state.config.read().expect("config lock poisoned").clone();
     let mods_dir = mod_store::resolve_dir(&config)?;
+    let scan_dir = mods_dir.clone();
+    let zip_cache = state.zip_cache.clone();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        mod_store::scan_installed(&scan_dir, &zip_cache)
+    })
+    .await
+    .map_err(|e| AppError::Parse(format!("background scan failed: {e}")))?;
+    let disk_names: HashSet<String> = snapshot.mods.iter().map(|m| m.name.clone()).collect();
 
-    mod_store::disable_all_mods(&mods_dir)?;
+    mod_store::replace_mod_list(&mods_dir, &vanilla_entries(&disk_names, expansion))?;
+
+    // Flavor is chosen by the flag (the UI only offers the Space Age flavor
+    // when the expansion zip is present); the entries above already degrade
+    // gracefully if the zip vanished between listing and activation.
+    let (pack_id, pack_name) = if expansion {
+        (VANILLA_EXPANSION_PACK_ID, "Vanilla: Space Age")
+    } else {
+        (VANILLA_PACK_ID, "Vanilla")
+    };
 
     // Clear any pending pack activation — Vanilla takes over immediately.
     {
@@ -508,19 +583,19 @@ pub async fn activate_vanilla(app: &AppHandle) -> Result<(), AppError> {
         *guard = None;
     }
 
-    persist_active_pack(app, Some("vanilla"))?;
+    persist_active_pack(app, Some(pack_id))?;
 
     let _ = app.emit(
         "pack-activated",
         &PackActivatedPayload {
-            pack_id: "vanilla".into(),
-            pack_name: "Vanilla".into(),
+            pack_id: pack_id.into(),
+            pack_name: pack_name.into(),
             missing: vec![],
         },
     );
     let _ = app.emit("installed-changed", ());
 
-    tracing::info!("vanilla pack activated — all mods disabled except base");
+    tracing::info!(pack_id, expansion, "vanilla pack activated");
     Ok(())
 }
 
@@ -562,6 +637,104 @@ mod tests {
         let entries = compose_entries(&pack, &disk);
         assert!(entries.contains(&("a".to_string(), true)));
         assert!(entries.contains(&("x".to_string(), false)), "absent pack mod disabled until download lands");
+    }
+
+    #[test]
+    fn vanilla_entries_disable_everything_except_base() {
+        let disk = set(&["base", "ModA", "space-age", "quality"]);
+        let entries = vanilla_entries(&disk, false);
+        assert_eq!(entries[0], ("base".to_string(), true), "base first and enabled");
+        assert!(entries.contains(&("ModA".to_string(), false)));
+        assert!(entries.contains(&("space-age".to_string(), false)), "plain vanilla keeps the expansion off");
+        assert!(entries.contains(&("quality".to_string(), false)));
+    }
+
+    #[test]
+    fn vanilla_entries_with_expansion_keep_only_expansion_mods_on() {
+        let disk = set(&["base", "ModA", "space-age", "quality"]);
+        let entries = vanilla_entries(&disk, true);
+        assert_eq!(entries[0], ("base".to_string(), true));
+        assert!(entries.contains(&("space-age".to_string(), true)));
+        assert!(entries.contains(&("quality".to_string(), true)), "quality is a hard dep of space-age");
+        assert!(entries.contains(&("ModA".to_string(), false)), "everything else still off");
+    }
+
+    #[test]
+    fn vanilla_entries_fall_back_when_expansion_zip_absent() {
+        let disk = set(&["base", "ModA"]);
+        let entries = vanilla_entries(&disk, true);
+        assert_eq!(entries[0], ("base".to_string(), true));
+        assert!(entries.contains(&("ModA".to_string(), false)));
+        assert_eq!(entries.len(), 2, "no phantom entries for zips that aren't on disk");
+    }
+
+    #[test]
+    fn vanilla_reconciles_unlisted_disk_mods_into_mod_list() {
+        // P0-1 regression: mod-list.json without a `space-age` entry while the
+        // expansion zip sits on disk. The old disable_all_mods path left the
+        // zip unlisted — and Factorio treats unlisted disk mods as enabled.
+        let dir = unique_dir("vanilla-unlisted");
+        let zip = dir.join("space-age_1.0.0.zip");
+        write_zip(&zip, r#"{"name":"space-age","version":"1.0.0","factorio_version":"2.0"}"#);
+        let zip_a = dir.join("ModA_1.0.0.zip");
+        write_zip(&zip_a, r#"{"name":"ModA","version":"1.0.0","factorio_version":"2.0"}"#);
+        let ml = dir.join("mod-list.json");
+        fs::write(
+            &ml,
+            r#"{"mods":[{"name":"base","enabled":true},{"name":"ModA","enabled":false}]}"#,
+        )
+        .unwrap();
+
+        let cache = mod_store::ZipInfoCache::new();
+        let snapshot = mod_store::scan_installed(&dir, &cache);
+        let disk_names: HashSet<String> = snapshot.mods.iter().map(|m| m.name.clone()).collect();
+        assert!(disk_names.contains("space-age"), "zip must be found on disk");
+
+        mod_store::replace_mod_list(&dir, &vanilla_entries(&disk_names, false)).unwrap();
+        let read_entries = |path: &PathBuf| -> Vec<(String, bool)> {
+            let raw = fs::read_to_string(path).unwrap();
+            serde_json::from_str::<serde_json::Value>(&raw)
+                .unwrap()["mods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| {
+                    (
+                        e["name"].as_str().unwrap().to_string(),
+                        e["enabled"].as_bool().unwrap(),
+                    )
+                })
+                .collect()
+        };
+        let entries = read_entries(&ml);
+        assert_eq!(entries[0], ("base".to_string(), true));
+        assert!(
+            entries.contains(&("space-age".to_string(), false)),
+            "space-age must now be listed and disabled: {entries:?}"
+        );
+        assert!(
+            entries.contains(&("ModA".to_string(), false)),
+            "disk-present extras must be disabled, not just absent from the list: {entries:?}"
+        );
+
+        // Expansion flavor keeps the bundled expansion on.
+        mod_store::replace_mod_list(&dir, &vanilla_entries(&disk_names, true)).unwrap();
+        let entries = read_entries(&ml);
+        assert!(entries.contains(&("space-age".to_string(), true)));
+        assert!(entries.contains(&("ModA".to_string(), false)));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Minimal valid mod zip (info.json inside a folder, like Factorio's own
+    /// packaging) for scan tests.
+    fn write_zip(path: &std::path::Path, info_json: &str) {
+        let file = fs::File::create(path).unwrap();
+        let mut w = zip::ZipWriter::new(file);
+        w.start_file("ModDir/info.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut w, info_json.as_bytes()).unwrap();
+        w.finish().unwrap();
     }
 
     #[test]

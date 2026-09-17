@@ -23,6 +23,7 @@ import {
   launchGame,
   listPacks,
   toAppError,
+  VANILLA_EXPANSION_PACK_ID,
 } from "../lib/api";
 import type { PackMeta } from "../types";
 import type { BridgeStatus } from "../App";
@@ -63,6 +64,7 @@ export default function Sidebar({
   const packsVersion = useAppStore((s) => s.packsVersion);
   const activePackId = useAppStore((s) => s.activePackId);
   const activatingPackId = useAppStore((s) => s.activatingPackId);
+  const expansionAvailable = useAppStore((s) => s.expansionAvailable);
   const queueToggle = useQueueStore((s) => s.toggle);
   const activeDownloads = useQueueStore(selectActiveCount);
   const failedDownloads = useQueueStore(selectFailedCount);
@@ -101,8 +103,8 @@ export default function Sidebar({
       .catch(() => setVersion(null));
   }, []);
 
-  function handleVanillaClick() {
-    setSelectedPackId("vanilla");
+  function handleVanillaClick(id: string) {
+    setSelectedPackId(id);
   }
 
   function handlePackClick(p: PackMeta) {
@@ -187,23 +189,37 @@ export default function Sidebar({
         </button>
       </nav>
 
-      {/* Quick Access: Vanilla always first, then user packs */}
+      {/* Quick Access: Vanilla built-ins first, then user packs */}
       <p className="px-5 pt-5 pb-1 text-[10px] font-semibold tracking-widest text-stone-600 uppercase">
         Quick Access
       </p>
       <div className="space-y-0.5 overflow-y-auto px-3 pb-2">
-        {/* Vanilla — pinned first */}
-        <button
-          onClick={handleVanillaClick}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          <StatusDot
-            tone={activePackId === "vanilla" ? "green" : activatingPackId === "vanilla" ? "amber" : "zinc"}
-            pulse={activatingPackId === "vanilla"}
-          />
-          <Leaf className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">Vanilla</span>
-        </button>
+        {/* Built-ins pinned first; Space Age flavor only with the expansion zip present */}
+        {[
+          { id: "vanilla", label: "Vanilla" },
+          ...(expansionAvailable
+            ? [{ id: VANILLA_EXPANSION_PACK_ID, label: "Vanilla: Space Age" }]
+            : []),
+        ].map((builtIn) => (
+          <button
+            key={builtIn.id}
+            onClick={() => handleVanillaClick(builtIn.id)}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <StatusDot
+              tone={
+                activePackId === builtIn.id
+                  ? "green"
+                  : activatingPackId === builtIn.id
+                    ? "amber"
+                    : "zinc"
+              }
+              pulse={activatingPackId === builtIn.id}
+            />
+            <Leaf className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{builtIn.label}</span>
+          </button>
+        ))}
         {/* User packs */}
         {packs.map((p) => (
           <button
