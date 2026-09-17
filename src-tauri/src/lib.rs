@@ -100,6 +100,7 @@ pub fn run() {
                 queue: Arc::new(DownloadQueue::new(http)),
                 zip_cache: Arc::new(core::services::mod_store::ZipInfoCache::new()),
                 pending_activation: std::sync::Mutex::new(None),
+                activation_lock: tokio::sync::Mutex::new(()),
             });
 
             // Crash recovery: re-enqueue downloads interrupted by a previous
