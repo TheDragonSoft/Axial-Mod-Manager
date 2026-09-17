@@ -17,6 +17,7 @@ import {
   listInstalled,
   toAppError,
   toggleMod,
+  uninstallImpact,
   uninstallMod,
 } from "../lib/api";
 import { onInstalledChanged, onSettingsChanged } from "../lib/events";
@@ -45,6 +46,7 @@ function ModRow({
   busy,
   updateTo,
   expanded,
+  impact,
   onToggle,
   onUninstall,
   onUpdate,
@@ -56,6 +58,8 @@ function ModRow({
   busy: boolean;
   updateTo: string | null;
   expanded: boolean;
+  /** Installed mods this removal would leave broken (may still be loading). */
+  impact: string[] | null;
   onToggle: (mod: InstalledMod, next: boolean) => void;
   onUninstall: (mod: InstalledMod) => void;
   onUpdate: (mod: InstalledMod) => void;
@@ -136,6 +140,18 @@ function ModRow({
 
         {/* Controls — stopPropagation so they don't toggle expansion */}
         <div className="flex shrink-0 items-center gap-1.5" onClick={stopRow}>
+          {/* Inform, don't block: dependents are shown during the confirm
+              window; the second click still removes without extra gating. */}
+          {confirming && impact && impact.length > 0 && (
+            <span
+              className="max-w-[240px] text-right text-[11px] leading-snug text-amber-400"
+              title={impact.join(", ")}
+            >
+              Removing {mod.name} leaves {impact.length} mod
+              {impact.length === 1 ? "" : "s"} broken: {impact.slice(0, 3).join(", ")}
+              {impact.length > 3 ? `, +${impact.length - 3} more` : ""}
+            </span>
+          )}
           {updateTo && (
             <Button variant="secondary" size="sm" onClick={() => onUpdate(mod)}>
               <ArrowUpCircle className="h-3.5 w-3.5 text-accent" />
@@ -268,6 +284,7 @@ export default function InstalledPage() {
   const [checking, setChecking] = useState(false);
   const [versionsFor, setVersionsFor] = useState<InstalledMod | null>(null);
   const [expandedName, setExpandedName] = useState<string | null>(null);
+  const [impactByFile, setImpactByFile] = useState<Record<string, string[]>>({});
   const { confirming, arm, disarm } = useConfirm();
 
   /** Mods dir of the last snapshot — a settings save that changes it needs a
@@ -431,6 +448,15 @@ export default function InstalledPage() {
   async function handleUninstall(mod: InstalledMod) {
     if (confirming !== mod.fileName) {
       arm(mod.fileName);
+      // Resolve the impact while the confirm is armed so the dependents can
+      // be listed in the confirm step. Best-effort: without it the confirm
+      // still works, just without the warning line.
+      try {
+        const dependents = await uninstallImpact(mod.fileName);
+        setImpactByFile((m) => ({ ...m, [mod.fileName]: dependents }));
+      } catch {
+        // Graceful degradation — empty impact, no error surfaced.
+      }
       return;
     }
     disarm();
@@ -567,6 +593,7 @@ export default function InstalledPage() {
               busy={busyFile === m.fileName}
               updateTo={updateByName.get(m.name) ?? null}
               expanded={expandedName === m.name}
+              impact={impactByFile[m.fileName] ?? null}
               onToggle={handleToggle}
               onUninstall={handleUninstall}
               onUpdate={handleUpdate}
@@ -587,6 +614,7 @@ export default function InstalledPage() {
               busy={busyFile === m.fileName}
               updateTo={updateByName.get(m.name) ?? null}
               expanded={expandedName === m.name}
+              impact={impactByFile[m.fileName] ?? null}
               onToggle={handleToggle}
               onUninstall={handleUninstall}
               onUpdate={handleUpdate}

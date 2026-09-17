@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::core::services::{mod_store, updates};
 use crate::error::AppError;
-use crate::models::{InstalledSnapshot, ModsDirStatus, UpdatesReport};
+use crate::models::{InstalledSnapshot, ModsDirStatus, UninstallResult, UpdatesReport};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -51,13 +51,15 @@ pub async fn toggle_mod(
     Ok(())
 }
 
-/// Returns the removed mod's name on success.
+/// Returns the removed mod's name plus the installed dependents its removal
+/// leaves broken (A2 impact — informational; the UI already showed it in the
+/// confirm step and does not block).
 #[tauri::command]
 pub async fn uninstall_mod(
     app: AppHandle,
     state: State<'_, AppState>,
     file_name: String,
-) -> Result<String, AppError> {
+) -> Result<UninstallResult, AppError> {
     let config = state.config.read().expect("config lock poisoned").clone();
     let dir = mod_store::resolve_dir(&config)?;
 
@@ -77,12 +79,34 @@ pub async fn uninstall_mod(
     }
 
     let cache = state.zip_cache.clone();
-    tauri::async_runtime::spawn_blocking(move || mod_store::uninstall(&dir, &file_name, &cache))
-        .await
-        .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;
+    let result = tauri::async_runtime::spawn_blocking(
+        move || -> Result<UninstallResult, AppError> {
+            // Impact first: it needs a scan that still contains the mod.
+            let dependents = mod_store::uninstall_impact(&dir, &file_name, &cache)?;
+            let name = mod_store::uninstall(&dir, &file_name, &cache)?;
+            Ok(UninstallResult { name, dependents })
+        },
+    )
+    .await
+    .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;
 
     let _ = app.emit("installed-changed", ());
-    Ok(name)
+    Ok(result)
+}
+
+/// Dependents that would be left broken by removing `file_name`, for the
+/// uninstall confirm step (fetched when the user first clicks Remove).
+#[tauri::command]
+pub async fn uninstall_impact(
+    state: State<'_, AppState>,
+    file_name: String,
+) -> Result<Vec<String>, AppError> {
+    let config = state.config.read().expect("config lock poisoned").clone();
+    let dir = mod_store::resolve_dir(&config)?;
+    let cache = state.zip_cache.clone();
+    tauri::async_runtime::spawn_blocking(move || mod_store::uninstall_impact(&dir, &file_name, &cache))
+        .await
+        .map_err(|e| AppError::Parse(format!("background task failed: {e}")))?
 }
 
 /// Compare every installed mod against the newest target-compatible release.

@@ -154,6 +154,7 @@ pub fn run() {
             commands::installed::list_installed,
             commands::installed::toggle_mod,
             commands::installed::uninstall_mod,
+            commands::installed::uninstall_impact,
             commands::installed::check_updates,
             commands::index::search_mods,
             commands::index::get_mod_details,
