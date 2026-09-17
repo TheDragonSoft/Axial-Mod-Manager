@@ -445,6 +445,9 @@ fn disabled_names(dir: &Path) -> HashSet<String> {
 
 /// Load mod-list.json for mutation. Missing ⇒ fresh document with the
 /// mandatory `base` entry. Corrupt ⇒ hard error (never clobber a user file).
+/// A present-but-malformed shape (top level not an object, or `mods` missing /
+/// not an array) is rejected the same way: Factorio never writes such a file,
+/// so silently "fixing" it would clobber user data it can't understand.
 fn load_mod_list_for_write(dir: &Path) -> Result<serde_json::Value, AppError> {
     let path = mod_list_path(dir);
     if !path.exists() {
@@ -459,6 +462,11 @@ fn load_mod_list_for_write(dir: &Path) -> Result<serde_json::Value, AppError> {
     if !v.is_object() {
         return Err(AppError::Parse(
             "mod-list.json has an unexpected top-level shape".into(),
+        ));
+    }
+    if v.get("mods").map(|m| !m.is_array()).unwrap_or(true) {
+        return Err(AppError::Parse(
+            "mod-list.json has no 'mods' array — fix or delete it before changing mods".into(),
         ));
     }
     Ok(v)
@@ -934,6 +942,42 @@ mod tests {
                 assert!(!enabled, "{name} must be disabled");
             }
         }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mod_list_without_mods_array_is_rejected_for_write_and_left_untouched() {
+        let dir = unique_dir("bad-shape");
+
+        // `mods` present but not an array.
+        let ml = dir.join("mod-list.json");
+        let bad_array = r#"{"mods": {"name": "base", "enabled": true}}"#;
+        fs::write(&ml, bad_array).unwrap();
+        let err = disable_all_mods(&dir).unwrap_err();
+        assert_eq!(err.kind(), "parse");
+        assert!(err.to_string().contains("no 'mods' array"));
+        assert_eq!(
+            fs::read_to_string(&ml).unwrap(),
+            bad_array,
+            "malformed mod-list must not be rewritten"
+        );
+
+        // `mods` key missing entirely.
+        let bad_missing = r#"{"version": 3}"#;
+        fs::write(&ml, bad_missing).unwrap();
+        let err = set_enabled(&dir, "ModA", true).unwrap_err();
+        assert_eq!(err.kind(), "parse");
+        assert_eq!(
+            fs::read_to_string(&ml).unwrap(),
+            bad_missing,
+            "malformed mod-list must not be rewritten"
+        );
+
+        // The same policy applies to the full-replacement write path.
+        fs::write(&ml, bad_array).unwrap();
+        assert!(replace_mod_list(&dir, &[("ModA".into(), true)]).is_err());
+        assert_eq!(fs::read_to_string(&ml).unwrap(), bad_array);
 
         let _ = fs::remove_dir_all(&dir);
     }

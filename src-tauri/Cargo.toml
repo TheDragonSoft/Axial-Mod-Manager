@@ -41,6 +41,14 @@ base64 = "0.22"
 tokio = { version = "1", features = ["macros", "rt"] }
 minisign-verify = "0.2"
 
+# Enables `tauri::test` (MockRuntime) so activation paths can be driven from
+# unit tests without a real window/event loop. Not enabled on Windows: linking
+# MockRuntime makes the test binary fail to start with
+# STATUS_ENTRYPOINT_NOT_FOUND (upstream: tauri-apps/tauri#13419, no fix yet);
+# tests using it are gated the same way in packs.rs. CI (ubuntu) runs them.
+[target.'cfg(not(target_os = "windows"))'.dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

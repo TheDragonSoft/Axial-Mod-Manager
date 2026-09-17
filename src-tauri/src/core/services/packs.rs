@@ -227,7 +227,10 @@ pub fn import_pack_base64(profiles_dir: &Path, encoded: &str) -> Result<Pack, Ap
 /// Save the active pack id into Config, persist to disk, and emit
 /// `settings-changed` so the frontend stays in sync. Follows the same
 /// pattern as `set_settings` in commands/settings.rs.
-fn persist_active_pack(app: &AppHandle, pack_id: Option<&str>) -> Result<(), AppError> {
+fn persist_active_pack<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    pack_id: Option<&str>,
+) -> Result<(), AppError> {
     let state = app.state::<AppState>();
     let config_path = state.config_path.clone();
     let mut config = state.config.read().expect("config lock poisoned").clone();
@@ -275,6 +278,13 @@ pub fn compose_entries(
 /// `pack-activated`) once all downloads complete.
 pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, AppError> {
     let state = app.state::<AppState>();
+    // Hold the activation lock across the whole body (target-state write,
+    // pending_activation update, active_pack_id persist) so a concurrent
+    // Vanilla activation or a download-landing finalize can't interleave its
+    // own mod-list write. `enqueue` only *registers* jobs and returns — the
+    // download itself runs on a spawned task whose finalize re-acquires this
+    // lock after we release it.
+    let _activation = state.activation_lock.lock().await;
     let (config, profiles_dir) = {
         let s = state.inner();
         (
@@ -393,8 +403,19 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
 /// download of a pending activation, rewrite mod-list.json fully enabled and
 /// announce the pack. Best-effort: errors are swallowed (the user can always
 /// re-activate).
+///
+/// Holds the activation lock from *before* the pending_activation check all
+/// the way through the finalize write. Why: the queued→finalizing transition
+/// and the mod-list rewrite must be one atomic step — otherwise a Vanilla
+/// activation could clear the pending slot between the two and still be
+/// overwritten by the pack state when the finalize completes. With the lock,
+/// a Vanilla click either waits for this finalize to finish (its own write
+/// then lands last, correctly) or runs first and clears the *queued* pending
+/// slot, which makes this function a no-op.
 pub async fn maybe_finalize(app: &AppHandle, downloaded_mod: &str) {
     let state = app.state::<AppState>();
+    let _activation = state.activation_lock.lock().await;
+
     let pack_id = {
         let mut guard = match state.pending_activation.lock() {
             Ok(g) => g,
@@ -404,28 +425,26 @@ pub async fn maybe_finalize(app: &AppHandle, downloaded_mod: &str) {
             Some(p) => {
                 p.remaining.remove(downloaded_mod);
                 if p.remaining.is_empty() {
-                    Some(p.pack_id.clone())
+                    // Queued → finalizing: clear the slot now, while holding
+                    // the activation lock. Nothing can replace it (activate
+                    // needs the same lock), and a Vanilla activation that
+                    // runs after us must wait for the lock — so its "vanilla"
+                    // state can't be overwritten by the finalize below.
+                    let id = p.pack_id.clone();
+                    *guard = None;
+                    Some(id)
                 } else {
                     None
                 }
             }
+            // Pending was cleared while we waited on the activation lock
+            // (e.g. Vanilla took over): the pack no longer wins the mods dir.
             None => None,
         }
     };
     let Some(pack_id) = pack_id else { return };
 
     let result = finalize_now(app, &pack_id).await;
-
-    // Clear pending only if it's still this pack (a newer activation may
-    // have replaced it while we were working).
-    let state = app.state::<AppState>();
-    let mut guard = match state.pending_activation.lock() {
-        Ok(g) => g,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    if guard.as_ref().map(|p| p.pack_id.as_str()) == Some(pack_id.as_str()) {
-        *guard = None;
-    }
 
     match result {
         Ok(()) => tracing::info!(%pack_id, "pack fully finalized"),
@@ -443,6 +462,9 @@ pub async fn maybe_finalize(app: &AppHandle, downloaded_mod: &str) {
     }
 }
 
+/// Rewrite mod-list.json fully enabled for `pack_id` and announce the pack.
+/// Caller must already hold `AppState::activation_lock` (see `maybe_finalize`);
+/// it does not acquire the lock itself — tokio mutexes are not reentrant.
 async fn finalize_now(app: &AppHandle, pack_id: &str) -> Result<(), AppError> {
     let state = app.state::<AppState>();
     let (config, profiles_dir) = {
@@ -492,14 +514,29 @@ async fn finalize_now(app: &AppHandle, pack_id: &str) -> Result<(), AppError> {
 
 /// Activate the built-in Vanilla pseudo-pack: disable every mod except `base`,
 /// clear any in-flight activation, and persist `"vanilla"` as the active pack.
-pub async fn activate_vanilla(app: &AppHandle) -> Result<(), AppError> {
+///
+/// Holds the activation lock across the whole body. Why: this *waits* for any
+/// in-flight pack finalize instead of racing it — a finalize that already
+/// started writes mod-list.json and persists its pack id, so a Vanilla that
+/// ran concurrently could be silently overwritten. Clearing the
+/// `pending_activation` slot below only affects *queued* (not yet finalizing)
+/// activations, which is correct: their finalize never gets to run because
+/// `maybe_finalize` re-checks the slot under the same lock.
+pub async fn activate_vanilla<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<(), AppError> {
     let state = app.state::<AppState>();
+    let _activation = state.activation_lock.lock().await;
+
     let config = state.config.read().expect("config lock poisoned").clone();
     let mods_dir = mod_store::resolve_dir(&config)?;
 
+    // The `?` returns before anything is persisted: `active_pack_id` only
+    // becomes "vanilla" after the mods-dir write actually succeeded.
     mod_store::disable_all_mods(&mods_dir)?;
 
-    // Clear any pending pack activation — Vanilla takes over immediately.
+    // Clear any queued pending pack activation — Vanilla takes over
+    // immediately. (An in-flight finalize cannot race this: it holds the same
+    // activation lock, so it has either fully completed above or, if it was
+    // still waiting, it will see the cleared slot and never run.)
     {
         let mut guard = match state.pending_activation.lock() {
             Ok(g) => g,
@@ -695,5 +732,91 @@ mod tests {
             other => panic!("expected AppError::Config, got {other:?}"),
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Pins the ordering inside `activate_vanilla`: the mods-dir write's `?`
+    /// returns *before* `persist_active_pack`, so `active_pack_id` only ever
+    /// becomes "vanilla" after the mod-list.json rewrite actually succeeded.
+    /// A refactor that inverts the order (persist first, write second) makes
+    /// the failure round below persist "vanilla" and fail this test.
+    ///
+    /// Needs `tauri::test::mock_app` (MockRuntime) to obtain an AppHandle;
+    /// gated off on Windows where linking MockRuntime breaks the test binary
+    /// at load time (upstream tauri-apps/tauri#13419) — see Cargo.toml.
+    #[cfg(all(test, not(target_os = "windows")))]
+    #[tokio::test]
+    async fn vanilla_persists_active_pack_only_after_mods_dir_write_succeeds() {
+        use crate::config::Config;
+        use tauri::Manager;
+
+        let root = unique_dir("vanilla-order");
+        let mods_dir = root.join("mods");
+        let profiles_dir = root.join("profiles");
+        fs::create_dir_all(&mods_dir).unwrap();
+        fs::create_dir_all(&profiles_dir).unwrap();
+        let config_path = root.join("settings.json");
+
+        let app = tauri::test::mock_app();
+        app.manage(AppState {
+            config: std::sync::RwLock::new(Config {
+                mods_dir: Some(mods_dir.to_string_lossy().into_owned()),
+                ..Config::default()
+            }),
+            config_path: config_path.clone(),
+            profiles_dir,
+            index: Box::new(crate::core::services::portal_client::PortalClient::new(
+                reqwest::Client::new(),
+            )),
+            queue: std::sync::Arc::new(crate::core::services::downloader::DownloadQueue::new(
+                reqwest::Client::new(),
+            )),
+            zip_cache: std::sync::Arc::new(mod_store::ZipInfoCache::new()),
+            pending_activation: std::sync::Mutex::new(None),
+            activation_lock: tokio::sync::Mutex::new(()),
+        });
+        let handle = app.handle().clone();
+
+        // Round 1: the mods-dir write fails (malformed mod-list shape —
+        // rejected by load_mod_list_for_write). Persist must not happen.
+        let ml = mods_dir.join("mod-list.json");
+        fs::write(&ml, r#"{"mods": 42}"#).unwrap();
+        activate_vanilla(&handle)
+            .await
+            .expect_err("malformed mod-list must fail activation");
+        {
+            let state = handle.state::<AppState>();
+            assert_eq!(
+                state.config.read().expect("config lock").active_pack_id,
+                None,
+                "active_pack_id must not change when the mods-dir write fails"
+            );
+        }
+        assert!(
+            !config_path.exists(),
+            "settings.json must not be written when the mods-dir write fails"
+        );
+
+        // Round 2: the write succeeds — only now does persistence happen.
+        fs::write(
+            &ml,
+            r#"{"mods":[{"name":"base","enabled":true},{"name":"ModA","enabled":true}]}"#,
+        )
+        .unwrap();
+        activate_vanilla(&handle).await.expect("clean vanilla activation");
+        {
+            let state = handle.state::<AppState>();
+            assert_eq!(
+                state.config.read().expect("config lock").active_pack_id.as_deref(),
+                Some("vanilla"),
+                "active_pack_id persisted after a successful write"
+            );
+        }
+        let on_disk = fs::read_to_string(&config_path).expect("settings.json written");
+        assert!(
+            on_disk.contains(r#""activePackId": "vanilla""#),
+            "settings.json must persist the vanilla pack id: {on_disk}"
+        );
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
