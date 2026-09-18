@@ -16,7 +16,8 @@ use crate::core::services::mod_store;
 use crate::core::services::portal_client::plausible_name;
 use crate::error::AppError;
 use crate::models::{
-    ActivationDiff, DownloadPlanItem, Pack, PackActivatedPayload, PackMeta, PackMod, VanillaInfo,
+    ActivationDiff, DownloadPlanItem, InstalledChangedPayload, InstalledChangedReason, Pack,
+    PackActivatedPayload, PackMeta, PackMod, VanillaInfo,
 };
 use crate::state::AppState;
 
@@ -499,7 +500,12 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
         "pack activation applied"
     );
 
-    let _ = app.emit("installed-changed", ());
+    let _ = app.emit(
+        "installed-changed",
+        InstalledChangedPayload {
+            reason: InstalledChangedReason::Axial,
+        },
+    );
     Ok(diff)
 }
 
@@ -616,7 +622,12 @@ async fn finalize_now(app: &AppHandle, pack_id: &str) -> Result<(), AppError> {
         },
     );
     persist_active_pack(app, Some(&pack.id))?;
-    let _ = app.emit("installed-changed", ());
+    let _ = app.emit(
+        "installed-changed",
+        InstalledChangedPayload {
+            reason: InstalledChangedReason::Axial,
+        },
+    );
     Ok(())
 }
 
@@ -695,7 +706,12 @@ pub async fn activate_vanilla<R: tauri::Runtime>(
             version_mismatch: vec![],
         },
     );
-    let _ = app.emit("installed-changed", ());
+    let _ = app.emit(
+        "installed-changed",
+        InstalledChangedPayload {
+            reason: InstalledChangedReason::Axial,
+        },
+    );
 
     tracing::info!(pack_id, expansion, "vanilla pack activated");
     Ok(())

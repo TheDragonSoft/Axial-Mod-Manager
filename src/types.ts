@@ -229,6 +229,18 @@ export interface VanillaInfo {
   expansionAvailable: boolean;
 }
 
+// ---- Installed-changed event (A1) ----
+
+/** Why the installed set changed. "axial" = Axial's own writes (toggle,
+ * uninstall, download, pack activation); "external" = the game or the user
+ * touched the mods dir outside Axial (spotted by the backend watcher). */
+export type InstalledChangedReason = "axial" | "external";
+
+/** Mirror of Rust's InstalledChangedPayload (serde camelCase). */
+export interface InstalledChangedPayload {
+  reason: InstalledChangedReason;
+}
+
 // ---- Update detection (Phase 9) ----
 
 export interface UpdateInfo {

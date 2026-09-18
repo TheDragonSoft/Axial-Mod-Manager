@@ -13,6 +13,7 @@ use tokio::sync::Semaphore;
 
 use crate::core::services::portal_client::{encode_path_component, plausible_name};
 use crate::error::AppError;
+use crate::models::{InstalledChangedPayload, InstalledChangedReason};
 
 /// Third-party mirror serving mod zips (per user's discovery report).
 const STORAGE_BASE: &str = "https://mods-storage.re146.dev";
@@ -254,7 +255,12 @@ async fn run_job(
                     item.status = "completed";
                     item.received = total;
                     item.total = total;
-                    let _ = app.emit("installed-changed", ());
+                    let _ = app.emit(
+                        "installed-changed",
+                        InstalledChangedPayload {
+                            reason: InstalledChangedReason::Axial,
+                        },
+                    );
                     crate::core::services::packs::maybe_finalize(app, &item.mod_name).await;
                 }
                 Err(e) => {

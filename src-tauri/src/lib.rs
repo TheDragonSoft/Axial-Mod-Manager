@@ -14,6 +14,7 @@ use core::services::downloader::DownloadQueue;
 use core::services::index_client::USER_AGENT;
 use core::services::mirror_client::{MirrorClient, PortalWithMirrorDeps};
 use core::services::portal_client::PortalClient;
+use core::services::watcher;
 use state::AppState;
 
 /// File logging to <app-data>/logs/axial.log with a single 5 MB rotation.
@@ -114,6 +115,14 @@ pub fn run() {
                 .read()
                 .expect("config lock poisoned")
                 .clone();
+            // External mods-dir change sync: watches the resolved mods dir
+            // (re-arms itself on settings saves) and reports changes made
+            // outside Axial — the game editing mod-list.json, hand-dropped
+            // zips — as `installed-changed` with reason "external".
+            // Called before the recovery task below takes ownership of the
+            // app handle.
+            watcher::start(&handle);
+
             tauri::async_runtime::spawn(async move {
                 let Ok(mods_dir) = core::services::mod_store::resolve_dir(&startup_config) else {
                     return;

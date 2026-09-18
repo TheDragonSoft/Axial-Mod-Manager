@@ -4,20 +4,25 @@ import {
   ArrowUpCircle,
   ChevronRight,
   History,
+  Info,
   Package,
   RefreshCw,
   Trash2,
+  X,
 } from "lucide-react";
 import Toggle from "../components/ui/Toggle";
 import VersionsModal from "../components/VersionsModal";
 import {
   checkUpdates,
   enqueueDownload,
+  getPack,
   isNetworkOrHttpError,
   listInstalled,
   toAppError,
   toggleMod,
   uninstallMod,
+  VANILLA_EXPANSION_PACK_ID,
+  VANILLA_PACK_ID,
 } from "../lib/api";
 import { onInstalledChanged, onSettingsChanged } from "../lib/events";
 import { useAppStore } from "../store/useAppStore";
@@ -270,6 +275,42 @@ export default function InstalledPage() {
   const [expandedName, setExpandedName] = useState<string | null>(null);
   const { confirming, arm, disarm } = useConfirm();
 
+  /** External-change hint: an outside-the-app mods-dir edit while a pack is
+   * active may have desynced disk from the pack's target state. */
+  const [externalChange, setExternalChange] = useState(false);
+  const [activePackName, setActivePackName] = useState<string | null>(null);
+  const activePackId = useAppStore((s) => s.activePackId);
+
+  /** Resolve the active pack's display name (built-in pseudo-packs have no
+   * manifest to read); a pack switch invalidates any pending hint. */
+  useEffect(() => {
+    setExternalChange(false);
+    if (activePackId === null) {
+      setActivePackName(null);
+      return;
+    }
+    if (activePackId === VANILLA_PACK_ID) {
+      setActivePackName("Vanilla");
+      return;
+    }
+    if (activePackId === VANILLA_EXPANSION_PACK_ID) {
+      setActivePackName("Vanilla: Space Age");
+      return;
+    }
+    let cancelled = false;
+    getPack(activePackId)
+      .then((p) => {
+        if (!cancelled) setActivePackName(p.name);
+      })
+      .catch(() => {
+        // Pack may have been deleted since; the id is still a usable label.
+        if (!cancelled) setActivePackName(activePackId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePackId]);
+
   /** Mods dir of the last snapshot — a settings save that changes it needs a
    * hard reload; any other save just refreshes quietly. */
   const modsDirRef = useRef<string | null>(null);
@@ -310,7 +351,18 @@ export default function InstalledPage() {
   }, [refresh]);
 
   useEffect(() => {
-    const u1 = onInstalledChanged(() => scheduleRefresh());
+    const u1 = onInstalledChanged((payload) => {
+      scheduleRefresh();
+      if (payload.reason === "external") {
+        // Only interesting while a pack defines the expected state.
+        if (useAppStore.getState().activePackId !== null) {
+          setExternalChange(true);
+        }
+      } else {
+        // Axial's own write means the user is managing state here again.
+        setExternalChange(false);
+      }
+    });
     const u2 = onSettingsChanged((settings) => {
       if (settings.modsDir !== null && modsDirRef.current !== null && settings.modsDir !== modsDirRef.current) {
         setLoading(true); // different folder — the stale list is meaningless
@@ -528,6 +580,28 @@ export default function InstalledPage() {
       {error && (
         <div className="mb-4 rounded-xl border border-red-900/60 bg-red-950/40 p-3">
           <p className="text-xs text-red-400">{error}</p>
+        </div>
+      )}
+
+      {/* Muted inline hint (deliberately not a modal): the game or the user
+       * changed the mods dir outside Axial while a pack is active. */}
+      {externalChange && activePackName !== null && (
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-line bg-surface-2/40 px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Info className="h-3.5 w-3.5 shrink-0 text-stone-500" />
+            <p className="text-xs text-stone-500">
+              Mods changed outside Axial — state may differ from pack{" "}
+              {activePackName}.
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setExternalChange(false)}
+            aria-label="Dismiss external change notice"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
         </div>
       )}
 

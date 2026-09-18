@@ -176,7 +176,7 @@ export default function App() {
       refreshDetection();
       refreshVanillaInfo();
     });
-    const unlistenInstalled = onInstalledChanged(refreshVanillaInfo);
+    const unlistenInstalled = onInstalledChanged(() => refreshVanillaInfo());
     return () => {
       void unlistenSettings.then((f) => f());
       void unlistenInstalled.then((f) => f());

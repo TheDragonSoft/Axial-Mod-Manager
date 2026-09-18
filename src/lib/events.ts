@@ -1,5 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
-import type { PackActivatedPayload, QueueItem, Settings } from "../types";
+import type {
+  InstalledChangedPayload,
+  PackActivatedPayload,
+  QueueItem,
+  Settings,
+} from "../types";
 
 /** Emitted by Rust `set_settings` after a successful save. */
 export function onSettingsChanged(
@@ -15,9 +20,15 @@ export function onDownloadUpdated(
   return listen<QueueItem>("download-updated", (e) => handler(e.payload));
 }
 
-/** Emitted after downloads complete, toggles, and uninstalls. */
-export function onInstalledChanged(handler: () => void): Promise<() => void> {
-  return listen("installed-changed", () => handler());
+/** Emitted after Axial-side writes (downloads, toggles, uninstalls, pack
+ * activation — reason "axial") and after the mods-dir watcher spots changes
+ * made outside Axial (reason "external"). */
+export function onInstalledChanged(
+  handler: (payload: InstalledChangedPayload) => void,
+): Promise<() => void> {
+  return listen<InstalledChangedPayload>("installed-changed", (e) =>
+    handler(e.payload),
+  );
 }
 
 /** Fired when a pack activation's downloads have all landed. */

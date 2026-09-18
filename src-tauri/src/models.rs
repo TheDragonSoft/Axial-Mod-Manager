@@ -272,6 +272,27 @@ pub struct VanillaInfo {
     pub expansion_available: bool,
 }
 
+// ---- Installed-changed event (A1) ----
+
+/// Why the installed set changed. Axial's own writes announce themselves at
+/// the emit site; the mods-dir watcher reports everything else as external.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InstalledChangedReason {
+    /// Axial itself wrote to the mods dir (toggle, uninstall, download, pack
+    /// activation).
+    Axial,
+    /// Something outside Axial (the game, the user) changed the mods dir.
+    External,
+}
+
+/// Payload of the "installed-changed" event.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledChangedPayload {
+    pub reason: InstalledChangedReason,
+}
+
 // ---- Update detection (Phase 9) ----
 
 #[derive(Debug, Clone, Serialize)]
