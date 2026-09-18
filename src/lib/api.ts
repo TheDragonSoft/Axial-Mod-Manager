@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ActivationDiff,
   AppError,
+  CleanOrphansResult,
   DetectedDir,
   DetectedGame,
   DetectionStatus,
@@ -18,6 +19,7 @@ import type {
   SearchResult,
   Settings,
   SortKey,
+  StorageReport,
   UninstallResult,
   UpdatesReport,
   VanillaInfo,
@@ -184,6 +186,22 @@ export async function getVanillaInfo(): Promise<VanillaInfo> {
 
 export async function checkUpdates(): Promise<UpdatesReport> {
   return invoke<UpdatesReport>("check_updates");
+}
+
+// ---- Mods-dir hygiene (A4) ----
+
+/**
+ * Storage facts for the mods dir: sizes, per-mod aggregates, orphans.
+ * `path` overrides the effective mods dir (Settings path editing); omit for
+ * the effective dir.
+ */
+export async function getStorageReport(path?: string): Promise<StorageReport> {
+  return invoke<StorageReport>("get_storage_report", { path: path ?? null });
+}
+
+/** Delete provably-orphaned files; the backend re-classifies from a fresh scan. */
+export async function cleanOrphans(path?: string): Promise<CleanOrphansResult> {
+  return invoke<CleanOrphansResult>("clean_orphans", { path: path ?? null });
 }
 
 // ---- Launcher (Phase 2c) ----

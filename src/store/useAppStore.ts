@@ -3,9 +3,15 @@ import type { DetectedGame, DetectionStatus } from "../types";
 
 export type Tab = "dashboard" | "browse" | "installed" | "packs" | "settings";
 
+/** Which Settings section is open — lets other pages deep-link (e.g. the
+ * Dashboard storage card jumps straight to the Storage section). */
+export type SettingsSection = "storage" | "game" | "general";
+
 interface AppState {
   activeTab: Tab;
   setActiveTab: (tab: Tab) => void;
+  settingsSection: SettingsSection;
+  setSettingsSection: (section: SettingsSection) => void;
   /** Available updates (set by "Check for updates"); null = not checked yet. */
   updateCount: number | null;
   setUpdateCount: (n: number | null) => void;
@@ -42,6 +48,8 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   activeTab: "dashboard",
   setActiveTab: (tab) => set({ activeTab: tab }),
+  settingsSection: "storage",
+  setSettingsSection: (section) => set({ settingsSection: section }),
   updateCount: null,
   setUpdateCount: (n) => set({ updateCount: n }),
   updatesChecked: false,

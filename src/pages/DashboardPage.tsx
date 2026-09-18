@@ -17,18 +17,21 @@ import {
 import {
   checkUpdates,
   getSettings,
+  getStorageReport,
   isNetworkOrHttpError,
   listInstalled,
   listPacks,
   ping,
   validateModsDir,
 } from "../lib/api";
+import { formatBytes } from "../lib/format";
 import { onInstalledChanged } from "../lib/events";
 import type {
   InstalledSnapshot,
   ModsDirStatus,
   PackMeta,
   Settings,
+  StorageReport,
   UpdatesReport,
 } from "../types";
 import { useAppStore } from "../store/useAppStore";
@@ -92,6 +95,7 @@ export default function DashboardPage() {
   const [packs, setPacks] = useState<PackMeta[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [dirStatus, setDirStatus] = useState<ModsDirStatus | null>(null);
+  const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
   const [backendOk, setBackendOk] = useState<boolean | null>(null);
   const [report, setReport] = useState<UpdatesReport | null>(null);
   const [checking, setChecking] = useState(false);
@@ -101,6 +105,10 @@ export default function DashboardPage() {
     listInstalled()
       .then(setSnapshot)
       .catch(() => setSnapshot(null));
+    // Orphan cleanup elsewhere (Settings) also fires installed-changed.
+    getStorageReport()
+      .then(setStorageReport)
+      .catch(() => setStorageReport(null));
   }, []);
 
   useEffect(() => {
@@ -174,6 +182,7 @@ export default function DashboardPage() {
 
   const enabledCount = snapshot?.mods.filter((m) => m.enabled).length ?? 0;
   const problemCount = snapshot?.mods.filter((m) => m.problem).length ?? 0;
+  const orphanCount = storageReport?.orphans.length ?? 0;
   const totalPackMods = packs.reduce((n, p) => n + p.modCount, 0);
   const downloadsDone = activity.filter(
     (a) => a.kind === "download-completed",
@@ -266,20 +275,30 @@ export default function DashboardPage() {
           onClick={() => setActiveTab("packs")}
         />
         <StatCard
-          label="On Disk"
+          label="Mods Storage"
           icon={HardDrive}
           iconTone="orange"
-          value={isFactorioDetected === false ? "—" : dirStatus ? dirStatus.zipCount : "—"}
+          value={
+            isFactorioDetected === false ? (
+              "—"
+            ) : storageReport ? (
+              formatBytes(storageReport.totalSizeBytes)
+            ) : (
+              "—"
+            )
+          }
           sub={
             isFactorioDetected === false
               ? "Factorio not found — set in Settings"
-              : dirStatus
-              ? dirStatus.writable
-                ? "directory writable"
-                : "directory not writable"
-              : "scanning…"
+              : storageReport
+              ? `${orphanCount === 0 ? "no orphans" : `${orphanCount} orphan${orphanCount === 1 ? "" : "s"}`} · ${storageReport.zipCount} zip${storageReport.zipCount === 1 ? "" : "s"}`
+              : "measuring…"
           }
-          onClick={() => setActiveTab("settings")}
+          onClick={() => {
+            // Deep-link straight to Settings → Storage.
+            useAppStore.getState().setSettingsSection("storage");
+            setActiveTab("settings");
+          }}
         />
       </div>
 
