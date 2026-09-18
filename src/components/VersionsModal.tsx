@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check } from "lucide-react";
-import { enqueueDownload, getModDetails, isNetworkOrHttpError, toAppError } from "../lib/api";
+import {
+  enqueueDownload,
+  getModDetails,
+  isNetworkOrHttpError,
+  toAppError,
+} from "../lib/api";
+import { fetchChangelog, useChangelog } from "../lib/changelog";
 import { compareVersions, formatBytes } from "../lib/format";
 import { useQueueStore } from "../store/useQueueStore";
 import { useThumbnailUrl } from "../lib/thumbnails";
 import Badge from "./ui/Badge";
 import Button from "./ui/Button";
+import ChangelogView from "./ChangelogView";
 import ModTile from "./ui/ModTile";
 import Modal from "./ui/Modal";
 import type { AppError, InstalledMod, ModDetails } from "../types";
@@ -22,6 +29,13 @@ export default function VersionsModal({
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState<string | null>(null);
   const thumbnail = useThumbnailUrl(mod.name);
+  const changelog = useChangelog(mod.name);
+
+  // Changelog is fetched once per mod (cached in the store); the section
+  // below shows the newest release's entry.
+  useEffect(() => {
+    fetchChangelog(mod.name);
+  }, [mod.name]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -72,6 +86,11 @@ export default function VersionsModal({
   const releases = details
     ? [...details.releases].sort((a, b) => compareVersions(b.version, a.version))
     : [];
+
+  const newestChangelog =
+    changelog && changelog.length > 0 && releases.length > 0
+      ? changelog.find((e) => e.version === releases[0].version) ?? null
+      : null;
 
   return (
     <Modal
@@ -151,6 +170,24 @@ export default function VersionsModal({
             );
           })}
         </ul>
+      )}
+
+      {/* Changelog preview for the newest release (A3). Failures degrade to
+          a muted inline note — never a toast. */}
+      {newestChangelog && (
+        <div className="mt-4 border-t border-line pt-3">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-500">
+            What's new in v{newestChangelog.version}
+          </p>
+          <ChangelogView entries={[newestChangelog]} />
+        </div>
+      )}
+      {changelog !== undefined && details !== null && !newestChangelog && (
+        <p className="mt-4 text-xs italic text-stone-600">
+          {changelog === null
+            ? "Changelog unavailable"
+            : "No changelog entries for the newest release"}
+        </p>
       )}
     </Modal>
   );

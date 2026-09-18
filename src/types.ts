@@ -115,6 +115,22 @@ export interface IndexHealth {
   excerpt: string;
 }
 
+// ---- Changelog preview (A3) ----
+
+/** One categorized group of a changelog version block ("Bugfixes", …). */
+export interface ChangelogSection {
+  heading: string;
+  bullets: string[];
+}
+
+/** One version block of a mod's changelog, newest first (portal order).
+ * Tolerant: `date` is null when the page omits it. */
+export interface ChangelogEntry {
+  version: string;
+  date: string | null;
+  sections: ChangelogSection[];
+}
+
 // ---- Installed mods (mocked in Phase 2, live in Phase 6) ----
 
 export interface InstalledMod {

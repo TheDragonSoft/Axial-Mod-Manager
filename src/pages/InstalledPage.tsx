@@ -30,9 +30,12 @@ import { useAppStore } from "../store/useAppStore";
 import { useQueueStore } from "../store/useQueueStore";
 import { useThumbnails, useThumbnailUrl } from "../lib/thumbnails";
 import { fetchSummary, useSummary } from "../lib/summaries";
+import { fetchChangelog, useChangelog } from "../lib/changelog";
+import { compareVersions } from "../lib/format";
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
 import Card from "../components/ui/Card";
+import ChangelogView from "../components/ChangelogView";
 import EmptyState from "../components/ui/EmptyState";
 import ModTile from "../components/ui/ModTile";
 import PageHeader from "../components/ui/PageHeader";
@@ -73,6 +76,13 @@ function ModRow({
 }) {
   const thumbnail = useThumbnailUrl(mod.name);
   const summary = useSummary(mod.name);
+  const changelog = useChangelog(mod.name);
+  /** Changelog entries newer than the installed version — only meaningful
+   * while `updateTo` is set (up-to-date rows never fetch the changelog). */
+  const changelogDelta =
+    changelog !== undefined && changelog !== null
+      ? changelog.filter((e) => compareVersions(e.version, mod.version) > 0)
+      : null;
 
   return (
     <Card
@@ -237,6 +247,31 @@ function ModRow({
               >
                 {summary}
               </p>
+            )}
+
+            {/* Changelog delta for the pending update (A3): everything newer
+                than the installed version. Offline/error degrades to a muted
+                inline note — never a toast. */}
+            {updateTo && (
+              <div className="mt-3 border-t border-line pt-2.5">
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-stone-500">
+                  What's new since v{mod.version}
+                </p>
+                {changelog === undefined ? (
+                  <div className="space-y-1.5">
+                    <div className="h-3 w-2/3 animate-pulse rounded bg-stone-800" />
+                    <div className="h-3 w-1/2 animate-pulse rounded bg-stone-800" />
+                  </div>
+                ) : changelog === null || changelogDelta === null ? (
+                  <p className="text-xs italic text-stone-600">Changelog unavailable</p>
+                ) : changelogDelta.length === 0 ? (
+                  <p className="text-xs italic text-stone-600">No changelog entries</p>
+                ) : (
+                  <div className="max-w-xl">
+                    <ChangelogView entries={changelogDelta} />
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -525,12 +560,16 @@ export default function InstalledPage() {
   }
 
   /** Toggle accordion expansion; exactly one row at a time.
-   * Lazy-fetches the portal summary on first expand. */
+   * Lazy-fetches the portal summary on first expand (and the changelog
+   * delta, but only for rows that actually have an update). */
   function handleToggleExpand(mod: InstalledMod) {
     const next = expandedName === mod.name ? null : mod.name;
     setExpandedName(next);
     if (next) {
       fetchSummary(mod.name);
+      if (updateByName.get(mod.name)) {
+        fetchChangelog(mod.name);
+      }
     }
   }
 

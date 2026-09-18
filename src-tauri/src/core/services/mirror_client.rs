@@ -8,7 +8,7 @@ use crate::core::services::portal_client::{
     encode_path_component, info_json_fields, plausible_name, PortalModDetails, PortalRelease,
 };
 use crate::error::AppError;
-use crate::models::{IndexHealth, ModDetails, SearchResult};
+use crate::models::{ChangelogEntry, IndexHealth, ModDetails, SearchResult};
 
 /// The community mirror's info site (same operator as the download mirror in
 /// downloader.rs). ASSUMPTION (verified against the live service, 2026-09):
@@ -132,6 +132,12 @@ impl IndexClient for PortalWithMirrorDeps {
             }
         }
         Ok(details)
+    }
+
+    async fn mod_changelog(&self, name: &str) -> Result<Vec<ChangelogEntry>, AppError> {
+        // Changelog lives on the official portal page; the mirror is only a
+        // dependency-info source.
+        self.portal.mod_changelog(name).await
     }
 
     async fn health_check(&self) -> Result<IndexHealth, AppError> {
