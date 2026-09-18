@@ -88,3 +88,63 @@ body {
 .animate-fade-in {
   animation: fade-in 180ms ease-out;
 }
+
+/*
+ * A5 update-pill animations. All of it is cosmetic attention/entrance motion
+ * and collapses entirely for prefers-reduced-motion users.
+ */
+
+/* Soft 2s glow loop on the pill; stops once the release notes were seen. */
+@keyframes pill-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(0 204 70 / 0);
+  }
+  50% {
+    box-shadow: 0 0 14px 2px rgb(0 204 70 / 0.45);
+  }
+}
+.update-pill-glow {
+  animation: pill-glow 2s ease-in-out infinite;
+  /* Eases the glow out instead of snapping when the popover opens. */
+  transition: box-shadow 300ms ease;
+}
+
+/* Popover springs from the pill (transform-origin set inline on the panel). */
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-popover-in {
+  animation: popover-in 150ms ease-out;
+}
+
+/* Release-note bullets stagger-fade 30 ms apart (delay set inline); the
+   `backwards` fill keeps them invisible during their delay. */
+@keyframes bullet-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-bullet-in {
+  animation: bullet-in 180ms ease-out backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-pill-glow,
+  .animate-popover-in,
+  .animate-bullet-in {
+    animation: none;
+  }
+}

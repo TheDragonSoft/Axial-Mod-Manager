@@ -60,6 +60,44 @@ function walkDir(dir) {
 const allFiles = walkDir(bundlesDir);
 const sigFiles = allFiles.filter((f) => f.endsWith(".sig"));
 
+/**
+ * Fetches the GitHub release body for the tag — it becomes the `notes` field
+ * that the in-app release-notes popover renders (A5). Notes are cosmetic:
+ * any failure (no release yet, rate limit, offline) falls back to the plain
+ * tag line instead of failing the manifest.
+ */
+async function fetchReleaseBody(ownerRepo, tag) {
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  // Authenticated when CI provides a token: avoids the anonymous 60 req/hour
+  // rate limit and works if the repo ever goes private.
+  if (process.env.GITHUB_TOKEN) {
+    headers["Authorization"] = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${ownerRepo}/releases/tags/${encodeURIComponent(tag)}`,
+      { headers },
+    );
+    if (!res.ok) {
+      throw new Error(`GitHub API responded ${res.status}`);
+    }
+    const release = await res.json();
+    if (typeof release.body === "string" && release.body.trim()) {
+      return release.body;
+    }
+    console.warn("Release body is empty; falling back to default notes.");
+    return null;
+  } catch (err) {
+    console.warn(`Could not fetch release notes (${err.message}); falling back to default notes.`);
+    return null;
+  }
+}
+
+const releaseBody = await fetchReleaseBody(ownerRepo, rawTag);
+
 const platforms = {};
 
 for (const sigPath of sigFiles) {
@@ -125,7 +163,9 @@ for (const sigPath of sigFiles) {
 
 const manifest = {
   version: cleanVersion,
-  notes: `Axial release ${rawTag}`,
+  // Rendered by the in-app release-notes popover; the GitHub release body
+  // (markdown-lite: headings/bullets/bold) when fetchable, tag line otherwise.
+  notes: releaseBody || `Axial release ${rawTag}`,
   pub_date: new Date().toISOString(),
   platforms,
 };
