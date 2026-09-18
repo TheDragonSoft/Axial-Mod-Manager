@@ -30,6 +30,7 @@ import type { BridgeStatus } from "../App";
 import Button from "./ui/Button";
 import Spinner from "./ui/Spinner";
 import StatusDot from "./ui/StatusDot";
+import UpdatePill from "./update/UpdatePill";
 import PackModal from "./packs/PackModal";
 
 const NAV: { id: Tab; label: string; icon: typeof Compass }[] = [
@@ -113,7 +114,8 @@ export default function Sidebar({
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-surface">
-      {/* Brand */}
+      {/* Brand — the Update pill lives next to the logo/version so an
+          available app update is always visible, not a transient banner. */}
       <div className="flex items-center gap-2.5 px-5 pt-5 pb-4">
         <img
           src={logoSvg}
@@ -123,6 +125,9 @@ export default function Sidebar({
         <div className="leading-tight">
           <p className="text-sm font-bold text-stone-200">Axial</p>
           <p className="text-[10px] text-stone-600">Factorio Mod Manager</p>
+        </div>
+        <div className="ml-auto">
+          <UpdatePill />
         </div>
       </div>
 

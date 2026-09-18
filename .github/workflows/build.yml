@@ -147,12 +147,23 @@ jobs:
         with:
           path: bundles
           merge-multiple: true
+      # Release first, manifest second: latest.json's `notes` field is the
+      # release body (rendered by the in-app release-notes popover), so the
+      # release must already exist with its generated notes before the
+      # manifest can be authored. The second gh-release step then attaches
+      # latest.json to the existing release instead of creating a new one.
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: bundles/**
+          generate_release_notes: true
       - name: Generate updater manifest (latest.json)
         run: node scripts/generate-updater-manifest.mjs bundles
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-      - uses: softprops/action-gh-release@v2
+          # Auth for the release-body fetch (avoids the anonymous rate limit).
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Attach updater manifest to the release
+        uses: softprops/action-gh-release@v2
         with:
-          files: bundles/**
-          generate_release_notes: true
+          files: bundles/latest.json
