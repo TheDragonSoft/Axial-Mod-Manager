@@ -1,31 +1,57 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import Sidebar from "./components/Sidebar";
 import QueueDrawer from "./components/QueueDrawer";
 import DashboardPage from "./pages/DashboardPage";
-import BrowsePage from "./pages/BrowsePage";
-import InstalledPage from "./pages/InstalledPage";
-import PacksPage from "./pages/PacksPage";
-import SettingsPage from "./pages/SettingsPage";
+import Spinner from "./components/ui/Spinner";
 import { useAppStore, type Tab } from "./store/useAppStore";
 import { useQueueStore } from "./store/useQueueStore";
 import { useActivityStore } from "./store/useActivityStore";
 import { onDownloadUpdated, onInstalledChanged, onPackActivated, onSettingsChanged } from "./lib/events";
 import { getDetectionStatus, getSettings, getVanillaInfo, ping } from "./lib/api";
 
+const BrowsePage = lazy(() => import("./pages/BrowsePage"));
+const InstalledPage = lazy(() => import("./pages/InstalledPage"));
+const PacksPage = lazy(() => import("./pages/PacksPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+
 export type BridgeStatus = "connecting" | "online" | "error";
+
+function PageFallback() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <Spinner className="h-6 w-6 text-stone-400" />
+    </div>
+  );
+}
 
 function renderPage(tab: Tab) {
   switch (tab) {
     case "dashboard":
       return <DashboardPage />;
     case "browse":
-      return <BrowsePage />;
+      return (
+        <Suspense fallback={<PageFallback />}>
+          <BrowsePage />
+        </Suspense>
+      );
     case "installed":
-      return <InstalledPage />;
+      return (
+        <Suspense fallback={<PageFallback />}>
+          <InstalledPage />
+        </Suspense>
+      );
     case "packs":
-      return <PacksPage />;
+      return (
+        <Suspense fallback={<PageFallback />}>
+          <PacksPage />
+        </Suspense>
+      );
     case "settings":
-      return <SettingsPage />;
+      return (
+        <Suspense fallback={<PageFallback />}>
+          <SettingsPage />
+        </Suspense>
+      );
   }
 }
 

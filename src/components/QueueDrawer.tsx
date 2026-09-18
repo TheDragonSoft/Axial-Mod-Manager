@@ -110,13 +110,8 @@ const QueueRow = memo(function QueueRow({ item }: { item: QueueItem }) {
   );
 });
 
-export default function QueueDrawer() {
+function QueueItemList({ clearFinished }: { clearFinished: () => void }) {
   const items = useQueueStore((s) => s.items);
-  const isOpen = useQueueStore((s) => s.isOpen);
-  const close = useQueueStore((s) => s.close);
-  const clearFinished = useQueueStore((s) => s.clearFinished);
-  const activeCount = useQueueStore(selectActiveCount);
-  const finishedCount = useQueueStore(selectFinishedCount);
 
   // Active items maintain the stable queue sort order established in the store
   const activeItems = useMemo(
@@ -135,6 +130,62 @@ export default function QueueDrawer() {
 
   const hasFailed = finishedItems.some((i) => i.status === "failed");
   const finishedLabel = hasFailed ? "Finished" : "Completed";
+
+  if (items.length === 0) {
+    return (
+      <p className="p-6 text-center text-sm text-stone-600">
+        No downloads yet.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {activeItems.length > 0 && (
+        <div>
+          {finishedItems.length > 0 && (
+            <div className="sticky top-0 z-10 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur-sm">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+                In Progress ({activeItems.length})
+              </p>
+            </div>
+          )}
+          {activeItems.map((item) => (
+            <QueueRow key={item.id} item={item} />
+          ))}
+        </div>
+      )}
+
+      {finishedItems.length > 0 && (
+        <div>
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-surface/95 px-4 py-2 backdrop-blur-sm">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+              {finishedLabel} ({finishedItems.length})
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearFinished}
+              className="h-5 px-1.5 text-[10px] text-stone-500 hover:text-stone-300"
+            >
+              Clear all
+            </Button>
+          </div>
+          {finishedItems.map((item) => (
+            <QueueRow key={item.id} item={item} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function QueueDrawer() {
+  const isOpen = useQueueStore((s) => s.isOpen);
+  const close = useQueueStore((s) => s.close);
+  const clearFinished = useQueueStore((s) => s.clearFinished);
+  const activeCount = useQueueStore(selectActiveCount);
+  const finishedCount = useQueueStore(selectFinishedCount);
 
   return (
     <>
@@ -173,49 +224,7 @@ export default function QueueDrawer() {
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          {items.length === 0 ? (
-            <p className="p-6 text-center text-sm text-stone-600">
-              No downloads yet.
-            </p>
-          ) : (
-            <>
-              {activeItems.length > 0 && (
-                <div>
-                  {finishedItems.length > 0 && (
-                    <div className="sticky top-0 z-10 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur-sm">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
-                        In Progress ({activeItems.length})
-                      </p>
-                    </div>
-                  )}
-                  {activeItems.map((item) => (
-                    <QueueRow key={item.id} item={item} />
-                  ))}
-                </div>
-              )}
-
-              {finishedItems.length > 0 && (
-                <div>
-                  <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-surface/95 px-4 py-2 backdrop-blur-sm">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
-                      {finishedLabel} ({finishedItems.length})
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={clearFinished}
-                      className="h-5 px-1.5 text-[10px] text-stone-500 hover:text-stone-300"
-                    >
-                      Clear all
-                    </Button>
-                  </div>
-                  {finishedItems.map((item) => (
-                    <QueueRow key={item.id} item={item} />
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+          {isOpen && <QueueItemList clearFinished={clearFinished} />}
         </div>
       </aside>
     </>

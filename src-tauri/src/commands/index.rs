@@ -14,7 +14,20 @@ pub async fn search_mods(
 ) -> Result<SearchResult, AppError> {
     let page = page.unwrap_or(1).max(1);
     let sort = SortKey::parse(sort.as_deref());
-    state.index.search(query.trim(), page, sort).await
+    let start = std::time::Instant::now();
+    let res = state.index.search(query.trim(), page, sort).await;
+    let elapsed_ms = start.elapsed().as_millis();
+    if let Ok(ref search_res) = res {
+        tracing::info!(
+            query = %query,
+            page,
+            results = search_res.results.len(),
+            total = search_res.total_count,
+            elapsed_ms,
+            "search_mods completed"
+        );
+    }
+    res
 }
 
 #[tauri::command]

@@ -57,6 +57,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            let setup_start = std::time::Instant::now();
             let data_dir = app.path().app_data_dir()?;
             let config_path = data_dir.join("settings.json");
             let is_first_run = !config_path.exists();
@@ -147,6 +148,8 @@ pub fn run() {
                     }
                 }
             });
+
+            tracing::info!(elapsed_ms = setup_start.elapsed().as_millis(), "backend setup finished");
 
             Ok(())
         })

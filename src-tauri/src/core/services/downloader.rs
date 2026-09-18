@@ -184,6 +184,7 @@ async fn run_job(
         item.status = "cancelled";
         return item;
     }
+    let job_start = Instant::now();
     let _ = app.emit("download-updated", &item); // now "downloading"
 
     let url = format!(
@@ -251,7 +252,21 @@ async fn run_job(
             let dest = mods_dir.join(dest_name);
             match tokio::fs::rename(&part, &dest).await {
                 Ok(()) => {
-                    tracing::info!(id, mod = %item.mod_name, version = %item.version, bytes = total, "download completed");
+                    let elapsed = job_start.elapsed();
+                    let mbps = if elapsed.as_secs_f64() > 0.0 {
+                        (total as f64 / 1_048_576.0) / elapsed.as_secs_f64()
+                    } else {
+                        0.0
+                    };
+                    tracing::info!(
+                        id,
+                        mod = %item.mod_name,
+                        version = %item.version,
+                        bytes = total,
+                        duration_ms = elapsed.as_millis(),
+                        mbps = format!("{mbps:.2}"),
+                        "download completed"
+                    );
                     item.status = "completed";
                     item.received = total;
                     item.total = total;

@@ -380,6 +380,28 @@ impl ZipInfoCache {
         }
     }
 
+    fn store_many(
+        &self,
+        dir: &Path,
+        entries: impl IntoIterator<Item = (String, SystemTime, u64, CachedZipInfo)>,
+    ) {
+        let mut dirs = match self.dirs.lock() {
+            Ok(d) => d,
+            Err(_) => return, // poisoned: scans still work, just uncached
+        };
+        if !dirs.contains_key(dir) {
+            if dirs.len() >= CACHE_MAX_DIRS {
+                dirs.clear();
+            }
+            dirs.insert(dir.to_path_buf(), HashMap::new());
+        }
+        if let Some(per_dir) = dirs.get_mut(dir) {
+            for (file_name, mtime, len, info) in entries {
+                per_dir.insert(file_name, (mtime, len, info));
+            }
+        }
+    }
+
     /// Drop entries for zips no longer on disk (called after each scan).
     fn prune(&self, dir: &Path, live: &HashSet<String>) {
         if let Ok(mut dirs) = self.dirs.lock() {
@@ -529,6 +551,7 @@ pub fn remove_mod_entry(dir: &Path, name: &str) -> Result<(), AppError> {
 /// Zip reads are served from `cache` when the file's (mtime, len) is
 /// unchanged; cache misses are read on parallel worker threads.
 pub fn scan_installed(dir: &Path, cache: &ZipInfoCache) -> InstalledSnapshot {
+    let scan_start = std::time::Instant::now();
     let mods_dir = dir.to_string_lossy().into_owned();
     let mut mods = Vec::new();
     let mod_list_exists = mod_list_exists(dir);
@@ -618,6 +641,18 @@ pub fn scan_installed(dir: &Path, cache: &ZipInfoCache) -> InstalledSnapshot {
 
     mods.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
+    let misses_count = misses.len();
+    let hits_count = zip_paths.len().saturating_sub(misses_count);
+    let total_mods = mods.len();
+    let elapsed = scan_start.elapsed().as_millis();
+    tracing::info!(
+        total = total_mods,
+        hits = hits_count,
+        misses = misses_count,
+        elapsed_ms = elapsed,
+        "scan_installed completed"
+    );
+
     InstalledSnapshot {
         mods_dir,
         mod_list_exists,
@@ -641,33 +676,41 @@ fn read_misses(
     let read_one = |i: usize| {
         let (path, file_name, mtime, len) = &zip_paths[i];
         let info = read_zip_info(path, file_name);
-        cache.store(dir, file_name, *mtime, *len, info.clone());
-        (i, info)
+        (i, file_name.clone(), *mtime, *len, info)
     };
 
-    if misses.len() < 4 {
-        return misses.iter().copied().map(read_one).collect();
-    }
+    let results = if misses.len() < 4 {
+        misses.iter().copied().map(read_one).collect::<Vec<_>>()
+    } else {
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(8)
+            .min(misses.len());
+        let chunk_size = misses.len().div_ceil(workers);
+        std::thread::scope(|s| {
+            let handles: Vec<_> = misses
+                .chunks(chunk_size)
+                .map(|chunk| {
+                    let read_one = &read_one;
+                    s.spawn(move || chunk.iter().copied().map(|i| read_one(i)).collect::<Vec<_>>())
+                })
+                .collect();
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().expect("zip info reader panicked"))
+                .collect::<Vec<_>>()
+        })
+    };
 
-    let workers = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .min(8)
-        .min(misses.len());
-    let chunk_size = misses.len().div_ceil(workers);
-    std::thread::scope(|s| {
-        let handles: Vec<_> = misses
-            .chunks(chunk_size)
-            .map(|chunk| {
-                let read_one = &read_one;
-                s.spawn(move || chunk.iter().copied().map(|i| read_one(i)).collect::<Vec<_>>())
-            })
-            .collect();
-        handles
-            .into_iter()
-            .flat_map(|h| h.join().expect("zip info reader panicked"))
-            .collect()
-    })
+    cache.store_many(
+        dir,
+        results
+            .iter()
+            .map(|(_, name, mtime, len, info)| (name.clone(), *mtime, *len, info.clone())),
+    );
+
+    results.into_iter().map(|(i, _, _, _, info)| (i, info)).collect()
 }
 
 fn validated_zip_path(dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
@@ -1454,5 +1497,34 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_500_mods_cold_and_warm() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let test_dir = manifest_dir.parent().unwrap().join(".perf-test-mods");
+        if !test_dir.exists() {
+            return;
+        }
+        let cache = ZipInfoCache::new();
+        // Cold scan
+        let t0 = std::time::Instant::now();
+        let cold_snapshot = scan_installed(&test_dir, &cache);
+        let cold_elapsed = t0.elapsed();
+        assert_eq!(cold_snapshot.mods.len(), 500);
+
+        // Warm scan
+        let t1 = std::time::Instant::now();
+        let warm_snapshot = scan_installed(&test_dir, &cache);
+        let warm_elapsed = t1.elapsed();
+        assert_eq!(warm_snapshot.mods.len(), 500);
+
+        eprintln!(
+            "PERF_RESULT: 500 mods scan cold = {:?} ({} ms), warm = {:?} ({} ms)",
+            cold_elapsed,
+            cold_elapsed.as_millis(),
+            warm_elapsed,
+            warm_elapsed.as_millis()
+        );
     }
 }
