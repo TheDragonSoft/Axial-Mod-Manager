@@ -124,7 +124,7 @@ export default function Sidebar({
         />
         <div className="leading-tight">
           <p className="text-sm font-bold text-stone-200">Axial</p>
-          <p className="text-[10px] text-stone-600">Factorio Mod Manager</p>
+          <p className="text-[10px] text-stone-400">Factorio Mod Manager</p>
         </div>
         <div className="ml-auto">
           <UpdatePill />
@@ -153,7 +153,7 @@ export default function Sidebar({
       </div>
 
       {/* Navigation */}
-      <p className="px-5 pb-1 text-[10px] font-semibold tracking-widest text-stone-600 uppercase">
+      <p className="px-5 pb-1 text-[10px] font-semibold tracking-widest text-stone-400 uppercase">
         Navigation
       </p>
       <nav className="space-y-1 px-3">
@@ -195,7 +195,7 @@ export default function Sidebar({
       </nav>
 
       {/* Quick Access: Vanilla built-ins first, then user packs */}
-      <p className="px-5 pt-5 pb-1 text-[10px] font-semibold tracking-widest text-stone-600 uppercase">
+      <p className="px-5 pt-5 pb-1 text-[10px] font-semibold tracking-widest text-stone-400 uppercase">
         Quick Access
       </p>
       <div className="space-y-0.5 overflow-y-auto px-3 pb-2">
@@ -208,6 +208,7 @@ export default function Sidebar({
         ].map((builtIn) => (
           <button
             key={builtIn.id}
+            title={builtIn.label}
             onClick={() => handleVanillaClick(builtIn.id)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
@@ -229,6 +230,7 @@ export default function Sidebar({
         {packs.map((p) => (
           <button
             key={p.id}
+            title={p.name}
             onClick={() => handlePackClick(p)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
@@ -243,7 +245,7 @@ export default function Sidebar({
 
       {/* Footer: backend bridge + version */}
       <div className="mt-auto border-t border-line px-5 py-3">
-        <div className="flex items-center gap-2 text-xs text-stone-500">
+        <div className="flex items-center gap-2 text-xs text-stone-400">
           <StatusDot
             tone={
               bridgeStatus === "online"
@@ -258,7 +260,7 @@ export default function Sidebar({
           {bridgeStatus === "connecting" && <span>Connecting…</span>}
           {bridgeStatus === "error" && <span>Backend error</span>}
         </div>
-        <p className="mt-1 text-[10px] text-stone-700">
+        <p className="mt-1 text-[10px] text-stone-400">
           Axial{version ? ` v${version}` : ""}
         </p>
       </div>

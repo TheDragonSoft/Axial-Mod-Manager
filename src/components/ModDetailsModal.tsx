@@ -52,13 +52,13 @@ function ReleaseRow({
           </Badge>
         </span>
       </td>
-      <td className="py-2.5 pr-3 text-xs text-stone-500">
+      <td className="py-2.5 pr-3 text-xs text-stone-400">
         {release.releasedAt ? new Date(release.releasedAt).toLocaleDateString() : "—"}
       </td>
-      <td className="py-2.5 pr-3 text-xs text-stone-500">
+      <td className="py-2.5 pr-3 text-xs text-stone-400">
         {release.fileSize !== null ? formatBytes(release.fileSize) : "—"}
       </td>
-      <td className="py-2.5 pr-3 text-xs text-stone-500">
+      <td className="py-2.5 pr-3 text-xs text-stone-400">
         {release.downloadsCount !== null ? formatCount(release.downloadsCount) : "—"}
       </td>
       <td className="py-2.5 text-right">
@@ -144,8 +144,8 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
         </p>
 
         {details?.owner && (
-          <p className="mt-2 text-xs text-stone-500">
-            by <span className="text-stone-400">{details.owner}</span>
+          <p className="mt-2 text-xs text-stone-400">
+            by <span className="text-stone-300">{details.owner}</span>
             {details.downloads !== null && (
               <> · {formatCount(details.downloads)} downloads</>
             )}
@@ -153,11 +153,11 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
         )}
 
         {details && (
-          <p className="mt-2 text-xs text-stone-500">
+          <p className="mt-2 text-xs text-stone-400">
             Dependencies:{" "}
             {details.dependencies.length > 0 ? (
               <span
-                className="cursor-help font-mono text-stone-400 underline decoration-dotted"
+                className="cursor-help font-mono text-stone-300 underline decoration-dotted"
                 title={details.dependencies.join("\n")}
               >
                 {details.dependencies.length} declared
@@ -168,15 +168,15 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
           </p>
         )}
 
-        <h4 className="mt-5 border-t border-line pt-4 text-xs font-medium tracking-wide text-stone-500 uppercase">
+        <h4 className="mt-5 border-t border-line pt-4 text-xs font-medium tracking-wide text-stone-400 uppercase">
           Releases {details && `(${details.releases.length})`}
-          <span className="ml-2 normal-case text-stone-600">
+          <span className="ml-2 normal-case text-stone-400">
             · compatibility vs target {target}
           </span>
         </h4>
 
         {loading && (
-          <p className="mt-4 flex items-center gap-2 text-sm text-stone-500">
+          <p className="mt-4 flex items-center gap-2 text-sm text-stone-400">
             <Spinner /> Loading releases…
           </p>
         )}
@@ -193,7 +193,7 @@ export default function ModDetailsModal({ mod, onClose }: Props) {
         {details && (
           <table className="mt-3 w-full text-sm">
             <thead>
-              <tr className="text-left text-[11px] tracking-wide text-stone-600 uppercase">
+              <tr className="text-left text-[11px] tracking-wide text-stone-400 uppercase">
                 <th className="pb-1 pr-3 font-medium">Version</th>
                 <th className="pb-1 pr-3 font-medium">Game</th>
                 <th className="pb-1 pr-3 font-medium">Released</th>

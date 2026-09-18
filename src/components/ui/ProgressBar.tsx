@@ -24,7 +24,7 @@ export default function ProgressBar({
     >
       <div
         className={clsx(
-          "h-full rounded-full transition-all duration-150",
+          "h-full rounded-full transition-all duration-150 motion-reduce:transition-none",
           fills[tone],
         )}
         style={{ width: `${Math.min(100, Math.max(0, value))}%` }}

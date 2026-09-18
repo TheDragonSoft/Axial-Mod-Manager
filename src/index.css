@@ -41,7 +41,7 @@ body {
 /* Thin dark scrollbars everywhere. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #292524 transparent;
+  scrollbar-color: #3a3532 transparent;
 }
 ::-webkit-scrollbar {
   width: 10px;
@@ -51,13 +51,13 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #292524;
+  background: #3a3532;
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3532;
+  background: #524c47;
   background-clip: content-box;
 }
 
@@ -87,6 +87,21 @@ body {
 }
 .animate-fade-in {
   animation: fade-in 180ms ease-out;
+}
+
+/* Subtle restrained modal entrance. */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-modal-in {
+  animation: modal-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /*
@@ -142,9 +157,12 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .update-pill-glow,
-  .animate-popover-in,
-  .animate-bullet-in {
-    animation: none;
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

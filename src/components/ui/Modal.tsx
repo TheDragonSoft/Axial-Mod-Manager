@@ -102,7 +102,7 @@ export default function Modal({
         aria-modal="true"
         tabIndex={-1}
         className={clsx(
-          "flex max-h-[85vh] w-full flex-col rounded-xl border border-line bg-app shadow-2xl outline-none",
+          "animate-modal-in flex max-h-[85vh] w-full flex-col rounded-xl border border-line bg-app shadow-2xl outline-none",
           SIZES[size],
         )}
       >
@@ -115,7 +115,7 @@ export default function Modal({
                   {title}
                 </h2>
                 {subtitle && (
-                  <p className="truncate text-xs text-stone-500">{subtitle}</p>
+                  <p className="truncate text-xs text-stone-400">{subtitle}</p>
                 )}
               </div>
             </div>
@@ -123,8 +123,8 @@ export default function Modal({
               {headerActions}
               <button
                 onClick={onClose}
-                aria-label="Close"
-                className="rounded-lg p-1.5 text-stone-500 transition-colors hover:bg-surface-2 hover:text-stone-200 focus-visible:outline-2 focus-visible:outline-accent"
+                aria-label="Close dialog"
+                className="rounded-lg p-1.5 text-stone-400 transition-colors hover:bg-surface-2 hover:text-stone-200 focus-visible:outline-2 focus-visible:outline-accent"
               >
                 <X className="h-4 w-4" />
               </button>

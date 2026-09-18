@@ -102,7 +102,7 @@ export default function VersionsModal({
       subtitle="switching versions replaces the old zip"
       icon={<ModTile name={mod.name} url={thumbnail} size="md" />}
     >
-      {loading && <p className="text-sm text-stone-500">Loading releases…</p>}
+      {loading && <p className="text-sm text-stone-400">Loading releases…</p>}
       {error &&
         (isNetworkOrHttpError(error) ? (
           <div className="mb-3 flex items-center justify-between rounded-lg border border-amber-900/60 bg-amber-950/30 p-3">
@@ -147,7 +147,7 @@ export default function VersionsModal({
                       </Badge>
                     )}
                   </p>
-                  <p className="text-[11px] text-stone-500">
+                  <p className="text-[11px] text-stone-400">
                     game {r.factorioVersion || "?"}
                     {r.fileSize !== null && ` · ${formatBytes(r.fileSize)}`}
                   </p>
@@ -176,14 +176,14 @@ export default function VersionsModal({
           a muted inline note — never a toast. */}
       {newestChangelog && (
         <div className="mt-4 border-t border-line pt-3">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-500">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400">
             What's new in v{newestChangelog.version}
           </p>
           <ChangelogView entries={[newestChangelog]} />
         </div>
       )}
       {changelog !== undefined && details !== null && !newestChangelog && (
-        <p className="mt-4 text-xs italic text-stone-600">
+        <p className="mt-4 text-xs italic text-stone-400">
           {changelog === null
             ? "Changelog unavailable"
             : "No changelog entries for the newest release"}

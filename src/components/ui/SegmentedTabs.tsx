@@ -33,7 +33,7 @@ export default function SegmentedTabs<T extends string>({
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
               isActive
                 ? "border border-line bg-surface text-stone-200"
-                : "border border-transparent text-stone-500 hover:text-stone-200",
+                : "border border-transparent text-stone-400 hover:text-stone-200",
             )}
           >
             {Icon && <Icon className="h-4 w-4" />}

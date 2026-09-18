@@ -126,12 +126,12 @@ export default function PackCard({
         <ModTile name={meta.name} size="lg" />
         <button
           onClick={() => void toggleExpanded()}
-          className="min-w-0 flex-1 text-left"
+          className="min-w-0 flex-1 text-left rounded-lg focus-visible:outline-2 focus-visible:outline-accent"
         >
-          <p className="truncate font-semibold text-stone-200">{meta.name}</p>
+          <p className="truncate font-semibold text-stone-200" title={meta.name}>{meta.name}</p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <Badge>{meta.modCount} mods</Badge>
-            <span className="text-xs text-stone-600">
+            <span className="text-xs text-stone-400">
               created {new Date(meta.createdAt * 1000).toLocaleDateString()}
             </span>
           </div>
@@ -154,8 +154,8 @@ export default function PackCard({
           )}
           <button
             onClick={() => void toggleExpanded()}
-            aria-label={expanded ? "Collapse" : "Expand"}
-            className="shrink-0 rounded-lg p-1.5 text-stone-600 transition-colors hover:bg-surface-2 hover:text-stone-300"
+            aria-label={expanded ? `Collapse ${meta.name} mod list` : `Expand ${meta.name} mod list`}
+            className="shrink-0 rounded-lg p-1.5 text-stone-400 transition-colors hover:bg-surface-2 hover:text-stone-200 focus-visible:outline-2 focus-visible:outline-accent"
           >
             {expanded ? (
               <ChevronUp className="h-4 w-4" />
@@ -166,18 +166,26 @@ export default function PackCard({
         </div>
       </div>
 
-      {expanded && pack && (
-        <ul className="mt-4 max-h-56 space-y-1 overflow-y-auto rounded-lg border border-line bg-surface-2 p-3 text-xs">
-          {pack.mods.map((m) => (
-            <li key={m.name} className="flex items-center justify-between font-mono">
-              <span className="truncate text-stone-300">{m.name}</span>
-              <span className={m.enabled ? "text-stone-500" : "text-stone-600 line-through"}>
-                v{m.version}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
+          expanded && pack ? "grid-rows-[1fr] mt-4" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="overflow-hidden">
+          {pack && (
+            <ul className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-line bg-surface-2 p-3 text-xs">
+              {pack.mods.map((m) => (
+                <li key={m.name} className="flex items-center justify-between font-mono">
+                  <span className="truncate text-stone-300" title={m.name}>{m.name}</span>
+                  <span className={m.enabled ? "text-stone-400" : "text-stone-400 line-through opacity-70"}>
+                    v{m.version}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
 
       <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
         <Button

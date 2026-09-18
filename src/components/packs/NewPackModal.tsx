@@ -119,7 +119,7 @@ export default function NewPackModal({
               </div>
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-stone-100">{title}</span>
-                <span className="block text-xs text-stone-500">{hint}</span>
+                <span className="block text-xs text-stone-400">{hint}</span>
               </span>
             </button>
           ))}
@@ -194,7 +194,7 @@ export default function NewPackModal({
                     {plan.conflicts.length} conflict(s) — resolve before saving.
                   </p>
                 )}
-                <ul className="mt-2 max-h-32 overflow-y-auto font-mono text-[11px] text-stone-500">
+                <ul className="mt-2 max-h-32 overflow-y-auto font-mono text-[11px] text-stone-400">
                   {plan.toInstall.map((e) => (
                     <li key={e.name}>
                       {e.name} @{e.version}
@@ -203,7 +203,7 @@ export default function NewPackModal({
                   {plan.satisfied.map((s) => (
                     <li key={s.name}>
                       {s.name} @{s.version}{" "}
-                      <span className="text-stone-600">(installed)</span>
+                      <span className="text-stone-400/80">(installed)</span>
                     </li>
                   ))}
                 </ul>

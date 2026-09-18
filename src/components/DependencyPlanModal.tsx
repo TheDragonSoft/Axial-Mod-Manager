@@ -122,9 +122,9 @@ export default function DependencyPlanModal({ name, title, onClose, onDone }: Pr
     >
       {loading && (
         <div className="py-6 text-center">
-          <Spinner className="mx-auto h-5 w-5 text-stone-500" />
+          <Spinner className="mx-auto h-5 w-5 text-stone-400" />
           <p className="mt-3 text-sm text-stone-400">Resolving dependency tree…</p>
-          <p className="mt-1 text-xs text-stone-600">
+          <p className="mt-1 text-xs text-stone-400">
             Fetches one page per mod involved — the first run can take up to a minute.
           </p>
         </div>
@@ -141,9 +141,9 @@ export default function DependencyPlanModal({ name, title, onClose, onDone }: Pr
 
       {!loading && plan && (
         <>
-          <p className="text-xs text-stone-500">
+          <p className="text-xs text-stone-400">
             Resolution target: Factorio{" "}
-            <span className="font-mono text-stone-400">{plan.target}</span>
+            <span className="font-mono text-stone-300">{plan.target}</span>
           </p>
 
           {plan.conflicts.length > 0 && (
@@ -174,11 +174,11 @@ export default function DependencyPlanModal({ name, title, onClose, onDone }: Pr
             </div>
           )}
 
-          <h4 className="mt-4 text-xs font-medium tracking-wide text-stone-500 uppercase">
+          <h4 className="mt-4 text-xs font-medium tracking-wide text-stone-400 uppercase">
             Will install ({plan.toInstall.length})
           </h4>
           {plan.toInstall.length === 0 ? (
-            <p className="mt-2 flex items-center gap-2 text-sm text-stone-500">
+            <p className="mt-2 flex items-center gap-2 text-sm text-stone-400">
               <CheckCircle2 className="h-4 w-4 text-accent" />
               Nothing to install — everything is satisfied.
             </p>
@@ -189,7 +189,7 @@ export default function DependencyPlanModal({ name, title, onClose, onDone }: Pr
                   <div className="min-w-0">
                     <p className="truncate text-sm text-stone-200">
                       {e.title}{" "}
-                      <span className="font-mono text-xs text-stone-500">
+                      <span className="font-mono text-xs text-stone-400">
                         v{e.version}
                       </span>
                       {!e.depsKnown && (
@@ -198,7 +198,7 @@ export default function DependencyPlanModal({ name, title, onClose, onDone }: Pr
                         </Badge>
                       )}
                     </p>
-                    <p className="text-[11px] text-stone-600">
+                    <p className="text-[11px] text-stone-400">
                       {e.requiredBy === "" ? "requested by you" : `required by ${e.requiredBy}`}
                     </p>
                   </div>
@@ -208,7 +208,7 @@ export default function DependencyPlanModal({ name, title, onClose, onDone }: Pr
           )}
 
           {plan.satisfied.length > 0 && (
-            <p className="mt-3 text-xs text-stone-500">
+            <p className="mt-3 text-xs text-stone-400">
               Already installed and compatible ({plan.satisfied.length}):{" "}
               <span className="font-mono">
                 {plan.satisfied.map((s) => s.name).join(", ")}
@@ -218,7 +218,7 @@ export default function DependencyPlanModal({ name, title, onClose, onDone }: Pr
 
           {plan.optional.length > 0 && (
             <>
-              <h4 className="mt-4 text-xs font-medium tracking-wide text-stone-500 uppercase">
+              <h4 className="mt-4 text-xs font-medium tracking-wide text-stone-400 uppercase">
                 Optional ({plan.optional.length}) — tick any to also install
               </h4>
               <div className="mt-2 grid max-h-40 grid-cols-1 gap-1 overflow-y-auto rounded-lg border border-line p-2 sm:grid-cols-2">

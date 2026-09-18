@@ -115,7 +115,7 @@ function DepRow({
           <p className="truncate text-sm font-medium text-stone-200">{name}</p>
           <Badge tone={badgeTone}>{badge}</Badge>
         </div>
-        <p className="truncate font-mono text-[11px] text-stone-500">
+        <p className="truncate font-mono text-[11px] text-stone-400">
           {version ? `v${version}` : "version picked at install time"}
           {note && ` · ${note}`}
         </p>
@@ -329,7 +329,7 @@ export default function InstallModal({
               }
             >
               {installing ? (
-                <Spinner className="text-stone-500" />
+                <Spinner className="text-stone-400" />
               ) : (
                 <Download className="h-4 w-4" />
               )}
@@ -382,7 +382,7 @@ export default function InstallModal({
         </div>
 
         {loading && (
-          <p className="mt-3 flex items-center gap-2 text-sm text-stone-500">
+          <p className="mt-3 flex items-center gap-2 text-sm text-stone-400">
             <Spinner /> Loading releases…
           </p>
         )}
@@ -409,7 +409,7 @@ export default function InstallModal({
           ))}
 
         {!loading && !detailsError && releases.length === 0 && (
-          <p className="mt-3 text-sm text-stone-500">No releases available.</p>
+          <p className="mt-3 text-sm text-stone-400">No releases available.</p>
         )}
 
         {!loading && !detailsError && selectedRelease && !showAllVersions && (
@@ -422,7 +422,7 @@ export default function InstallModal({
                   {selectedRelease.factorioVersion || "?"}
                 </p>
               </div>
-              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-stone-500">
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-stone-400">
                 <span
                   className={
                     selectedRelease.factorioVersion === target ? "text-accent" : ""
@@ -482,7 +482,7 @@ export default function InstallModal({
                           </Badge>
                         )}
                       </p>
-                      <p className="truncate text-[11px] text-stone-500">
+                      <p className="truncate text-[11px] text-stone-400">
                         Factorio {r.factorioVersion || "?"}
                         {r.fileSize !== null && ` · ${formatBytes(r.fileSize)}`}
                         {r.releasedAt &&
@@ -511,14 +511,14 @@ export default function InstallModal({
             </Badge>
           )}
         </div>
-        <p className="mt-1.5 text-xs text-stone-500">
+        <p className="mt-1.5 text-xs text-stone-400">
           These mods will be downloaded and installed alongside {mod.title}.
         </p>
 
         {planLoading && (
           <div className="mt-3 flex items-start gap-2 rounded-lg border border-line bg-surface-2 p-3">
             <Spinner className="mt-0.5 text-stone-400" />
-            <p className="text-xs text-stone-500">
+            <p className="text-xs text-stone-400">
               Resolving dependency tree — fetches one page per mod involved, so
               the first run can take up to a minute.
             </p>
@@ -585,7 +585,7 @@ export default function InstallModal({
         {plan && !planError && (
           <>
             {depCount === 0 ? (
-              <p className="mt-3 flex items-center gap-2 text-sm text-stone-500">
+              <p className="mt-3 flex items-center gap-2 text-sm text-stone-400">
                 <Check className="h-4 w-4 text-accent" />
                 No additional mods will be installed alongside this one.
               </p>

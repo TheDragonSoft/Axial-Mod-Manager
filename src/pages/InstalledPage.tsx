@@ -111,8 +111,8 @@ function ModRow({
       >
         {/* Chevron affordance with rotation transition */}
         <ChevronRight
-          className={`h-4 w-4 shrink-0 transition-transform duration-150 ${
-            mod.enabled ? "text-stone-500" : "text-stone-600"
+          className={`h-4 w-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none ${
+            mod.enabled ? "text-stone-400" : "text-stone-400"
           } ${expanded ? "rotate-90" : ""}`}
         />
 
@@ -124,6 +124,7 @@ function ModRow({
               className={`truncate font-medium ${
                 mod.enabled ? "text-stone-100" : "text-stone-400"
               }`}
+              title={mod.name}
             >
               {mod.name}
             </p>
@@ -137,9 +138,7 @@ function ModRow({
           {/* Secondary facts shown in collapsed state; moved into expanded area when open */}
           {!expanded && (
             <p
-              className={`mt-0.5 truncate font-mono text-xs ${
-                mod.enabled ? "text-stone-500" : "text-stone-600"
-              }`}
+              className="mt-0.5 truncate font-mono text-xs text-stone-400"
             >
               v{mod.version} · Factorio{" "}
               <GameVersionBadge factorioVersion={mod.factorioVersion} enabled={mod.enabled} /> ·{" "}
@@ -168,7 +167,12 @@ function ModRow({
             </span>
           )}
           {updateTo && (
-            <Button variant="secondary" size="sm" onClick={() => onUpdate(mod)}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onUpdate(mod)}
+              aria-label={`Update ${mod.name} to v${updateTo}`}
+            >
               <ArrowUpCircle className="h-3.5 w-3.5 text-accent" />
               Update
             </Button>
@@ -210,7 +214,7 @@ function ModRow({
 
       {/* Expanded panel with height transition */}
       <div
-        className={`grid transition-[grid-template-rows] duration-150 ease-out ${
+        className={`grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
           expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
         }`}
       >
@@ -218,9 +222,7 @@ function ModRow({
           <div className="border-t border-line bg-surface-2/30 px-4 py-3">
             {/* Secondary facts moved here when expanded */}
             <p
-              className={`mb-2 font-mono text-xs ${
-                mod.enabled ? "text-stone-500" : "text-stone-600"
-              }`}
+              className="mb-2 font-mono text-xs text-stone-400"
             >
               v{mod.version} · Factorio{" "}
               <GameVersionBadge factorioVersion={mod.factorioVersion} enabled={mod.enabled} /> ·{" "}
@@ -238,11 +240,11 @@ function ModRow({
                 <div className="h-3 w-1/2 animate-pulse rounded bg-stone-800" />
               </div>
             ) : summary === null ? (
-              <p className="text-xs italic text-stone-600">Description unavailable</p>
+              <p className="text-xs italic text-stone-400">Description unavailable</p>
             ) : (
               <p
                 className={`max-w-xl text-sm leading-relaxed ${
-                  mod.enabled ? "text-stone-400" : "text-stone-500"
+                  mod.enabled ? "text-stone-300" : "text-stone-400"
                 }`}
               >
                 {summary}
@@ -254,7 +256,7 @@ function ModRow({
                 inline note — never a toast. */}
             {updateTo && (
               <div className="mt-3 border-t border-line pt-2.5">
-                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-stone-500">
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-stone-400">
                   What's new since v{mod.version}
                 </p>
                 {changelog === undefined ? (
@@ -263,9 +265,9 @@ function ModRow({
                     <div className="h-3 w-1/2 animate-pulse rounded bg-stone-800" />
                   </div>
                 ) : changelog === null || changelogDelta === null ? (
-                  <p className="text-xs italic text-stone-600">Changelog unavailable</p>
+                  <p className="text-xs italic text-stone-400">Changelog unavailable</p>
                 ) : changelogDelta.length === 0 ? (
-                  <p className="text-xs italic text-stone-600">No changelog entries</p>
+                  <p className="text-xs italic text-stone-400">No changelog entries</p>
                 ) : (
                   <div className="max-w-xl">
                     <ChangelogView entries={changelogDelta} />
@@ -298,9 +300,7 @@ function GameVersionBadge({
           ? enabled
             ? "text-green-400"
             : "text-green-500/70"
-          : enabled
-          ? "text-stone-500"
-          : "text-stone-600"
+          : "text-stone-400"
       }
     >
       {factorioVersion}
@@ -605,7 +605,7 @@ export default function InstalledPage() {
       />
 
       {isFactorioDetected !== false && (
-        <p className="-mt-3 mb-4 text-xs text-stone-600">
+        <p className="-mt-3 mb-4 text-xs text-stone-400">
           {loading
             ? "Scanning mods folder…"
             : `${mods.length} mod${mods.length === 1 ? "" : "s"} on disk`}
@@ -621,7 +621,7 @@ export default function InstalledPage() {
       )}
 
       {report && report.errors.length > 0 && (
-        <p className="mb-4 text-[11px] text-stone-600">
+        <p className="mb-4 text-[11px] text-stone-400">
           {report.errors
             .slice(0, 5)
             .map(([n, r]) => `${n}: ${r}`)
@@ -653,8 +653,8 @@ export default function InstalledPage() {
       {externalChange && activePackName !== null && (
         <div className="mb-4 flex items-center justify-between rounded-xl border border-line bg-surface-2/40 px-3 py-2">
           <div className="flex items-center gap-2">
-            <Info className="h-3.5 w-3.5 shrink-0 text-stone-500" />
-            <p className="text-xs text-stone-500">
+            <Info className="h-3.5 w-3.5 shrink-0 text-stone-400" />
+            <p className="text-xs text-stone-400">
               Mods changed outside Axial — state may differ from pack{" "}
               {activePackName}.
             </p>

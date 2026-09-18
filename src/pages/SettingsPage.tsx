@@ -39,6 +39,7 @@ import SegmentedTabs from "../components/ui/SegmentedTabs";
 import Select from "../components/ui/Select";
 import Spinner from "../components/ui/Spinner";
 import StatusDot from "../components/ui/StatusDot";
+import SettingRow from "../components/ui/SettingRow";
 import Toggle from "../components/ui/Toggle";
 import { useConfirm } from "../components/ui/useConfirm";
 
@@ -76,7 +77,7 @@ function GameInstallInfo({
       >
         {game.installDir}
       </p>
-      <p className="text-xs text-stone-500">
+      <p className="text-xs text-stone-400">
         {source}
         {game.version ? ` · game version ${game.version}` : " · version unknown"}
       </p>
@@ -144,8 +145,8 @@ function OrphanLine({ name, kind, size }: { name: string; kind: OrphanKind; size
       <span className="min-w-0 flex-1 truncate font-mono text-stone-300" title={name}>
         {name}
       </span>
-      <span className="shrink-0 text-stone-600">{ORPHAN_LABELS[kind]}</span>
-      <span className="w-16 shrink-0 text-right text-stone-500">
+      <span className="shrink-0 text-stone-400">{ORPHAN_LABELS[kind]}</span>
+      <span className="w-16 shrink-0 text-right text-stone-400">
         {size > 0 ? formatBytes(size) : "—"}
       </span>
     </li>
@@ -154,7 +155,7 @@ function OrphanLine({ name, kind, size }: { name: string; kind: OrphanKind; size
 
 /** Human-readable summary of a ModsDirStatus, styled by severity. */
 function DirStatusLine({ status }: { status: ModsDirStatus }) {
-  let tone = "text-stone-500";
+  let tone = "text-stone-400";
   let text: string;
 
   if (status.exists && !status.isDir) {
@@ -431,7 +432,7 @@ export default function SettingsPage() {
           title="Settings"
           subtitle="Configure Axial and your Factorio integration"
         />
-        <p className="flex items-center gap-2 text-sm text-stone-500">
+        <p className="flex items-center gap-2 text-sm text-stone-400">
           <Spinner /> Loading…
         </p>
       </div>
@@ -532,7 +533,7 @@ export default function SettingsPage() {
                       <p className="text-lg font-bold text-stone-200">
                         {formatBytes(storageReport.totalSizeBytes)}
                       </p>
-                      <p className="text-xs text-stone-600">
+                      <p className="text-xs text-stone-400">
                         {storageReport.zipCount} mod zip
                         {storageReport.zipCount === 1 ? "" : "s"} on disk
                       </p>
@@ -547,7 +548,7 @@ export default function SettingsPage() {
                       >
                         {storageReport.orphans.length}
                       </p>
-                      <p className="text-xs text-stone-600">
+                      <p className="text-xs text-stone-400">
                         {storageReport.orphans.length === 0
                           ? "no orphans"
                           : `orphans · ${formatBytes(storageReport.orphanSizeBytes)} reclaimable`}
@@ -571,7 +572,7 @@ export default function SettingsPage() {
                         ))}
                       </ul>
                       {storageReport.orphans.length > 6 && (
-                        <p className="mt-1.5 text-xs text-stone-600">
+                        <p className="mt-1.5 text-xs text-stone-400">
                           +{storageReport.orphans.length - 6} more
                         </p>
                       )}
@@ -592,10 +593,10 @@ export default function SettingsPage() {
                             <span className="min-w-0 flex-1 truncate font-mono text-stone-300">
                               {m.name}
                             </span>
-                            <span className="shrink-0 text-stone-600">
+                            <span className="shrink-0 text-stone-400">
                               {m.fileCount} zip{m.fileCount === 1 ? "" : "s"}
                             </span>
-                            <span className="w-16 shrink-0 text-right text-stone-500">
+                            <span className="w-16 shrink-0 text-right text-stone-400">
                               {formatBytes(m.sizeBytes)}
                             </span>
                           </li>
@@ -622,7 +623,7 @@ export default function SettingsPage() {
                           </span>
                         )
                       ) : (
-                        <span className="text-stone-600">
+                        <span className="text-stone-400">
                           Only files not referenced by mod-list.json are ever
                           deleted.
                         </span>
@@ -639,7 +640,7 @@ export default function SettingsPage() {
                     >
                       {cleaning ? (
                         <>
-                          <Spinner className="text-stone-500" /> Cleaning…
+                          <Spinner className="text-stone-400" /> Cleaning…
                         </>
                       ) : orphanConfirm.confirming === "orphans" ? (
                         "Confirm clean"
@@ -652,7 +653,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-stone-500">
+                <p className="text-xs text-stone-400">
                   No mods folder detected — storage usage shows once a mods
                   directory is set or auto-detected.
                 </p>
@@ -691,7 +692,7 @@ export default function SettingsPage() {
                 </div>
               </label>
               {scanningGame ? (
-                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-stone-500">
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-stone-400">
                   <Spinner /> Scanning…
                 </p>
               ) : gameDirInput.trim() ? (
@@ -708,7 +709,7 @@ export default function SettingsPage() {
                 )
               ) : (
                 <div className="mt-1.5">
-                  <p className="text-xs text-stone-500">
+                  <p className="text-xs text-stone-400">
                     No Factorio installation detected — browse to the game
                     folder, or leave empty to keep auto-detecting.
                   </p>
@@ -733,15 +734,11 @@ export default function SettingsPage() {
           {section === "general" && (
             <div className="space-y-4">
               <Panel flat icon={RefreshCw} title="Updates" subtitle="Automatic application updates">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-stone-200">
-                      Check for updates automatically
-                    </p>
-                    <p className="text-xs text-stone-500">
-                      Check for new Axial releases on startup and notify when an update is available.
-                    </p>
-                  </div>
+                <SettingRow
+                  flat
+                  title="Check for updates automatically"
+                  description="Check for new Axial releases on startup and notify when an update is available."
+                >
                   <Toggle
                     checked={checkForUpdates}
                     onChange={(val) => {
@@ -750,14 +747,15 @@ export default function SettingsPage() {
                     }}
                     label="Check for updates automatically"
                   />
-                </div>
+                </SettingRow>
               </Panel>
 
               <Panel flat icon={SlidersHorizontal} title="Logging" subtitle="File log verbosity">
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-medium tracking-wide text-stone-400 uppercase">
-                    Log level (file log)
-                  </span>
+                <SettingRow
+                  flat
+                  title="Log level (file log)"
+                  description="Written to app-data/logs/axial.log — level applies after restart."
+                >
                   <Select
                     value={logLevel}
                     onChange={(e) => {
@@ -771,11 +769,7 @@ export default function SettingsPage() {
                     <option value="warn">warn</option>
                     <option value="error">error</option>
                   </Select>
-                  <span className="mt-1.5 block text-xs text-stone-500">
-                    Written to app-data/logs/axial.log — level applies after
-                    restart.
-                  </span>
-                </label>
+                </SettingRow>
               </Panel>
             </div>
           )}
@@ -785,7 +779,7 @@ export default function SettingsPage() {
             <Button variant="primary" type="submit" disabled={saveState === "saving"}>
               {saveState === "saving" ? (
                 <>
-                  <Spinner className="text-stone-500" /> Saving…
+                  <Spinner className="text-stone-400" /> Saving…
                 </>
               ) : (
                 "Save Settings"
@@ -799,7 +793,7 @@ export default function SettingsPage() {
             {saveState === "error" && saveError && (
               <span className="text-xs text-red-400">{saveError}</span>
             )}
-            <span className="ml-auto text-xs text-stone-600">
+            <span className="ml-auto text-xs text-stone-400">
               Paths are validated before anything is saved.
             </span>
           </div>

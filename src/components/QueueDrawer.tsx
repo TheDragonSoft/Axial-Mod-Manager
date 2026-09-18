@@ -8,9 +8,10 @@ import {
 import { useThumbnailUrl } from "../lib/thumbnails";
 import Badge from "./ui/Badge";
 import Button from "./ui/Button";
+import EmptyState from "./ui/EmptyState";
 import ModTile from "./ui/ModTile";
 import ProgressBar from "./ui/ProgressBar";
-import { X } from "lucide-react";
+import { Download, X } from "lucide-react";
 import { formatBytes, percent } from "../lib/format";
 import type { QueueItem, QueueStatus } from "../types";
 
@@ -57,10 +58,10 @@ const QueueRow = memo(function QueueRow({ item }: { item: QueueItem }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-stone-200">
+              <p className="truncate text-sm font-medium text-stone-200" title={item.modName}>
                 {item.modName}
               </p>
-              <p className="text-xs text-stone-500">v{item.version}</p>
+              <p className="text-xs text-stone-400">v{item.version}</p>
             </div>
             <Badge tone={status.tone} className="shrink-0">
               {status.label}
@@ -73,7 +74,7 @@ const QueueRow = memo(function QueueRow({ item }: { item: QueueItem }) {
                 value={pct}
                 tone={item.status === "cancelled" ? "white" : "green"}
               />
-              <div className="mt-1 flex justify-between text-[11px] text-stone-500">
+              <div className="mt-1 flex justify-between text-[11px] text-stone-400">
                 <span>
                   {formatBytes(item.received)}
                   {item.total > 0 && ` / ${formatBytes(item.total)}`}
@@ -89,17 +90,32 @@ const QueueRow = memo(function QueueRow({ item }: { item: QueueItem }) {
 
           <div className="mt-2 flex justify-end gap-1">
             {isActive && (
-              <Button variant="ghost" size="sm" onClick={cancel}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={cancel}
+                aria-label={`Cancel download of ${item.modName}`}
+              >
                 Cancel
               </Button>
             )}
             {item.status === "failed" && (
-              <Button variant="ghost" size="sm" onClick={retry}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={retry}
+                aria-label={`Retry download of ${item.modName}`}
+              >
                 Retry
               </Button>
             )}
             {!isActive && (
-              <Button variant="ghost" size="sm" onClick={() => dismiss(item.id)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => dismiss(item.id)}
+                aria-label={`Dismiss download of ${item.modName}`}
+              >
                 Dismiss
               </Button>
             )}
@@ -133,9 +149,13 @@ function QueueItemList({ clearFinished }: { clearFinished: () => void }) {
 
   if (items.length === 0) {
     return (
-      <p className="p-6 text-center text-sm text-stone-600">
-        No downloads yet.
-      </p>
+      <div className="p-6">
+        <EmptyState
+          icon={Download}
+          title="No downloads yet"
+          hint="Queued and finished mod downloads will show up here."
+        />
+      </div>
     );
   }
 
@@ -145,7 +165,7 @@ function QueueItemList({ clearFinished }: { clearFinished: () => void }) {
         <div>
           {finishedItems.length > 0 && (
             <div className="sticky top-0 z-10 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">
                 In Progress ({activeItems.length})
               </p>
             </div>
@@ -159,14 +179,14 @@ function QueueItemList({ clearFinished }: { clearFinished: () => void }) {
       {finishedItems.length > 0 && (
         <div>
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-line bg-surface/95 px-4 py-2 backdrop-blur-sm">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">
               {finishedLabel} ({finishedItems.length})
             </p>
             <Button
               variant="ghost"
               size="sm"
               onClick={clearFinished}
-              className="h-5 px-1.5 text-[10px] text-stone-500 hover:text-stone-300"
+              className="h-5 px-1.5 text-[10px] text-stone-400 hover:text-stone-200"
             >
               Clear all
             </Button>
@@ -196,14 +216,14 @@ export default function QueueDrawer() {
         />
       )}
       <aside
-        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ease-out ${
+        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ease-out motion-reduce:transition-none ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         <header className="flex items-center justify-between border-b border-line px-4 py-3">
           <h3 className="text-sm font-semibold text-stone-100">
             Downloads{" "}
-            <span className="font-normal text-stone-500">
+            <span className="font-normal text-stone-400">
               ({activeCount} active)
             </span>
           </h3>
@@ -215,8 +235,8 @@ export default function QueueDrawer() {
             )}
             <button
               onClick={close}
-              aria-label="Close"
-              className="rounded-lg p-1.5 text-stone-500 transition-colors hover:bg-surface-2 hover:text-stone-200"
+              aria-label="Close downloads queue"
+              className="rounded-lg p-1.5 text-stone-400 transition-colors hover:bg-surface-2 hover:text-stone-200 focus-visible:outline-2 focus-visible:outline-accent"
             >
               <X className="h-4 w-4" />
             </button>

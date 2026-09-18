@@ -162,13 +162,13 @@ export default function UpdateNotesPopover({
             v{update.version} Release Notes
           </h2>
           {dateText && (
-            <p className="text-[11px] text-stone-500">Released {dateText}</p>
+            <p className="text-[11px] text-stone-400">Released {dateText}</p>
           )}
         </div>
         <button
           onClick={onClose}
           aria-label="Close release notes"
-          className="rounded-lg p-1.5 text-stone-500 transition-colors hover:bg-surface-2 hover:text-stone-200 focus-visible:outline-2 focus-visible:outline-accent"
+          className="rounded-lg p-1.5 text-stone-400 transition-colors hover:bg-surface-2 hover:text-stone-200 focus-visible:outline-2 focus-visible:outline-accent"
         >
           <X className="h-4 w-4" />
         </button>
@@ -178,7 +178,7 @@ export default function UpdateNotesPopover({
         {update.body ? (
           <MarkdownLite source={update.body} stagger />
         ) : (
-          <p className="text-sm text-stone-500">
+          <p className="text-sm text-stone-400">
             No release notes were published for this version.
           </p>
         )}

@@ -276,7 +276,7 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
       }
     >
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-12 text-stone-500">
+        <div className="flex flex-col items-center justify-center py-12 text-stone-400">
           <Spinner className="h-6 w-6 text-accent" />
           <p className="mt-3 text-xs">Loading pack details…</p>
         </div>
@@ -403,12 +403,12 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
                 <span className="text-xs font-medium tracking-wide text-stone-400 uppercase">
                   Mods in pack
                 </span>
-                <span className="text-xs text-stone-500">
+                <span className="text-xs text-stone-400">
                   {pack.mods.length} total
                 </span>
               </div>
               {pack.mods.length === 0 ? (
-                <div className="rounded-lg border border-line bg-surface-2 p-4 text-center text-xs text-stone-500">
+                <div className="rounded-lg border border-line bg-surface-2 p-4 text-center text-xs text-stone-400">
                   No mods in this pack.
                 </div>
               ) : (
@@ -418,12 +418,12 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
                       key={m.name}
                       className="flex items-center justify-between font-mono"
                     >
-                      <span className="truncate text-stone-300">{m.name}</span>
+                      <span className="truncate text-stone-300" title={m.name}>{m.name}</span>
                       <span
                         className={
                           m.enabled
-                            ? "text-stone-500"
-                            : "text-stone-600 line-through"
+                            ? "text-stone-400"
+                            : "text-stone-400/70 line-through"
                         }
                       >
                         v{m.version}

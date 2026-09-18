@@ -2,7 +2,7 @@ import type { ComponentType, InputHTMLAttributes, ReactNode } from "react";
 import { clsx } from "clsx";
 
 export const INPUT_CLASS =
-  "w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-stone-200 placeholder:text-stone-600 focus:border-stone-500 focus:outline-none disabled:opacity-50";
+  "w-full rounded-lg border border-line bg-input px-3 py-2 text-sm text-stone-200 placeholder:text-stone-400 focus:border-stone-400 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-50 transition-colors";
 
 export default function Input({
   icon: Icon,
@@ -21,7 +21,7 @@ export default function Input({
   if (!Icon) return control;
   return (
     <div className="relative w-full">
-      <Icon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-stone-600" />
+      <Icon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-stone-400" />
       {control}
     </div>
   );
@@ -42,7 +42,7 @@ export function Field({
         {label}
       </span>
       {children}
-      {hint && <span className="mt-1.5 block text-xs text-stone-600">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-xs text-stone-400">{hint}</span>}
     </label>
   );
 }

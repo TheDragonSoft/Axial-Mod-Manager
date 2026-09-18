@@ -132,7 +132,7 @@ export default function PacksPage() {
           </Button>
         }
       />
-      <p className="-mt-3 mb-4 text-xs text-stone-600">
+      <p className="-mt-3 mb-4 text-xs text-stone-400">
         Activating a pack downloads its missing mods and disables mods not in the
         pack (never deletes them).
       </p>
@@ -181,10 +181,10 @@ export default function PacksPage() {
               <Card className="flex items-center gap-3 p-5">
                 <ModTile name={b.name} size="lg" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-stone-200">{b.name}</p>
+                  <p className="truncate font-semibold text-stone-200" title={b.name}>{b.name}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <Badge>0 mods</Badge>
-                    <span className="text-xs text-stone-600">
+                    <span className="text-xs text-stone-400">
                       <Leaf className="mr-0.5 inline h-3 w-3" />
                       {b.blurb}
                     </span>

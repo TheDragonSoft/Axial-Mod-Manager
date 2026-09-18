@@ -31,38 +31,48 @@ export default function ModCard({
   const compatible = targetVersion !== null && mod.factorioVersion === targetVersion;
   return (
     <Card
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      aria-label={onOpen ? `View details for ${mod.title}` : undefined}
       onClick={() => onOpen?.(mod)}
-      title="View details"
-      className={`flex flex-col p-5 transition-colors hover:border-stone-600 ${
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onOpen?.(mod);
+        }
+      }}
+      title={onOpen ? `View details for ${mod.title}` : undefined}
+      className={`flex flex-col p-5 transition-colors hover:border-stone-600 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-[-1px] ${
         onOpen ? "cursor-pointer" : ""
       }`}
     >
       <div className="flex items-start gap-3">
         <ModTile name={mod.name} url={thumbnail} />
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold text-stone-200">
+          <h3 className="truncate text-sm font-semibold text-stone-200" title={mod.title}>
             {mod.title}
           </h3>
-          <p className="truncate font-mono text-xs text-stone-600">{mod.name}</p>
+          <p className="truncate font-mono text-xs text-stone-400" title={mod.name}>{mod.name}</p>
         </div>
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             toggleFavorite(mod.name);
           }}
-          aria-label={favorite ? "Remove from favorites" : "Add to favorites"}
+          aria-label={favorite ? `Remove ${mod.title} from favorites` : `Add ${mod.title} to favorites`}
           title={favorite ? "Remove from favorites" : "Add to favorites"}
           className={`shrink-0 rounded-lg p-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-accent ${
             favorite
               ? "text-accent"
-              : "text-stone-600 hover:bg-surface-2 hover:text-stone-300"
+              : "text-stone-400 hover:bg-surface-2 hover:text-stone-200"
           }`}
         >
           <Heart className={`h-4 w-4 ${favorite ? "fill-current" : ""}`} />
         </button>
       </div>
 
-      <div className="mt-3 flex items-center gap-2 text-xs text-stone-500">
+      <div className="mt-3 flex items-center gap-2 text-xs text-stone-400">
         <span className="flex items-center gap-1.5">
           <Download className="h-3.5 w-3.5" />
           {formatCount(mod.downloads)}
@@ -73,12 +83,12 @@ export default function ModCard({
         </Badge>
       </div>
 
-      <p className="mt-2 line-clamp-2 min-h-10 flex-1 text-sm leading-relaxed text-stone-400">
+      <p className="mt-2 line-clamp-2 min-h-10 flex-1 text-sm leading-relaxed text-stone-300">
         {mod.summary}
       </p>
 
       <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
-        <span className="font-mono text-xs text-stone-600">
+        <span className="font-mono text-xs text-stone-400">
           v{mod.latestVersion}
         </span>
         <div className="flex items-center gap-1">

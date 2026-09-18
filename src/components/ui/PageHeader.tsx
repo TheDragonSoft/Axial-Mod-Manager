@@ -24,7 +24,12 @@ export default function PageHeader({
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-stone-200">{title}</h1>
           {subtitle && (
-            <p className="truncate text-sm text-stone-500">{subtitle}</p>
+            <p
+              className="truncate text-sm text-stone-400"
+              title={typeof subtitle === "string" ? subtitle : undefined}
+            >
+              {subtitle}
+            </p>
           )}
         </div>
       </div>

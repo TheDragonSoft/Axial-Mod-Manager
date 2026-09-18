@@ -73,7 +73,12 @@ export default function Panel({
             <div className="min-w-0">
               <h3 className="text-base font-semibold text-stone-200">{title}</h3>
               {subtitle && (
-                <p className="truncate text-xs text-stone-500">{subtitle}</p>
+                <p
+                  className="truncate text-xs text-stone-400"
+                  title={typeof subtitle === "string" ? subtitle : undefined}
+                >
+                  {subtitle}
+                </p>
               )}
             </div>
           </div>

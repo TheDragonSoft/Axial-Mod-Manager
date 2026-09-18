@@ -89,7 +89,7 @@ function DiagnosticsPanel() {
             OK · HTTP {health.httpStatus} · {health.byteLength.toLocaleString()}{" "}
             bytes
           </p>
-          <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-stone-500">
+          <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-stone-400">
             {health.excerpt}
           </pre>
         </div>
@@ -341,7 +341,7 @@ export default function BrowsePage() {
           {data && (
             <>
               <div className="mt-4 flex items-center justify-between">
-                <p className="text-xs text-stone-600">
+                <p className="text-xs text-stone-400">
                   {data.totalCount.toLocaleString()} mods · page {data.page} of{" "}
                   {data.pageCount}
                 </p>
@@ -352,6 +352,7 @@ export default function BrowsePage() {
                       size="sm"
                       disabled={page <= 1 || loading}
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      aria-label="Previous page"
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                       Prev
@@ -361,6 +362,7 @@ export default function BrowsePage() {
                       size="sm"
                       disabled={page >= data.pageCount || loading}
                       onClick={() => setPage((p) => Math.min(data.pageCount, p + 1))}
+                      aria-label="Next page"
                     >
                       Next
                       <ChevronRight className="h-3.5 w-3.5" />
@@ -370,7 +372,7 @@ export default function BrowsePage() {
               </div>
 
               <div
-                className={`mt-3 grid grid-cols-1 gap-4 transition-opacity md:grid-cols-2 xl:grid-cols-3 ${
+                className={`mt-3 grid grid-cols-1 gap-4 transition-opacity motion-reduce:transition-none md:grid-cols-2 xl:grid-cols-3 ${
                   loading ? "opacity-50" : ""
                 }`}
               >
