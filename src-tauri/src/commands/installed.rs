@@ -119,7 +119,7 @@ pub async fn uninstall_impact(
     let cache = state.zip_cache.clone();
     tauri::async_runtime::spawn_blocking(move || mod_store::uninstall_impact(&dir, &file_name, &cache))
         .await
-        .map_err(|e| AppError::Parse(format!("background task failed: {e}")))
+        .map_err(|e| AppError::Parse(format!("background task failed: {e}")))?
 }
 
 /// Compare every installed mod against the newest target-compatible release.
