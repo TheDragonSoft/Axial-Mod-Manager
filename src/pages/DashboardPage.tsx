@@ -131,7 +131,7 @@ export default function DashboardPage() {
 
   // Downloads/toggles elsewhere keep the installed stats honest while visible.
   useEffect(() => {
-    const unlisten = onInstalledChanged(refreshInstalled);
+    const unlisten = onInstalledChanged(() => refreshInstalled());
     return () => {
       void unlisten.then((f) => f());
     };

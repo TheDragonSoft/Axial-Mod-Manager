@@ -9,3 +9,4 @@ pub mod packs;
 pub mod portal_client;
 pub mod resolver;
 pub mod updates;
+pub mod watcher;

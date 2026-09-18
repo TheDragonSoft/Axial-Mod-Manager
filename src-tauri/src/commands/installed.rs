@@ -2,7 +2,10 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::core::services::{mod_store, updates};
 use crate::error::AppError;
-use crate::models::{InstalledSnapshot, ModsDirStatus, UpdatesReport};
+use crate::models::{
+    InstalledChangedPayload, InstalledChangedReason, InstalledSnapshot, ModsDirStatus,
+    UpdatesReport,
+};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -47,7 +50,12 @@ pub async fn toggle_mod(
     tauri::async_runtime::spawn_blocking(move || mod_store::set_enabled(&dir, &name, enabled))
         .await
         .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;
-    let _ = app.emit("installed-changed", ());
+    let _ = app.emit(
+        "installed-changed",
+        InstalledChangedPayload {
+            reason: InstalledChangedReason::Axial,
+        },
+    );
     Ok(())
 }
 
@@ -81,7 +89,12 @@ pub async fn uninstall_mod(
         .await
         .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;
 
-    let _ = app.emit("installed-changed", ());
+    let _ = app.emit(
+        "installed-changed",
+        InstalledChangedPayload {
+            reason: InstalledChangedReason::Axial,
+        },
+    );
     Ok(name)
 }
 
