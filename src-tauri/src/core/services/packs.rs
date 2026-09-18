@@ -247,10 +247,14 @@ fn persist_active_pack<R: tauri::Runtime>(
 ) -> Result<(), AppError> {
     let state = app.state::<AppState>();
     let config_path = state.config_path.clone();
-    let mut config = state.config.read().expect("config lock poisoned").clone();
+    let mut config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     config.active_pack_id = pack_id.map(String::from);
     config.save(&config_path)?;
-    *state.config.write().expect("config lock poisoned") = config.clone();
+    *state.config.write().unwrap_or_else(|p| p.into_inner()) = config.clone();
     let _ = app.emit("settings-changed", &config);
     Ok(())
 }
@@ -373,7 +377,7 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
     let (config, profiles_dir) = {
         let s = state.inner();
         (
-            s.config.read().expect("config lock poisoned").clone(),
+            s.config.read().unwrap_or_else(|p| p.into_inner()).clone(),
             s.profiles_dir.clone(),
         )
     };
@@ -468,6 +472,13 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
     mod_store::replace_mod_list(&mods_dir, &composed.entries)?;
 
     if remaining.is_empty() {
+        {
+            let mut guard = state
+                .pending_activation
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            *guard = None;
+        }
         let missing = pack
             .mods
             .iter()
@@ -485,7 +496,10 @@ pub async fn activate(app: &AppHandle, pack_id: &str) -> Result<ActivationDiff, 
         );
         persist_active_pack(app, Some(&pack.id))?;
     } else {
-        *state.pending_activation.lock().expect("pack lock poisoned") = Some(PendingActivation {
+        *state
+            .pending_activation
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(PendingActivation {
             pack_id: pack.id,
             remaining,
         });
@@ -581,7 +595,7 @@ async fn finalize_now(app: &AppHandle, pack_id: &str) -> Result<(), AppError> {
     let (config, profiles_dir) = {
         let s = state.inner();
         (
-            s.config.read().expect("config lock poisoned").clone(),
+            s.config.read().unwrap_or_else(|p| p.into_inner()).clone(),
             s.profiles_dir.clone(),
         )
     };
@@ -659,7 +673,11 @@ pub async fn activate_vanilla<R: tauri::Runtime>(
     let state = app.state::<AppState>();
     let _activation = state.activation_lock.lock().await;
 
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     let mods_dir = mod_store::resolve_dir(&config)?;
     let scan_dir = mods_dir.clone();
     let zip_cache = state.zip_cache.clone();
@@ -1126,5 +1144,91 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn pending_activation_lifecycle_and_poison_recovery() {
+        let slot = std::sync::Mutex::new(Some(PendingActivation {
+            pack_id: "test-pack".into(),
+            remaining: HashSet::from(["mod1".into(), "mod2".into()]),
+        }));
+
+        // Simulate mod1 finishing (succeeding, failing or cancelled)
+        {
+            let mut guard = slot.lock().unwrap();
+            let p = guard.as_mut().unwrap();
+            assert!(p.remaining.remove("mod1"));
+            assert_eq!(p.remaining.len(), 1);
+        }
+
+        // Simulate poison on slot
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = slot.lock().unwrap();
+            panic!("simulate thread panic holding slot lock");
+        }));
+
+        // Next download (mod2) finishes: recovery via into_inner must succeed without panic
+        {
+            let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
+            let p = guard.as_mut().unwrap();
+            assert!(p.remaining.remove("mod2"));
+            assert!(p.remaining.is_empty(), "all downloads done/failed");
+            *guard = None; // Slot cleared on completion
+        }
+
+        let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(guard.is_none());
+    }
+
+    #[test]
+    fn compose_entries_with_space_and_unicode_mod_names() {
+        let pack_mods = vec![
+            PackMod {
+                name: "Flow Control".into(),
+                version: "1.0.0".into(),
+                enabled: true,
+            },
+            PackMod {
+                name: "Space Exploration Postprocess".into(),
+                version: "0.6.1".into(),
+                enabled: true,
+            },
+            PackMod {
+                name: "Тестовый Мод".into(),
+                version: "2.0.0".into(),
+                enabled: true,
+            },
+        ];
+
+        let disk_names: HashSet<String> = HashSet::from([
+            "base".into(),
+            "Flow Control".into(),
+            "Space Exploration Postprocess".into(),
+            "Unrelated Extra Mod".into(),
+        ]);
+
+        let disk_versions: HashMap<String, String> = HashMap::from([
+            ("Flow Control".into(), "1.0.0".into()),
+            ("Space Exploration Postprocess".into(), "0.5.0".into()), // version mismatch
+        ]);
+
+        let composed = compose_entries(&pack_mods, &disk_names, &disk_versions);
+
+        // base is enabled
+        assert_eq!(composed.entries[0], ("base".into(), true));
+
+        // Flow Control is enabled (exact match)
+        assert!(composed.entries.iter().any(|(n, e)| n == "Flow Control" && *e));
+
+        // Space Exploration Postprocess is disabled (version mismatch)
+        assert!(composed.entries.iter().any(|(n, e)| n == "Space Exploration Postprocess" && !*e));
+        assert_eq!(composed.version_mismatch.len(), 1);
+        assert_eq!(composed.version_mismatch[0].name, "Space Exploration Postprocess");
+
+        // Тестовый Мод is not on disk -> disabled
+        assert!(composed.entries.iter().any(|(n, e)| n == "Тестовый Мод" && !*e));
+
+        // Unrelated Extra Mod is disabled
+        assert!(composed.entries.iter().any(|(n, e)| n == "Unrelated Extra Mod" && !*e));
     }
 }

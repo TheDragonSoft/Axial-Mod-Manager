@@ -63,7 +63,8 @@ impl DownloadQueue {
 
     /// Flag a running/queued job for cancellation. No-op if already finished.
     pub fn cancel(&self, id: u64) {
-        if let Some(flag) = self.handles.lock().expect("queue lock poisoned").get(&id) {
+        let guard = self.handles.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(flag) = guard.get(&id) {
             flag.store(true, Ordering::SeqCst);
         }
     }
@@ -72,9 +73,18 @@ impl DownloadQueue {
     pub fn is_busy(&self, mod_name: &str) -> bool {
         self.in_flight
             .lock()
-            .expect("queue lock poisoned")
+            .unwrap_or_else(|p| p.into_inner())
             .iter()
             .any(|key| key.split('|').next() == Some(mod_name))
+    }
+
+    /// True if any downloads are queued or in flight.
+    pub fn has_active_jobs(&self) -> bool {
+        !self
+            .in_flight
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_empty()
     }
 
     /// Register a download and return immediately with its queued item.
@@ -120,31 +130,47 @@ impl DownloadQueue {
         let dest = mods_dir.join(format!("{mod_name}_{version}.zip"));
         if dest.exists() {
             tracing::info!(id, mod = %mod_name, %version, "already installed — nothing to do");
+            // If an orphan .part file was left on disk (e.g. from a previous crash right after rename), remove it.
+            let part = mods_dir.join(format!("{mod_name}_{version}.zip.part"));
+            let _ = std::fs::remove_file(part);
             let done = DownloadUpdate { status: "completed", ..base.clone() };
             let _ = app.emit("download-updated", &done);
             return Ok(done);
         }
 
         let key = format!("{mod_name}|{version}");
-        if !self.in_flight.lock().expect("queue lock poisoned").insert(key) {
-            tracing::warn!(id, mod = %mod_name, %version, "rejected: already in queue");
-            return Err(AppError::Config(format!(
-                "{mod_name} {version} is already in the download queue"
-            )));
+        {
+            let mut in_flight = self.in_flight.lock().unwrap_or_else(|p| p.into_inner());
+            if in_flight.contains(&key) {
+                tracing::warn!(id, mod = %mod_name, %version, "rejected: already in queue");
+                return Err(AppError::Config(format!(
+                    "{mod_name} {version} is already in the download queue"
+                )));
+            }
+            if in_flight.iter().any(|k| k.split('|').next() == Some(&mod_name)) {
+                tracing::warn!(id, mod = %mod_name, %version, "rejected: another version is already downloading");
+                return Err(AppError::Config(format!(
+                    "{mod_name} is already in the download queue"
+                )));
+            }
+            in_flight.insert(key);
         }
 
         let flag = Arc::new(AtomicBool::new(false));
         self.handles
             .lock()
-            .expect("queue lock poisoned")
+            .unwrap_or_else(|p| p.into_inner())
             .insert(id, flag.clone());
 
         let _ = app.emit("download-updated", &base);
 
         tauri::async_runtime::spawn(async move {
             let done = run_job(&self, &app, &flag, mods_dir, mod_name, version, expected_sha1, id).await;
-            self.handles.lock().expect("queue lock poisoned").remove(&id);
-            self.in_flight.lock().expect("queue lock poisoned").remove(&format!("{}|{}", done.mod_name, done.version));
+            self.handles.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+            self.in_flight
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&format!("{}|{}", done.mod_name, done.version));
             let _ = app.emit("download-updated", &done);
         });
 
@@ -282,6 +308,7 @@ async fn run_job(
                     tracing::error!(id, "could not finalize install: {e}");
                     item.status = "failed";
                     item.error = Some(format!("could not finalize install: {e}"));
+                    crate::core::services::packs::maybe_finalize(app, &item.mod_name).await;
                 }
             }
         }
@@ -289,11 +316,13 @@ async fn run_job(
             let _ = tokio::fs::remove_file(&part).await;
             tracing::info!(id, mod = %item.mod_name, "download cancelled");
             item.status = "cancelled";
+            crate::core::services::packs::maybe_finalize(app, &item.mod_name).await;
         }
         Err(JobFail::Error(e, _)) => {
             let _ = tokio::fs::remove_file(&part).await;
             item.status = "failed";
             item.error = Some(e);
+            crate::core::services::packs::maybe_finalize(app, &item.mod_name).await;
         }
     }
     item
@@ -398,8 +427,12 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         let mut entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
-        if !entry.is_dir() && entry.name().ends_with("info.json") {
-            let name = entry.name().to_string();
+        let entry_name = entry.name();
+        let is_info_json = entry_name == "info.json"
+            || entry_name.ends_with("/info.json")
+            || entry_name.ends_with("\\info.json");
+        if !entry.is_dir() && is_info_json {
+            let name = entry_name.to_string();
             let mut s = String::new();
             std::io::Read::read_to_string(&mut entry, &mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
@@ -424,12 +457,14 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
             "zip is for mod {name:?}, expected {expected_name:?}"
         )));
     }
-    if let Some(ver) = v.get("version").and_then(|x| x.as_str()) {
-        if ver != expected_version {
-            return Err(AppError::Parse(format!(
-                "zip is version {ver}, expected {expected_version}"
-            )));
-        }
+    let ver = v
+        .get("version")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| AppError::Parse("info.json has no 'version' field".into()))?;
+    if ver != expected_version {
+        return Err(AppError::Parse(format!(
+            "zip is version {ver}, expected {expected_version}"
+        )));
     }
     Ok(())
 }
@@ -533,12 +568,17 @@ fn to_hex(bytes: &[u8]) -> String {
 /// Delete `{name}_*.zip` files whose filename differs from `keep`.
 /// Best-effort: a locked file (game running) is skipped silently.
 fn remove_other_versions(dir: &Path, keep: &str, mod_name: &str) -> std::io::Result<()> {
-    let prefix = format!("{mod_name}_");
     for entry in std::fs::read_dir(dir)?.flatten() {
         let fname = entry.file_name();
-        let fname = fname.to_string_lossy();
-        if fname != keep && fname.starts_with(&prefix) && fname.to_lowercase().ends_with(".zip") {
-            let _ = std::fs::remove_file(entry.path());
+        let fname_str = fname.to_string_lossy();
+        if fname_str == keep || !fname_str.to_lowercase().ends_with(".zip") {
+            continue;
+        }
+        let stem = fname_str.strip_suffix(".zip").unwrap_or(&fname_str);
+        if let Some((name, _version)) = stem.rsplit_once('_') {
+            if name == mod_name {
+                let _ = std::fs::remove_file(entry.path());
+            }
         }
     }
     Ok(())
@@ -696,5 +736,88 @@ mod tests {
             }
             JobFail::Cancelled => panic!("expected an error, got Cancelled"),
         }
+    }
+
+    #[test]
+    fn remove_other_versions_deletes_only_same_mod_and_spares_prefix_matches() {
+        let dir = TempDir::new("prefix-isolation");
+        let f1 = dir.path("flib_0.14.0.zip");
+        let f2 = dir.path("flib_0.13.0.zip");
+        let f3 = dir.path("flib_legacy_1.0.0.zip");
+        let f4 = dir.path("flib_util_2.0.0.zip");
+        let f5 = dir.path("other_1.0.0.zip");
+
+        std::fs::write(&f1, b"keep").unwrap();
+        std::fs::write(&f2, b"old").unwrap();
+        std::fs::write(&f3, b"legacy").unwrap();
+        std::fs::write(&f4, b"util").unwrap();
+        std::fs::write(&f5, b"other").unwrap();
+
+        remove_other_versions(&dir.0, "flib_0.14.0.zip", "flib").unwrap();
+
+        assert!(f1.exists(), "keep target must remain");
+        assert!(!f2.exists(), "older version of same mod must be deleted");
+        assert!(f3.exists(), "mod sharing prefix with underscore must NOT be deleted");
+        assert!(f4.exists(), "mod sharing prefix with underscore must NOT be deleted");
+        assert!(f5.exists(), "unrelated mod must NOT be deleted");
+    }
+
+    #[test]
+    fn remove_other_versions_handles_spaces_in_mod_name() {
+        let dir = TempDir::new("spaces-isolation");
+        let f1 = dir.path("Flow Control_1.0.0.zip");
+        let f2 = dir.path("Flow Control_0.9.0.zip");
+        let f3 = dir.path("Flow Control Extra_1.0.0.zip");
+
+        std::fs::write(&f1, b"keep").unwrap();
+        std::fs::write(&f2, b"old").unwrap();
+        std::fs::write(&f3, b"extra").unwrap();
+
+        remove_other_versions(&dir.0, "Flow Control_1.0.0.zip", "Flow Control").unwrap();
+
+        assert!(f1.exists(), "keep target must remain");
+        assert!(!f2.exists(), "older version of same mod must be deleted");
+        assert!(f3.exists(), "extended mod name with space must NOT be deleted");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_ignores_auxiliary_info_json_files() {
+        use std::io::Write as _;
+        let dir = TempDir::new("aux-info");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        // Write an auxiliary file that ends with "info.json" first
+        zip.start_file("docs/extra_info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        write!(zip, r#"{{"name":"wrong_mod","version":"0.0.1"}}"#).unwrap();
+        // Write the actual info.json
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        write!(zip, r#"{{"name":"real_mod","version":"1.2.3"}}"#).unwrap();
+        zip.finish().unwrap();
+
+        verify_mod_zip_sync(&f, "real_mod", "1.2.3")
+            .expect("should match actual info.json, ignoring docs/extra_info.json");
+    }
+
+    #[test]
+    fn download_queue_tracks_in_flight_and_active_jobs() {
+        let queue = DownloadQueue::new(reqwest::Client::new());
+        assert!(!queue.has_active_jobs());
+        assert!(!queue.is_busy("my-mod"));
+
+        queue.in_flight.lock().unwrap().insert("my-mod|1.0.0".into());
+        assert!(queue.has_active_jobs());
+        assert!(queue.is_busy("my-mod"));
+        assert!(!queue.is_busy("other-mod"));
+
+        // Poison resilience check
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = queue.in_flight.lock().unwrap();
+            panic!("simulate poison");
+        }));
+        // Subsequent calls must not panic
+        assert!(queue.has_active_jobs());
+        assert!(queue.is_busy("my-mod"));
     }
 }

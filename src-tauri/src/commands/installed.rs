@@ -24,7 +24,7 @@ pub async fn validate_mods_dir(path: String) -> Result<ModsDirStatus, AppError> 
 /// zip info cache when nothing on disk changed.
 #[tauri::command]
 pub async fn list_installed(state: State<'_, AppState>) -> Result<InstalledSnapshot, AppError> {
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
     let dir = mod_store::resolve_dir(&config)?;
     let cache = state.zip_cache.clone();
     let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir, &cache))
@@ -44,7 +44,7 @@ pub async fn toggle_mod(
     if name.is_empty() {
         return Err(AppError::Config("mod name is empty".into()));
     }
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
     let dir = mod_store::resolve_dir(&config)?;
     // mod-list.json writes are blocking IO — keep them off the async runtime.
     tauri::async_runtime::spawn_blocking(move || mod_store::set_enabled(&dir, &name, enabled))
@@ -68,7 +68,7 @@ pub async fn uninstall_mod(
     state: State<'_, AppState>,
     file_name: String,
 ) -> Result<UninstallResult, AppError> {
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
     let dir = mod_store::resolve_dir(&config)?;
 
     // Zip reads/deletes are blocking IO — keep them off the async runtime.
@@ -114,7 +114,7 @@ pub async fn uninstall_impact(
     state: State<'_, AppState>,
     file_name: String,
 ) -> Result<Vec<String>, AppError> {
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
     let dir = mod_store::resolve_dir(&config)?;
     let cache = state.zip_cache.clone();
     tauri::async_runtime::spawn_blocking(move || mod_store::uninstall_impact(&dir, &file_name, &cache))
@@ -125,7 +125,7 @@ pub async fn uninstall_impact(
 /// Compare every installed mod against the newest target-compatible release.
 #[tauri::command]
 pub async fn check_updates(state: State<'_, AppState>) -> Result<UpdatesReport, AppError> {
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
     let dir = mod_store::resolve_dir(&config)?;
     let cache = state.zip_cache.clone();
     let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir, &cache))
@@ -145,7 +145,7 @@ pub async fn get_storage_report(
     let dir = match path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
         Some(p) => std::path::PathBuf::from(p),
         None => {
-            let config = state.config.read().expect("config lock poisoned").clone();
+            let config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
             mod_store::resolve_dir(&config)?
         }
     };
@@ -165,10 +165,19 @@ pub async fn clean_orphans(
     state: State<'_, AppState>,
     path: Option<String>,
 ) -> Result<CleanOrphansResult, AppError> {
+    if state.queue.has_active_jobs() {
+        return Err(AppError::Config(
+            "cannot clean storage while downloads are in progress".into(),
+        ));
+    }
     let dir = match path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
         Some(p) => std::path::PathBuf::from(p),
         None => {
-            let config = state.config.read().expect("config lock poisoned").clone();
+            let config = state
+                .config
+                .read()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone();
             mod_store::resolve_dir(&config)?
         }
     };

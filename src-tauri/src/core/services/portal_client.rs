@@ -262,7 +262,7 @@ fn map_release(r: PortalRelease) -> ModRelease {
 
 /// Portal names are [A-Za-z0-9 _.-] in practice (spaces occur, e.g. "Flow Control").
 pub fn plausible_name(s: &str) -> bool {
-    !s.is_empty()
+    !s.trim().is_empty()
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' '))
 }
@@ -795,11 +795,13 @@ mod tests {
     #[test]
     fn name_validation() {
         assert!(!plausible_name(""));
+        assert!(!plausible_name("   "));
         assert!(!plausible_name("../etc"));
         assert!(!plausible_name("+ ChangeInserterDropLane"));
         assert!(plausible_name("even-distribution"));
         assert!(plausible_name("Flow Control"));
         assert!(plausible_name("some_mod_2.5"));
+        assert_eq!(encode_path_component("Flow Control"), "Flow%20Control");
     }
 
     // -- changelog parsing (A3) --

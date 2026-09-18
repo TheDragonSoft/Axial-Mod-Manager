@@ -218,4 +218,23 @@ mod tests {
         assert!(!satisfies("1.1.0", &(VersionOp::Gte, "1.2.0".into())));
         assert!(satisfies("2.0", &(VersionOp::Eq, "2.0.0".into())));
     }
+
+    #[test]
+    fn parses_dependencies_with_spaces_and_unicode() {
+        let d = parse_dependency("? Space Exploration Postprocess >= 0.6.1");
+        assert_eq!(d.kind, DepKind::Optional);
+        assert_eq!(d.name, "Space Exploration Postprocess");
+        assert_eq!(d.constraint, Some((VersionOp::Gte, "0.6.1".into())));
+
+        let d2 = parse_dependency("! Incompatible Mod With Spaces");
+        assert_eq!(d2.kind, DepKind::Incompatible);
+        assert_eq!(d2.name, "Incompatible Mod With Spaces");
+        assert_eq!(d2.constraint, None);
+
+        // Unicode in dependency strings
+        let d3 = parse_dependency("? ТестовыйМод >= 1.0.0");
+        assert_eq!(d3.kind, DepKind::Optional);
+        assert_eq!(d3.name, "ТестовыйМод");
+        assert_eq!(d3.constraint, Some((VersionOp::Gte, "1.0.0".into())));
+    }
 }

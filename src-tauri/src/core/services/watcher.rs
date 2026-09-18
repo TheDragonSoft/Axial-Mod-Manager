@@ -124,7 +124,7 @@ pub fn start(app: &AppHandle) {
         app.listen("installed-changed", |event| {
             if let Ok(p) = serde_json::from_str::<InstalledChangedPayload>(event.payload()) {
                 if p.reason == InstalledChangedReason::Axial {
-                    *last_axial_slot().lock().expect("axial slot poisoned") = Some(Instant::now());
+                    *last_axial_slot().lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
                 }
             }
         });
@@ -136,20 +136,20 @@ pub fn start(app: &AppHandle) {
         .state::<AppState>()
         .config
         .read()
-        .expect("config lock poisoned")
+        .unwrap_or_else(|p| p.into_inner())
         .clone();
     let dir = match mod_store::resolve_dir(&config) {
         Ok(d) => d,
         Err(e) => {
             tracing::info!("mods-dir watcher not armed: no mods directory to watch: {e}");
             // Nothing to watch: also drop any watch a previous config armed.
-            *watch_slot().lock().expect("watch slot poisoned") = None;
+            *watch_slot().lock().unwrap_or_else(|p| p.into_inner()) = None;
             return;
         }
     };
 
     {
-        let slot = watch_slot().lock().expect("watch slot poisoned");
+        let slot = watch_slot().lock().unwrap_or_else(|p| p.into_inner());
         if slot.as_ref().is_some_and(|h| h.mods_dir == dir) {
             return;
         }
@@ -176,7 +176,7 @@ pub fn start(app: &AppHandle) {
         return;
     }
 
-    *watch_slot().lock().expect("watch slot poisoned") = Some(WatchHandle {
+    *watch_slot().lock().unwrap_or_else(|p| p.into_inner()) = Some(WatchHandle {
         _watcher: watcher,
         mods_dir: dir.clone(),
     });
@@ -214,7 +214,7 @@ async fn watch_loop(
 
 fn evaluate(app: &AppHandle, dir: &Path, baseline: &Mutex<ModsFingerprint>) {
     let current = fingerprint_dir(dir);
-    let mut guard = baseline.lock().expect("fingerprint lock poisoned");
+    let mut guard = baseline.lock().unwrap_or_else(|p| p.into_inner());
     if !fingerprints_differ(&guard, &current) {
         // The burst never actually changed the state (e.g. metadata churn).
         return;
@@ -223,7 +223,7 @@ fn evaluate(app: &AppHandle, dir: &Path, baseline: &Mutex<ModsFingerprint>) {
 
     let suppressed = last_axial_slot()
         .lock()
-        .expect("axial slot poisoned")
+        .unwrap_or_else(|p| p.into_inner())
         .is_some_and(|t| t.elapsed() < AXIAL_SUPPRESS);
     if suppressed {
         // Axial's emit site already told the frontend; just acknowledge the

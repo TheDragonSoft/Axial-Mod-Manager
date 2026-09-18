@@ -242,7 +242,9 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
             entry.read_to_string(&mut s)?;
             raw = Some(s);
             break;
-        } else if nested.is_none() && entry_name.ends_with("/info.json") {
+        } else if nested.is_none()
+            && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
+        {
             let mut s = String::new();
             entry.read_to_string(&mut s)?;
             nested = Some(s);
@@ -257,7 +259,8 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let name = v
         .get("name")
         .and_then(|x| x.as_str())
-        .ok_or_else(|| AppError::Parse("info.json has no 'name' field".into()))?
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| AppError::Parse("info.json has no valid 'name' field".into()))?
         .to_string();
     let version = v
         .get("version")
@@ -514,10 +517,9 @@ pub fn set_enabled(dir: &Path, name: &str, enabled: bool) -> Result<(), AppError
     if root.get("mods").and_then(|m| m.as_array()).is_none() {
         root["mods"] = json!([]);
     }
-    let mods = root
-        .get_mut("mods")
-        .and_then(|m| m.as_array_mut())
-        .expect("mods array was just normalized");
+    let Some(mods) = root.get_mut("mods").and_then(|m| m.as_array_mut()) else {
+        return Err(AppError::Parse("mod-list.json mods array missing".into()));
+    };
 
     if let Some(entry) = mods
         .iter_mut()
@@ -698,7 +700,7 @@ fn read_misses(
                 .collect();
             handles
                 .into_iter()
-                .flat_map(|h| h.join().expect("zip info reader panicked"))
+                .flat_map(|h| h.join().unwrap_or_default())
                 .collect::<Vec<_>>()
         })
     };
@@ -1526,5 +1528,67 @@ mod tests {
             warm_elapsed,
             warm_elapsed.as_millis()
         );
+    }
+
+    #[test]
+    fn test_malformed_info_json_variants() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-info-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let make_zip = |filename: &str, entry_name: &str, content: &[u8]| -> PathBuf {
+            let path = temp_dir.join(filename);
+            let file = fs::File::create(&path).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            zip.start_file(entry_name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(content).unwrap();
+            zip.finish().unwrap();
+            path
+        };
+
+        // 1. Missing info.json entirely
+        let p_missing = make_zip("missing_1.0.0.zip", "readme.txt", b"no info here");
+        assert!(read_info_json(&p_missing).is_err());
+
+        // 2. Corrupted JSON syntax
+        let p_corrupt = make_zip("corrupt_1.0.0.zip", "info.json", b"{not valid json");
+        assert!(read_info_json(&p_corrupt).is_err());
+
+        // 3. Top-level array
+        let p_array = make_zip("array_1.0.0.zip", "info.json", b"[]");
+        assert!(read_info_json(&p_array).is_err());
+
+        // 4. Missing name field
+        let p_noname = make_zip("noname_1.0.0.zip", "info.json", b"{\"version\":\"1.0.0\"}");
+        assert!(read_info_json(&p_noname).is_err());
+
+        // 5. Empty name field
+        let p_emptyname = make_zip("emptyname_1.0.0.zip", "info.json", b"{\"name\":\"   \",\"version\":\"1.0.0\"}");
+        assert!(read_info_json(&p_emptyname).is_err());
+
+        // 6. Non-string name field
+        let p_numname = make_zip("numname_1.0.0.zip", "info.json", b"{\"name\":12345,\"version\":\"1.0.0\"}");
+        assert!(read_info_json(&p_numname).is_err());
+
+        // 7. Nested info.json with forward slash
+        let p_nested_fwd = make_zip("nestedfwd_1.0.0.zip", "nestedfwd/info.json", b"{\"name\":\"nestedfwd\",\"version\":\"1.0.0\"}");
+        let info_fwd = read_info_json(&p_nested_fwd).expect("forward slash nested info.json should be parsed");
+        assert_eq!(info_fwd.name, "nestedfwd");
+
+        // 8. Nested info.json with backslash (Windows zip artifact)
+        let p_nested_back = make_zip("nestedback_1.0.0.zip", "nestedback\\info.json", b"{\"name\":\"nestedback\",\"version\":\"1.0.0\"}");
+        let info_back = read_info_json(&p_nested_back).expect("backslash nested info.json should be parsed");
+        assert_eq!(info_back.name, "nestedback");
+
+        // 9. Non-array dependencies (should gracefully degrade to empty dependencies)
+        let p_bad_deps = make_zip("baddeps_1.0.0.zip", "info.json", b"{\"name\":\"baddeps\",\"version\":\"1.0.0\",\"dependencies\":\"invalid\"}");
+        let info_deps = read_info_json(&p_bad_deps).expect("non-array dependencies should degrade to empty");
+        assert!(info_deps.dependencies.is_empty());
+
+        // 10. Missing version defaults to '?'
+        let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
+        let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
+        assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

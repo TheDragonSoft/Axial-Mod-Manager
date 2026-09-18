@@ -13,7 +13,11 @@ pub fn ping(name: String) -> String {
 /// Launch Factorio detached from the detected or configured installation.
 #[tauri::command]
 pub async fn launch_game(state: State<'_, AppState>) -> Result<(), AppError> {
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     tauri::async_runtime::spawn_blocking(move || launcher::launch(&config))
         .await
         .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;

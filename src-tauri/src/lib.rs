@@ -114,7 +114,7 @@ pub fn run() {
                 .state::<AppState>()
                 .config
                 .read()
-                .expect("config lock poisoned")
+                .unwrap_or_else(|p| p.into_inner())
                 .clone();
             // External mods-dir change sync: watches the resolved mods dir
             // (re-arms itself on settings saves) and reports changes made

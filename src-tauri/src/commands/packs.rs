@@ -20,7 +20,11 @@ pub async fn create_pack_from_installed(
     state: State<'_, AppState>,
     name: String,
 ) -> Result<Pack, AppError> {
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     let dir = mod_store::resolve_dir(&config)?;
     let cache = state.zip_cache.clone();
     let snapshot = tauri::async_runtime::spawn_blocking(move || mod_store::scan_installed(&dir, &cache))
@@ -75,7 +79,11 @@ pub async fn activate_vanilla(app: AppHandle, expansion: bool) -> Result<(), App
 
 #[tauri::command]
 pub async fn get_vanilla_info(state: State<'_, AppState>) -> Result<VanillaInfo, AppError> {
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     let cache = state.zip_cache.clone();
     // Scans every zip in the mods dir — keep it off the IPC thread.
     tauri::async_runtime::spawn_blocking(move || packs::vanilla_info(&config, &cache))

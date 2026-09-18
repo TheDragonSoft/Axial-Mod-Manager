@@ -10,7 +10,11 @@ use crate::state::AppState;
 
 #[tauri::command]
 pub fn get_settings(state: State<AppState>) -> Result<Config, AppError> {
-    Ok(state.config.read().expect("config lock poisoned").clone())
+    Ok(state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone())
 }
 
 /// Persist first, then commit to memory, then notify the frontend.
@@ -25,7 +29,7 @@ pub async fn set_settings(
     state: State<'_, AppState>,
 ) -> Result<Config, AppError> {
     let (old_game_dir, cached_target_version) = {
-        let cfg = state.config.read().expect("config lock poisoned");
+        let cfg = state.config.read().unwrap_or_else(|p| p.into_inner());
         (cfg.game_dir.clone(), cfg.target_factorio_version.clone())
     };
 
@@ -50,7 +54,7 @@ pub async fn set_settings(
     tauri::async_runtime::spawn_blocking(move || to_save.save(&path))
         .await
         .map_err(|e| AppError::Parse(format!("background task failed: {e}")))??;
-    *state.config.write().expect("config lock poisoned") = new_config.clone();
+    *state.config.write().unwrap_or_else(|p| p.into_inner()) = new_config.clone();
     // Fire-and-forget: a dead/unreachable listener must not fail the save.
     let _ = app.emit("settings-changed", &new_config);
     Ok(new_config)
@@ -74,7 +78,7 @@ pub async fn detect_game(state: State<'_, AppState>) -> Result<Option<DetectedGa
     let configured = state
         .config
         .read()
-        .expect("config lock poisoned")
+        .unwrap_or_else(|p| p.into_inner())
         .game_dir
         .clone();
     let detected = tauri::async_runtime::spawn_blocking(move || {
@@ -108,7 +112,11 @@ pub async fn validate_game_dir(path: String) -> GameDirStatus {
 pub async fn get_detection_status(
     state: State<'_, AppState>,
 ) -> Result<DetectionStatus, AppError> {
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     tauri::async_runtime::spawn_blocking(move || {
         Ok(mod_store::resolve_detection_status(&config))
     })
