@@ -441,10 +441,6 @@ mod tests {
         fs::create_dir_all(root.join("data").join("base")).unwrap();
 
         assert!(expansion_in_game_data(Some(root.to_str().unwrap())));
-        assert!(
-            expansion_in_game_data(Some("   ")),
-            "blank config falls through to detect(), which on CI machines finds no install"
-        );
 
         // Same install without the expansion directory.
         fs::remove_dir_all(root.join("data").join("space-age")).unwrap();
@@ -452,6 +448,10 @@ mod tests {
 
         // Nonexistent configured dir can't have the expansion.
         assert!(!expansion_in_game_data(Some("Z:/definitely/not/factorio")));
+
+        // NOTE: the blank-config path falls through to detect(), whose result
+        // depends on the machine actually having a Factorio install — not
+        // assertable in a portable unit test.
 
         fs::remove_dir_all(root).unwrap();
     }
