@@ -30,12 +30,11 @@ pub const EXPORT_FORMAT: &str = "axial-pack/1";
 pub const VANILLA_PACK_ID: &str = "vanilla";
 pub const VANILLA_EXPANSION_PACK_ID: &str = "vanilla-space-age";
 
-/// The game-bundled Space Age expansion mods. `quality` is a hard dependency
-/// of `space-age`, so both must be on for the expansion to run.
-/// ASSUMPTION: the DLC ships as zips named `space-age` and `quality` in the
-/// mods directory, with no auth or purchase check needed — the zips only
-/// exist for owners of the expansion.
-const EXPANSION_MODS: [&str; 2] = ["space-age", "quality"];
+/// The game-bundled Space Age expansion mods are `mod_store::GAME_BUNDLED_MODS`
+/// minus `base` (`elevated-rails`, `quality`, `space-age`). ASSUMPTION: the
+/// DLC ships as zips named after these mods — in the mods dir when copied
+/// there, otherwise in the game's data dir — with no auth or purchase check
+/// needed — the zips only exist for owners of the expansion.
 
 /// Set while a pack activation is waiting for its downloads to land.
 #[derive(Debug)]
@@ -349,11 +348,11 @@ pub fn vanilla_entries(
     let mut extras: Vec<(String, bool)> = disk_names
         .iter()
         .filter(|n| **n != "base")
-        .map(|n| (n.clone(), expansion && EXPANSION_MODS.contains(&n.as_str())))
+        .map(|n| (n.clone(), expansion && mod_store::GAME_BUNDLED_MODS.contains(&n.as_str())))
         .collect();
     if game_data_expansion {
-        for name in EXPANSION_MODS {
-            if !disk_names.contains(name) {
+        for name in mod_store::GAME_BUNDLED_MODS {
+            if name != "base" && !disk_names.contains(name) {
                 extras.push((name.to_string(), expansion));
             }
         }
@@ -823,11 +822,12 @@ mod tests {
 
     #[test]
     fn vanilla_entries_with_expansion_keep_only_expansion_mods_on() {
-        let disk = set(&["base", "ModA", "space-age", "quality"]);
+        let disk = set(&["base", "ModA", "space-age", "quality", "elevated-rails"]);
         let entries = vanilla_entries(&disk, false, true);
         assert_eq!(entries[0], ("base".to_string(), true));
         assert!(entries.contains(&("space-age".to_string(), true)));
         assert!(entries.contains(&("quality".to_string(), true)), "quality is a hard dep of space-age");
+        assert!(entries.contains(&("elevated-rails".to_string(), true)), "elevated-rails is a hard dep of space-age");
         assert!(entries.contains(&("ModA".to_string(), false)), "everything else still off");
     }
 
@@ -850,8 +850,9 @@ mod tests {
         let entries = vanilla_entries(&disk, true, false);
         assert!(entries.contains(&("space-age".to_string(), false)), "{entries:?}");
         assert!(entries.contains(&("quality".to_string(), false)), "{entries:?}");
+        assert!(entries.contains(&("elevated-rails".to_string(), false)), "{entries:?}");
         assert!(entries.contains(&("ModA".to_string(), false)));
-        assert_eq!(entries.len(), 4);
+        assert_eq!(entries.len(), 5);
     }
 
     #[test]
@@ -860,14 +861,15 @@ mod tests {
         let entries = vanilla_entries(&disk, true, true);
         assert!(entries.contains(&("space-age".to_string(), true)), "{entries:?}");
         assert!(entries.contains(&("quality".to_string(), true)), "{entries:?}");
+        assert!(entries.contains(&("elevated-rails".to_string(), true)), "{entries:?}");
         assert!(entries.contains(&("ModA".to_string(), false)));
     }
 
     #[test]
     fn vanilla_entries_no_duplicates_when_expansion_zip_and_game_data_both_present() {
-        let disk = set(&["base", "space-age", "quality"]);
+        let disk = set(&["base", "space-age", "quality", "elevated-rails"]);
         let entries = vanilla_entries(&disk, true, true);
-        assert_eq!(entries.len(), 3, "zip entries win; no virtual duplicates: {entries:?}");
+        assert_eq!(entries.len(), 4, "zip entries win; no virtual duplicates: {entries:?}");
         assert!(entries.iter().filter(|(n, _)| n == "space-age").count() == 1);
     }
 

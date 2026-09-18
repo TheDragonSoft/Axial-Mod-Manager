@@ -2,6 +2,13 @@
 
 All notable changes to Axial are documented here.
 
+## Unreleased
+
+### Fixed
+
+- The game-bundled Space Age expansion mods (`space-age`, `quality`, `elevated-rails`) no longer show as "listed but zip missing" orphans in the storage report — they ship inside the game's data dir (Steam/GOG DLC layout), not the mods dir
+- Vanilla / Vanilla: Space Age activation now reconciles `elevated-rails` alongside `space-age` and `quality` (it is a hard dependency of `space-age` and part of the bundled expansion set)
+
 ## 1.0.0 — "Conveyor" (2026-09-18)
 
 First stable release.
