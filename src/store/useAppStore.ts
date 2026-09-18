@@ -43,6 +43,10 @@ interface AppState {
    * second built-in "Vanilla: Space Age" entry. Null = not fetched yet. */
   expansionAvailable: boolean | null;
   setExpansionAvailable: (v: boolean) => void;
+  /** One-shot hand-off: a query another surface (command palette) wants the
+   * Browse search to run. BrowsePage consumes and clears it. */
+  pendingBrowseQuery: string | null;
+  setPendingBrowseQuery: (q: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -75,4 +79,6 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   expansionAvailable: null,
   setExpansionAvailable: (v) => set({ expansionAvailable: v }),
+  pendingBrowseQuery: null,
+  setPendingBrowseQuery: (q) => set({ pendingBrowseQuery: q }),
 }));

@@ -189,6 +189,8 @@ function FavoritesView({
 
 export default function BrowsePage() {
   const targetVersion = useAppStore((s) => s.targetFactorioVersion);
+  const pendingBrowseQuery = useAppStore((s) => s.pendingBrowseQuery);
+  const setPendingBrowseQuery = useAppStore((s) => s.setPendingBrowseQuery);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("downloads");
@@ -210,6 +212,16 @@ export default function BrowsePage() {
     }, 350);
     return () => clearTimeout(t);
   }, [queryInput]);
+
+  // One-shot hand-off from the command palette ("install a mod by name"):
+  // prefill the search and drop any favorites-only filter. Consumed
+  // immediately so revisiting Browse doesn't re-run a stale query.
+  useEffect(() => {
+    if (pendingBrowseQuery === null) return;
+    setQueryInput(pendingBrowseQuery);
+    setFavoritesOnly(false);
+    setPendingBrowseQuery(null);
+  }, [pendingBrowseQuery, setPendingBrowseQuery]);
 
   // Fetch — the one effect that talks to the backend.
   useEffect(() => {
