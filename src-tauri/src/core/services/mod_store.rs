@@ -796,6 +796,16 @@ pub fn replace_mod_list(dir: &Path, entries: &[(String, bool)]) -> Result<(), Ap
 // deliberately untouched.
 // ---------------------------------------------------------------------------
 
+/// Mods Factorio ships inside its own game data dir rather than as mods-dir
+/// zips: `base` under `data/base`, and the Space Age DLC built-ins under
+/// `data/elevated-rails`, `data/quality` and `data/space-age` (Steam/GOG DLC
+/// layout). Factorio still lists them in mod-list.json even though no mods
+/// dir ever contains their zips, so a missing zip proves nothing about them —
+/// they are never orphans. `quality` and `elevated-rails` are hard
+/// dependencies of `space-age`, so all three must switch together for the
+/// expansion to run.
+pub const GAME_BUNDLED_MODS: [&str; 4] = ["base", "elevated-rails", "quality", "space-age"];
+
 fn is_zip_file_name(file_name: &str) -> bool {
     Path::new(file_name)
         .extension()
@@ -881,7 +891,10 @@ pub fn storage_report(dir: &Path, cache: &ZipInfoCache) -> StorageReport {
             }
         }
         for name in &referenced {
-            if name != "base" && !disk_names.contains(name.as_str()) {
+            // Built-ins (base + the Space Age DLC mods) ship inside the game
+            // data dir — see GAME_BUNDLED_MODS. They are listed in
+            // mod-list.json with no mods-dir zip by design.
+            if !GAME_BUNDLED_MODS.contains(&name.as_str()) && !disk_names.contains(name.as_str()) {
                 orphans.push(OrphanFile {
                     file_name: None,
                     kind: OrphanKind::MissingEntry,
@@ -1396,6 +1409,36 @@ mod tests {
         assert_eq!(per_mod.get("ModA"), Some(&(1, fs::metadata(dir.join("ModA_1.0.0.zip")).unwrap().len())));
         assert_eq!(per_mod.get("GhostMod"), Some(&(1, orphan_zip_size)));
         assert!(!per_mod.contains_key("base"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn game_bundled_expansion_entries_are_never_orphans() {
+        // Steam/GOG DLC layout regression: the Space Age built-ins are listed
+        // in mod-list.json but their zips live in the game's data dir, not the
+        // mods dir. They must not surface as "listed but zip missing"
+        // orphans — and nothing here is deletable either.
+        let dir = unique_dir("bundled");
+        write_mod_list(
+            &dir,
+            &[
+                ("base", true),
+                ("elevated-rails", true),
+                ("quality", true),
+                ("space-age", true),
+                ("Vanished", true),
+            ],
+        );
+        let cache = ZipInfoCache::new();
+
+        let report = storage_report(&dir, &cache);
+        assert_eq!(
+            orphan_kinds(&report),
+            vec![(OrphanKind::MissingEntry, "Vanished".to_string())],
+            "bundled expansion entries are never missing-entry orphans; a genuinely missing mod still is"
+        );
+        assert_eq!(clean_orphans(&dir, &cache).unwrap().deleted_count, 0);
 
         let _ = fs::remove_dir_all(&dir);
     }
