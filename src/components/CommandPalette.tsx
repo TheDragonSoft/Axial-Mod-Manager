@@ -309,9 +309,13 @@ export default function CommandPalette() {
       });
     }
 
-    // Installed mods — one toggle verb each. Failure surfaces inline via
-    // runAction; success relies on the existing installed-changed flow.
+    // Installed mods — one toggle verb per mod NAME. Duplicate zips on disk
+    // (old versions, manual copies) resolve to the same `toggleMod(name)`
+    // call, and duplicate verb ids would also collide as React keys.
+    const seenModNames = new Set<string>();
     for (const m of mods ?? []) {
+      if (seenModNames.has(m.name)) continue;
+      seenModNames.add(m.name);
       out.push({
         id: `toggle:${m.name}`,
         label: m.enabled ? `Disable ${m.name}` : `Enable ${m.name}`,
