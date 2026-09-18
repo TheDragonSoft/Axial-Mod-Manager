@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ActivationDiff,
   AppError,
+  ChangelogEntry,
   CleanOrphansResult,
   DetectedDir,
   DetectedGame,
@@ -86,6 +87,12 @@ export async function searchMods(
 
 export async function getModDetails(name: string): Promise<ModDetails> {
   return invoke<ModDetails>("get_mod_details", { name });
+}
+
+/** Changelog entries for a mod (portal HTML page parsed backend-side),
+ * newest first. Callers degrade to an inline "unavailable" on error. */
+export async function getModChangelog(name: string): Promise<ChangelogEntry[]> {
+  return invoke<ChangelogEntry[]>("get_mod_changelog", { name });
 }
 
 export async function indexHealthCheck(): Promise<IndexHealth> {

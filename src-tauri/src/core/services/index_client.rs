@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
 use crate::error::AppError;
-use crate::models::{IndexHealth, ModDetails, SearchResult};
+use crate::models::{ChangelogEntry, IndexHealth, ModDetails, SearchResult};
 
 /// Identifies our client to every server we talk to (politeness + diagnostics).
 pub const USER_AGENT: &str = "Axial/0.1 (personal use)";
@@ -65,6 +65,16 @@ pub trait IndexClient: Send + Sync {
     ) -> Result<SearchResult, AppError>;
 
     async fn mod_details(&self, name: &str) -> Result<ModDetails, AppError>;
+
+    /// Per-version changelog entries for a mod, newest first. Default impl:
+    /// changelog is a portal-HTML-only feature, so index clients that don't
+    /// source it (and the test fakes) degrade to an error the UI shows as
+    /// "changelog unavailable" instead of forcing every implementor to stub it.
+    async fn mod_changelog(&self, _name: &str) -> Result<Vec<ChangelogEntry>, AppError> {
+        Err(AppError::NotImplemented(
+            "changelog not available for this index client".into(),
+        ))
+    }
 
     /// Network + schema diagnostics probe.
     async fn health_check(&self) -> Result<IndexHealth, AppError>;

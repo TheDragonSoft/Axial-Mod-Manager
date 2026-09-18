@@ -10,13 +10,16 @@ use crate::core::services::index_client::{
     CachedHttp, IndexClient, SortKey, PORTAL_API_BASE, PORTAL_ASSETS_BASE,
 };
 use crate::error::AppError;
-use crate::models::{IndexHealth, ModDetails, ModRelease, ModSummary, SearchResult};
+use crate::models::{ChangelogEntry, ChangelogSection, IndexHealth, ModDetails, ModRelease, ModSummary, SearchResult};
 
 const PAGE_SIZE: u32 = 25;
 /// How long the locally-held full mod listing stays fresh.
 const DUMP_TTL: Duration = Duration::from_secs(30 * 60);
 /// Safety valve against a server ignoring our page size.
 const MAX_PAGES: u32 = 2000;
+
+/// Site root the human-facing pages live under (the API is under `/api`).
+pub const PORTAL_SITE_BASE: &str = "https://mods.factorio.com";
 
 // ---------------------------------------------------------------------------
 // Raw API DTOs — lenient by design; unknown fields are ignored.
@@ -279,6 +282,184 @@ pub(crate) fn encode_path_component(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Changelog page parsing (pure, unit-tested)
+// ---------------------------------------------------------------------------
+
+/// ASSUMPTION (verified against the live portal, 2026-09-18, Krastorio2 +
+/// several small mods): there is NO JSON changelog API —
+/// `GET /api/mods/<name>/changelog` is a 404 and the details response has no
+/// changelog field. The portal exposes changelogs ONLY as the HTML page
+/// `https://mods.factorio.com/mod/<name>/changelog`, where each version is a
+/// `<pre class="panel-hole-combined">` block of plain text:
+///
+/// ```text
+/// Version: 2.1.2
+/// Date: 2026-06-28
+///   Bugfixes:
+///     - Fixed that most crushing recipes were craftable in the assembler.
+/// ```
+///
+/// Category headings are any indented `Heading:` line; bullets are lines
+/// starting with `-` (deeper-indented sub-bullets are flattened to sibling
+/// bullets — the info is kept, the nesting is not). A mod without a
+/// changelog still serves the page with zero `<pre>` blocks; a missing page
+/// is a plain 404. `parse_changelog` never panics on a malformed page — it
+/// returns whatever it can extract, possibly an empty list.
+pub(crate) fn parse_changelog(html: &str) -> Vec<ChangelogEntry> {
+    const PRE_OPEN: &str = "<pre";
+    const CLASS_MARK: &str = "panel-hole-combined";
+    const PRE_CLOSE: &str = "</pre>";
+
+    let mut entries = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(tag_start) = html[cursor..].find(PRE_OPEN) {
+        let tag_start = cursor + tag_start;
+        let Some(tag_end) = html[tag_start..].find('>') else { break };
+        let tag = &html[tag_start..=tag_start + tag_end];
+        let body_start = tag_start + tag_end + 1;
+        // Only the portal's changelog blocks carry this class — the page also
+        // contains unrelated markup, so matching on the class keeps stray
+        // <pre>s out.
+        if !tag.contains(CLASS_MARK) {
+            cursor = body_start;
+            continue;
+        }
+        // Truncated page: no closing tag — parse what is there instead of
+        // dropping the block.
+        match html[body_start..].find(PRE_CLOSE) {
+            Some(i) => {
+                let body_end = body_start + i;
+                if let Some(entry) = parse_changelog_block(&html[body_start..body_end]) {
+                    entries.push(entry);
+                }
+                cursor = body_end + PRE_CLOSE.len();
+            }
+            None => {
+                // Nothing left to scan — the rest of the page is this block.
+                if let Some(entry) = parse_changelog_block(&html[body_start..]) {
+                    entries.push(entry);
+                }
+                break;
+            }
+        }
+    }
+    entries
+}
+
+/// Parse one `<pre>` body: `Version:`/`Date:` headers plus indented
+/// `Heading:` groups and `-` bullets. Blocks without a version line are
+/// ignored (they are not a version entry).
+fn parse_changelog_block(block: &str) -> Option<ChangelogEntry> {
+    let mut version: Option<String> = None;
+    let mut date: Option<String> = None;
+    let mut sections: Vec<ChangelogSection> = Vec::new();
+
+    for raw_line in block.lines() {
+        let line = decode_entities(raw_line.trim());
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(v) = line.strip_prefix("Version:") {
+            // A second `Version:` in one block means the page changed shape —
+            // keep the first so an entry never silently merges two releases.
+            if version.is_none() {
+                version = Some(v.trim().to_string());
+            }
+        } else if let Some(d) = line.strip_prefix("Date:") {
+            if date.is_none() {
+                date = Some(d.trim().to_string());
+            }
+        } else if let Some(bullet) = line.strip_prefix('-') {
+            if version.is_none() {
+                continue;
+            }
+            let bullet = bullet.trim();
+            if bullet.is_empty() {
+                continue;
+            }
+            match sections.last_mut() {
+                Some(s) => s.bullets.push(bullet.to_string()),
+                // Bullet before any heading — keep it under a synthetic group
+                // so the text is never lost.
+                None => sections.push(ChangelogSection {
+                    heading: "Changes".into(),
+                    bullets: vec![bullet.to_string()],
+                }),
+            };
+        } else if line.ends_with(':') {
+            let heading = line.trim_end_matches(':').trim();
+            if !heading.is_empty() {
+                sections.push(ChangelogSection {
+                    heading: heading.to_string(),
+                    bullets: Vec::new(),
+                });
+            }
+        }
+        // Anything else (rare stray markup text) is dropped.
+    }
+
+    version.map(|v| ChangelogEntry {
+        version: v,
+        date,
+        sections: sections
+            .into_iter()
+            .filter(|s| !s.bullets.is_empty())
+            .collect(),
+    })
+}
+
+/// Decode the handful of entities the portal emits inside `<pre>` blocks:
+/// the named five plus decimal/hex numeric references (apostrophes and
+/// quotes arrive as `&#39;`/`&#34;`). Unknown entities pass through as text.
+fn decode_entities(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        rest = &rest[amp..];
+        // Bounded entity name via chars, not bytes: a byte window could end
+        // mid-UTF-8 character and panic.
+        let window: String = rest.chars().take(12).collect();
+        let Some(semi) = window.find(';') else {
+            // Not an entity (or truncated) — keep the raw '&'.
+            out.push('&');
+            rest = &rest[1..];
+            continue;
+        };
+        let name = &rest[1..semi];
+        let decoded = match name {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            "nbsp" => Some('\u{00a0}'),
+            _ => name
+                .strip_prefix("#x")
+                .or_else(|| name.strip_prefix("#X"))
+                .and_then(|h| u32::from_str_radix(h, 16).ok())
+                .or_else(|| name.strip_prefix('#').and_then(|d| d.parse::<u32>().ok()))
+                .and_then(char::from_u32),
+        };
+        match decoded {
+            Some(c) => {
+                out.push(c);
+                rest = &rest[semi + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Local search over a cached full listing
 // ---------------------------------------------------------------------------
 
@@ -461,6 +642,26 @@ impl IndexClient for PortalClient {
         parse_details(&raw)
     }
 
+    async fn mod_changelog(&self, name: &str) -> Result<Vec<ChangelogEntry>, AppError> {
+        let name = name.trim();
+        if !plausible_name(name) {
+            return Err(AppError::NotFound(format!("invalid mod name: {name:?}")));
+        }
+        // HTML page, not an API route — CachedHttp::fetch_text is
+        // content-agnostic (raw String), so the changelog inherits the same
+        // 5-min TTL cache and rate limit as the JSON endpoints.
+        let url = format!(
+            "{PORTAL_SITE_BASE}/mod/{}/changelog",
+            encode_path_component(name)
+        );
+        let request = self.http.get(&url);
+        let html = self
+            .http
+            .fetch_text(&format!("changelog|{name}"), request)
+            .await?;
+        Ok(parse_changelog(&html))
+    }
+
     async fn health_check(&self) -> Result<IndexHealth, AppError> {
         let dump = self.load_dump().await?;
         Ok(IndexHealth {
@@ -599,6 +800,106 @@ mod tests {
         assert!(plausible_name("even-distribution"));
         assert!(plausible_name("Flow Control"));
         assert!(plausible_name("some_mod_2.5"));
+    }
+
+    // -- changelog parsing (A3) --
+
+    /// Realistic excerpt in the exact shape the live portal serves
+    /// (2026-09-18, Krastorio2): two `<pre class="panel-hole-combined">`
+    /// blocks inside surrounding page markup, entities in bullets,
+    /// deep-indented sub-bullets.
+    const CHANGELOG_FIXTURE: &str = r#"<div class="panel-lighter mb0">
+  <h2>Changelog</h2>
+  <pre class="panel-hole-combined">Version: 2.1.2
+Date: 2026-06-28
+  Bugfixes:
+    - Fixed that most crushing recipes were craftable in the assembler. (#735)
+    - Fixed that steel pumps couldn&#39;t connect to fluid wagons.</pre>
+
+  <pre class="panel-hole-combined">Version: 2.0.6
+Date: 2025-06-22
+  Balancing:
+    - BREAKING CHANGE: Fixed early-game recipes:
+      - Replaced electronic circuit with automation core.
+  Compatibility:
+    - Added compatibility with AAI Industry. (#531)
+  Bugfixes:
+    - Fixed the electrolysis plant fluid boxes.</pre>
+
+  <p>No further markup matters.</p>
+</div>"#;
+
+    #[test]
+    fn changelog_parses_versions_sections_and_entities() {
+        let entries = parse_changelog(CHANGELOG_FIXTURE);
+        assert_eq!(entries.len(), 2, "portal order (newest first) is kept");
+        assert_eq!(entries[0].version, "2.1.2");
+        assert_eq!(entries[0].date.as_deref(), Some("2026-06-28"));
+        assert_eq!(entries[0].sections.len(), 1);
+        assert_eq!(entries[0].sections[0].heading, "Bugfixes");
+        assert_eq!(entries[0].sections[0].bullets.len(), 2);
+        assert_eq!(
+            entries[0].sections[0].bullets[1],
+            "Fixed that steel pumps couldn't connect to fluid wagons."
+        );
+        // Sub-bullets flatten into their group; headings stay separate.
+        assert_eq!(entries[1].version, "2.0.6");
+        assert_eq!(entries[1].sections.len(), 3);
+        assert_eq!(entries[1].sections[0].bullets.len(), 2);
+        assert_eq!(
+            entries[1].sections[0].bullets[1],
+            "Replaced electronic circuit with automation core."
+        );
+        assert_eq!(entries[1].sections[2].bullets.len(), 1);
+    }
+
+    #[test]
+    fn changelog_truncated_page_still_yields_what_it_can() {
+        // Live page cut mid-bullet, no closing </pre> at all.
+        let truncated = r#"<pre class="panel-hole-combined">Version: 1.4.0
+Date: 2024-01-05
+  Bugfixes:
+    - Fixed a crash when"#;
+        let entries = parse_changelog(truncated);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].version, "1.4.0");
+        assert_eq!(entries[0].sections[0].bullets, vec!["Fixed a crash when"]);
+    }
+
+    #[test]
+    fn changelog_empty_or_no_block_page_is_empty_list() {
+        // A mod without a changelog serves the page with no <pre> blocks.
+        assert!(parse_changelog("<html><h2>Changelog</h2></html>").is_empty());
+        assert!(parse_changelog("").is_empty());
+    }
+
+    #[test]
+    fn changelog_malformed_blocks_are_skipped_not_panics() {
+        // Blocks without a Version line, a stray <pre> of another class, and
+        // a block with only a heading — none may panic or produce junk.
+        let malformed = r#"<pre class="panel-hole-combined">just some text</pre>
+<pre class="something-else">Version: 9.9.9</pre>
+<pre class="panel-hole-combined">Version: 1.0.0
+  Bugfixes:</pre>"#;
+        let entries = parse_changelog(malformed);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].version, "1.0.0");
+        assert!(entries[0].sections.is_empty(), "empty groups are dropped");
+        assert_eq!(entries[0].date, None);
+    }
+
+    #[test]
+    fn changelog_bullet_before_heading_keeps_a_synthetic_group() {
+        let html = "<pre class=\"panel-hole-combined\">Version: 0.1.0\n- initial release</pre>";
+        let entries = parse_changelog(html);
+        assert_eq!(entries[0].sections[0].heading, "Changes");
+        assert_eq!(entries[0].sections[0].bullets, vec!["initial release"]);
+    }
+
+    #[test]
+    fn changelog_entities_decode_named_numeric_and_pass_unknown() {
+        assert_eq!(decode_entities("a &amp; b &lt;c&gt; &#34;q&#39; &#x27;"), "a & b <c> \"q' '");
+        assert_eq!(decode_entities("100% &tu; &#xZZ;"), "100% &tu; &#xZZ;");
     }
 
     #[test]

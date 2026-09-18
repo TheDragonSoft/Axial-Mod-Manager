@@ -169,6 +169,7 @@ pub fn run() {
             commands::installed::clean_orphans,
             commands::index::search_mods,
             commands::index::get_mod_details,
+            commands::index::get_mod_changelog,
             commands::index::index_health_check,
             commands::downloads::enqueue_download,
             commands::downloads::cancel_download,

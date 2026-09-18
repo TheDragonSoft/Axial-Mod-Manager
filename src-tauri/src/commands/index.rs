@@ -2,7 +2,7 @@ use tauri::State;
 
 use crate::core::services::index_client::SortKey;
 use crate::error::AppError;
-use crate::models::{IndexHealth, ModDetails, SearchResult};
+use crate::models::{ChangelogEntry, IndexHealth, ModDetails, SearchResult};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -33,4 +33,18 @@ pub async fn get_mod_details(
 #[tauri::command]
 pub async fn index_health_check(state: State<'_, AppState>) -> Result<IndexHealth, AppError> {
     state.index.health_check().await
+}
+
+/// Changelog entries for a mod (portal HTML page, newest first). The UI
+/// degrades to a muted "changelog unavailable" on error — no toast.
+#[tauri::command]
+pub async fn get_mod_changelog(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Vec<ChangelogEntry>, AppError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AppError::NotFound("mod name is empty".into()));
+    }
+    state.index.mod_changelog(name).await
 }

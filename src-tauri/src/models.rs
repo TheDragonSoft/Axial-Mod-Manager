@@ -132,6 +132,27 @@ pub struct IndexHealth {
     pub excerpt: String,
 }
 
+// ---- Changelog preview (A3) ----
+
+/// One categorized group of changelog lines ("Bugfixes", "Features", …).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangelogSection {
+    pub heading: String,
+    pub bullets: Vec<String>,
+}
+
+/// One version block of a mod's changelog, newest first (portal order).
+/// Tolerant by design: `date` is None when the page omits it, sections may
+/// be empty when a release has no categorized lines.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangelogEntry {
+    pub version: String,
+    pub date: Option<String>,
+    pub sections: Vec<ChangelogSection>,
+}
+
 // ---- Installed mods (Phase 6) ----
 
 /// One zip in the mods folder. `name`/`version` come from the zip's own
