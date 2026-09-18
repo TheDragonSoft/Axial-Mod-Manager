@@ -57,6 +57,21 @@ pub fn detect_target_version(configured_game_dir: Option<&str>) -> Option<String
     detect().and_then(|g| g.target_version)
 }
 
+/// Does the install's own data dir carry the Space Age expansion? Steam/GOG
+/// DLC installs place it at `<game>/data/space-age` — there are no expansion
+/// zips in any mods directory, so expansion availability must also look here.
+/// Uses the configured install directory when provided, else the detected one.
+pub fn expansion_in_game_data(configured_game_dir: Option<&str>) -> bool {
+    let dir: PathBuf = match configured_game_dir {
+        Some(p) if !p.trim().is_empty() => PathBuf::from(p),
+        _ => match detect() {
+            Some(g) => PathBuf::from(g.install_dir),
+            None => return false,
+        },
+    };
+    dir.join("data").join("space-age").is_dir()
+}
+
 /// Status of a candidate game directory for the Settings UI: plain
 /// exists/is-dir facts plus the install summary when the directory passes
 /// the data/base/info.json gate.
@@ -405,12 +420,41 @@ fn dedup(cands: Vec<(PathBuf, &'static str)>) -> Vec<(PathBuf, &'static str)> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
 
     use super::{
-        parse_library_folders_vdf, parse_log_install_dirs, target_version_from_info_json,
-        target_version_of, version_from_info_json,
+        expansion_in_game_data, parse_library_folders_vdf, parse_log_install_dirs,
+        target_version_from_info_json, target_version_of, version_from_info_json,
     };
+
+    #[test]
+    fn expansion_in_game_data_checks_configured_dir() {
+        let root = std::env::temp_dir().join(format!(
+            "axial-gamedetect-expansion-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("data").join("space-age")).unwrap();
+        fs::create_dir_all(root.join("data").join("base")).unwrap();
+
+        assert!(expansion_in_game_data(Some(root.to_str().unwrap())));
+        assert!(
+            expansion_in_game_data(Some("   ")),
+            "blank config falls through to detect(), which on CI machines finds no install"
+        );
+
+        // Same install without the expansion directory.
+        fs::remove_dir_all(root.join("data").join("space-age")).unwrap();
+        assert!(!expansion_in_game_data(Some(root.to_str().unwrap())));
+
+        // Nonexistent configured dir can't have the expansion.
+        assert!(!expansion_in_game_data(Some("Z:/definitely/not/factorio")));
+
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn extracts_target_version_from_info_json_fixture() {

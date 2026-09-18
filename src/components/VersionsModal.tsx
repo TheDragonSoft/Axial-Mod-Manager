@@ -129,6 +129,25 @@ export default function VersionsModal({
           </div>
         ))}
 
+      {/* Changelog preview for the newest release (A3) — above the version
+          list so it's visible without scrolling past dozens of releases.
+          Failures degrade to a muted inline note — never a toast. */}
+      {newestChangelog && (
+        <div className="mb-3 border-b border-line pb-3">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400">
+            What's new in v{newestChangelog.version}
+          </p>
+          <ChangelogView entries={[newestChangelog]} />
+        </div>
+      )}
+      {changelog !== undefined && details !== null && !newestChangelog && (
+        <p className="mb-3 text-xs italic text-stone-400">
+          {changelog === null
+            ? "Changelog unavailable"
+            : "No changelog entries for the newest release"}
+        </p>
+      )}
+
       {details && (
         <ul className="divide-y divide-line rounded-lg border border-line">
           {releases.map((r) => {
@@ -170,24 +189,6 @@ export default function VersionsModal({
             );
           })}
         </ul>
-      )}
-
-      {/* Changelog preview for the newest release (A3). Failures degrade to
-          a muted inline note — never a toast. */}
-      {newestChangelog && (
-        <div className="mt-4 border-t border-line pt-3">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400">
-            What's new in v{newestChangelog.version}
-          </p>
-          <ChangelogView entries={[newestChangelog]} />
-        </div>
-      )}
-      {changelog !== undefined && details !== null && !newestChangelog && (
-        <p className="mt-4 text-xs italic text-stone-400">
-          {changelog === null
-            ? "Changelog unavailable"
-            : "No changelog entries for the newest release"}
-        </p>
       )}
     </Modal>
   );

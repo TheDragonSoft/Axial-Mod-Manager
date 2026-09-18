@@ -12,6 +12,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::config::Config;
 use crate::core::services::downloader::plausible_version;
+use crate::core::services::game_detect;
 use crate::core::services::mod_store;
 use crate::core::services::portal_client::plausible_name;
 use crate::error::AppError;
@@ -327,21 +328,38 @@ pub fn compose_entries(
 /// Pure: the desired mod-list entries for the Vanilla pseudo-packs against the
 /// mod names currently on disk. Every disk mod is disabled except `base`
 /// (always enabled) and — with `expansion` set — the expansion mods that are
-/// actually present.
+/// actually present. With `game_data_expansion` set (Steam/GOG DLC layout: the
+/// expansion lives in the game's `data/space-age`, with no zips in any mods
+/// dir), explicit entries are written for the expansion mods even though no
+/// zips exist — Factorio treats unlisted built-ins as enabled, so plain
+/// Vanilla must list them *disabled* or the game boots the expansion anyway
+/// (the original bug report).
 ///
 /// Entries are derived from disk state, not from the flag alone: with
-/// `expansion` set but no expansion zips on disk, nothing extra is enabled
-/// (the expansion-zip-absent fallback — Factorio treats unlisted disk mods as
-/// enabled, so a target state built only from disk names is what makes
-/// "Vanilla" actually mean vanilla).
-pub fn vanilla_entries(disk_names: &HashSet<String>, expansion: bool) -> Vec<(String, bool)> {
+/// `expansion` set but no expansion zips on disk and no game-data expansion,
+/// nothing extra is enabled (the expansion-zip-absent fallback — Factorio
+/// treats unlisted disk mods as enabled, so a target state built only from
+/// disk names is what makes "Vanilla" actually mean vanilla).
+pub fn vanilla_entries(
+    disk_names: &HashSet<String>,
+    game_data_expansion: bool,
+    expansion: bool,
+) -> Vec<(String, bool)> {
     let mut entries: Vec<(String, bool)> = vec![("base".to_string(), true)];
-    let mut extras: Vec<&String> = disk_names.iter().filter(|n| **n != "base").collect();
-    extras.sort();
-    for n in extras {
-        let enabled = expansion && EXPANSION_MODS.contains(&n.as_str());
-        entries.push((n.clone(), enabled));
+    let mut extras: Vec<(String, bool)> = disk_names
+        .iter()
+        .filter(|n| **n != "base")
+        .map(|n| (n.clone(), expansion && EXPANSION_MODS.contains(&n.as_str())))
+        .collect();
+    if game_data_expansion {
+        for name in EXPANSION_MODS {
+            if !disk_names.contains(name) {
+                extras.push((name.to_string(), expansion));
+            }
+        }
     }
+    extras.sort_by(|a, b| a.0.cmp(&b.0));
+    entries.extend(extras);
     entries
 }
 
@@ -352,13 +370,16 @@ fn expansion_present(disk_names: &HashSet<String>) -> bool {
 }
 
 /// Which built-in vanilla flavors the current mods dir supports. Blocking
-/// (scans zips) — call from a worker thread.
+/// (scans zips) — call from a worker thread. The expansion is available when
+/// its zip sits in the mods dir OR the game install carries it in its own
+/// data dir (Steam/GOG DLC layout).
 pub fn vanilla_info(config: &Config, zip_cache: &mod_store::ZipInfoCache) -> Result<VanillaInfo, AppError> {
     let dir = mod_store::resolve_dir(config)?;
     let snapshot = mod_store::scan_installed(&dir, zip_cache);
     let disk_names: HashSet<String> = snapshot.mods.iter().map(|m| m.name.clone()).collect();
     Ok(VanillaInfo {
-        expansion_available: expansion_present(&disk_names),
+        expansion_available: expansion_present(&disk_names)
+            || game_detect::expansion_in_game_data(config.game_dir.as_deref()),
     })
 }
 
@@ -690,7 +711,14 @@ pub async fn activate_vanilla<R: tauri::Runtime>(
 
     // The `?` returns before anything is persisted: `active_pack_id` only
     // becomes the vanilla flavor after the mods-dir write actually succeeded.
-    mod_store::replace_mod_list(&mods_dir, &vanilla_entries(&disk_names, expansion))?;
+    // The game-data flag keeps Steam/GOG DLC installs correct: their expansion
+    // has no mods-dir zips, so without explicit entries the unlisted built-ins
+    // would stay enabled in plain Vanilla.
+    let game_data_expansion = game_detect::expansion_in_game_data(config.game_dir.as_deref());
+    mod_store::replace_mod_list(
+        &mods_dir,
+        &vanilla_entries(&disk_names, game_data_expansion, expansion),
+    )?;
 
     // Flavor is chosen by the flag (the UI only offers the Space Age flavor
     // when the expansion zip is present); the entries above already degrade
@@ -786,7 +814,7 @@ mod tests {
     #[test]
     fn vanilla_entries_disable_everything_except_base() {
         let disk = set(&["base", "ModA", "space-age", "quality"]);
-        let entries = vanilla_entries(&disk, false);
+        let entries = vanilla_entries(&disk, false, false);
         assert_eq!(entries[0], ("base".to_string(), true), "base first and enabled");
         assert!(entries.contains(&("ModA".to_string(), false)));
         assert!(entries.contains(&("space-age".to_string(), false)), "plain vanilla keeps the expansion off");
@@ -796,7 +824,7 @@ mod tests {
     #[test]
     fn vanilla_entries_with_expansion_keep_only_expansion_mods_on() {
         let disk = set(&["base", "ModA", "space-age", "quality"]);
-        let entries = vanilla_entries(&disk, true);
+        let entries = vanilla_entries(&disk, false, true);
         assert_eq!(entries[0], ("base".to_string(), true));
         assert!(entries.contains(&("space-age".to_string(), true)));
         assert!(entries.contains(&("quality".to_string(), true)), "quality is a hard dep of space-age");
@@ -806,10 +834,41 @@ mod tests {
     #[test]
     fn vanilla_entries_fall_back_when_expansion_zip_absent() {
         let disk = set(&["base", "ModA"]);
-        let entries = vanilla_entries(&disk, true);
+        let entries = vanilla_entries(&disk, false, true);
         assert_eq!(entries[0], ("base".to_string(), true));
         assert!(entries.contains(&("ModA".to_string(), false)));
         assert_eq!(entries.len(), 2, "no phantom entries for zips that aren't on disk");
+    }
+
+    #[test]
+    fn vanilla_entries_game_data_expansion_listed_disabled_without_zips() {
+        // Steam/GOG DLC layout regression (the original bug report): the
+        // expansion lives in the game's data dir with NO mods-dir zips. Plain
+        // Vanilla must still write the entries — disabled — because Factorio
+        // treats unlisted built-ins as enabled.
+        let disk = set(&["base", "ModA"]);
+        let entries = vanilla_entries(&disk, true, false);
+        assert!(entries.contains(&("space-age".to_string(), false)), "{entries:?}");
+        assert!(entries.contains(&("quality".to_string(), false)), "{entries:?}");
+        assert!(entries.contains(&("ModA".to_string(), false)));
+        assert_eq!(entries.len(), 4);
+    }
+
+    #[test]
+    fn vanilla_entries_game_data_expansion_enabled_for_space_age_flavor() {
+        let disk = set(&["base", "ModA"]);
+        let entries = vanilla_entries(&disk, true, true);
+        assert!(entries.contains(&("space-age".to_string(), true)), "{entries:?}");
+        assert!(entries.contains(&("quality".to_string(), true)), "{entries:?}");
+        assert!(entries.contains(&("ModA".to_string(), false)));
+    }
+
+    #[test]
+    fn vanilla_entries_no_duplicates_when_expansion_zip_and_game_data_both_present() {
+        let disk = set(&["base", "space-age", "quality"]);
+        let entries = vanilla_entries(&disk, true, true);
+        assert_eq!(entries.len(), 3, "zip entries win; no virtual duplicates: {entries:?}");
+        assert!(entries.iter().filter(|(n, _)| n == "space-age").count() == 1);
     }
 
     #[test]
@@ -834,7 +893,7 @@ mod tests {
         let disk_names: HashSet<String> = snapshot.mods.iter().map(|m| m.name.clone()).collect();
         assert!(disk_names.contains("space-age"), "zip must be found on disk");
 
-        mod_store::replace_mod_list(&dir, &vanilla_entries(&disk_names, false)).unwrap();
+        mod_store::replace_mod_list(&dir, &vanilla_entries(&disk_names, false, false)).unwrap();
         let read_entries = |path: &PathBuf| -> Vec<(String, bool)> {
             let raw = fs::read_to_string(path).unwrap();
             serde_json::from_str::<serde_json::Value>(&raw)
@@ -862,7 +921,7 @@ mod tests {
         );
 
         // Expansion flavor keeps the bundled expansion on.
-        mod_store::replace_mod_list(&dir, &vanilla_entries(&disk_names, true)).unwrap();
+        mod_store::replace_mod_list(&dir, &vanilla_entries(&disk_names, false, true)).unwrap();
         let entries = read_entries(&ml);
         assert!(entries.contains(&("space-age".to_string(), true)));
         assert!(entries.contains(&("ModA".to_string(), false)));
