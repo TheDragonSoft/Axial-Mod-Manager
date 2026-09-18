@@ -4,14 +4,26 @@ A desktop mod manager for [Factorio](https://www.factorio.com/), built with Taur
 
 Axial lets you browse the official Factorio mod portal, install and update mods directly into your game's mods directory, resolve full dependency trees before installing, and organize mod sets into portable "packs" you can export, import, and activate in one click.
 
+| Dashboard | Browse |
+| --- | --- |
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Browse](docs/screenshots/browse.png) |
+| **Install with a reviewed plan** | |
+| ![Install dialog](docs/screenshots/install-plan.png) | |
+
 ## Features
 
-- **Browse & search** the official mod portal (`mods.factorio.com`) with sorting, pagination, and a details view
+- **Dashboard** — live stats (installed mods, updates, packs, storage), system status of your setup, and session activity
+- **Browse & search** the official mod portal (`mods.factorio.com`) with portal thumbnails, favorites, lazy mod summaries, and a details view
 - **Dependency resolution** — parses every Factorio dependency prefix (`?` optional, `!` incompatible, `~` hidden-required, `+` recommended) and builds a reviewable install plan (install / satisfied / optional / conflicts / warnings) before anything is touched
+- **Integrity first** — every download is verified against the SHA1 hash the portal publishes for that release; a wrong-version leftover after a failed download is disabled and reported, never silently enabled
 - **Download queue** with live progress, cancel, retry with backoff for transient failures, and crash recovery (interrupted downloads are re-enqueued on the next launch)
-- **Installed-mod management** — enable/disable via Factorio's `mod-list.json`, uninstall, and per-OS auto-detection of the mods directory
-- **Updates** — checks installed mods against the newest release compatible with your target game version, with bulk update and per-mod version picking
-- **Mod packs** — snapshot your installed set or hand-pick mods into a manifest, export/import it, and activate it: Axial diffs the target state against what's installed and downloads whatever is missing
+- **Installed-mod management** — enable/disable via Factorio's `mod-list.json`, expandable rows with summaries and changelog deltas, uninstall with a reverse-dependency guard ("Removing X leaves N mods broken"), and per-OS auto-detection of the mods directory
+- **External change sync** — a watcher notices when the game or you edit `mod-list.json` or drop zips into the mods dir and refreshes automatically
+- **Mod packs** — snapshot your installed set or hand-pick mods into a manifest, export/import it via a shareable code, and activate it: Axial diffs the target state against what's installed and downloads whatever is missing. Built-in **Vanilla** and **Vanilla: Space Age** modes reconcile everything else away (correct on Steam/GOG DLC installs too)
+- **Updates** — checks installed mods against the newest release compatible with your target game version, with bulk update, per-mod version picking, and changelog previews; Axial updates itself through a signed in-app updater
+- **Command palette** (Ctrl+K) — navigate, toggle mods, activate packs, launch the game, jump to a portal search
+- **Launch Factorio** — one click from the sidebar, no manual target-version setup (auto-detected)
+- **Storage hygiene** — mods-directory size report with orphan detection (unreferenced zips, `.part` debris) and a guarded one-click cleanup
 - **Operational polish** — file logging with rotation, atomic settings persistence, and mods-directory validation before any writes
 
 ## Tech stack
@@ -101,7 +113,7 @@ It contains `settings.json`, your pack manifests (`profiles/`), and logs (`logs/
 
 ## A note on downloads
 
-Mod metadata comes from the official portal API (read-only, no authentication). Mod archives are downloaded from a community mirror (`mods-storage.re146.dev`) because official downloads require portal authentication. Every archive is verified against the SHA1 hash published for that release by the official portal before it reaches your mods directory. As with any third-party source, exercise normal caution with the mods you install.
+Mod metadata comes from the official portal API (read-only, no authentication). Mod archives are downloaded from a community mirror (`mods-storage.re146.dev`) because official downloads require portal authentication. Every archive is verified against the SHA1 hash published for that release by the official portal before it reaches your mods directory. In-app auto-updates (Windows) are cryptographically signed with Axial's release key. As with any third-party source, exercise normal caution with the mods you install.
 
 ## License
 
