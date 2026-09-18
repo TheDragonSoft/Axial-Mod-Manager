@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import Sidebar from "./components/Sidebar";
 import QueueDrawer from "./components/QueueDrawer";
+import CommandPalette from "./components/CommandPalette";
 import DashboardPage from "./pages/DashboardPage";
 import Spinner from "./components/ui/Spinner";
 import { useAppStore, type Tab } from "./store/useAppStore";
@@ -154,6 +155,8 @@ export default function App() {
         </div>
       </main>
       <QueueDrawer />
+      {/* Global Ctrl+K verb launcher — self-contained, no backend surface. */}
+      <CommandPalette />
     </div>
   );
 }

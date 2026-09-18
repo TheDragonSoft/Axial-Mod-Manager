@@ -3,12 +3,7 @@ import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 import { clsx } from "clsx";
 import { X } from "lucide-react";
-
-/**
- * Module-level stack of currently open modals so Escape only closes the
- * topmost one (e.g. if a modal ever stacks above the InstallModal).
- */
-const openStack: symbol[] = [];
+import { isTopOverlay, popOverlay, pushOverlay } from "./overlayStack";
 
 const SIZES = {
   sm: "max-w-md",
@@ -47,11 +42,13 @@ export default function Modal({
   useEffect(() => {
     if (!open) return;
     const me = token.current;
-    openStack.push(me);
+    // Shared overlay stack (also used by the command palette) so Escape only
+    // closes the topmost layer.
+    pushOverlay(me);
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
     const onKey = (e: KeyboardEvent) => {
-      if (openStack[openStack.length - 1] !== me) return;
+      if (!isTopOverlay(me)) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
@@ -78,8 +75,7 @@ export default function Modal({
     panelRef.current?.focus();
     return () => {
       document.removeEventListener("keydown", onKey, true);
-      const i = openStack.indexOf(me);
-      if (i !== -1) openStack.splice(i, 1);
+      popOverlay(me);
       previouslyFocused?.focus();
     };
   }, [open, onClose]);

@@ -186,6 +186,12 @@ export default function SettingsPage() {
   // Deep-linkable: the store keeps the last-open section so other pages
   // (Dashboard storage card) can land straight on Storage.
   const [section, setSection] = useState<Section>(settingsSection);
+  // Deep-links that arrive while Settings is already mounted (command palette).
+  // Internal switches go through switchSection, which keeps the store in sync,
+  // so this only ever reacts to external writes.
+  useEffect(() => {
+    setSection(settingsSection);
+  }, [settingsSection]);
   const [modsDirInput, setModsDirInput] = useState("");
   const [gameDirInput, setGameDirInput] = useState("");
   const [logLevel, setLogLevel] = useState("info");
