@@ -18,6 +18,7 @@ import type {
   SearchResult,
   Settings,
   SortKey,
+  UninstallResult,
   UpdatesReport,
   VanillaInfo,
 } from "../types";
@@ -118,8 +119,14 @@ export async function toggleMod(name: string, enabled: boolean): Promise<void> {
   return invoke<void>("toggle_mod", { name, enabled });
 }
 
-export async function uninstallMod(fileName: string): Promise<void> {
-  return invoke<void>("uninstall_mod", { fileName });
+/** Dependents that would be left broken by removing this mod — fetched for
+ * the uninstall confirm step before the user commits. */
+export async function uninstallImpact(fileName: string): Promise<string[]> {
+  return invoke<string[]>("uninstall_impact", { fileName });
+}
+
+export async function uninstallMod(fileName: string): Promise<UninstallResult> {
+  return invoke<UninstallResult>("uninstall_mod", { fileName });
 }
 
 // ---- Dependencies (Phase 7) ----

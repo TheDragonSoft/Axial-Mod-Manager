@@ -9,6 +9,7 @@ use serde_json::json;
 
 use crate::config::Config;
 use crate::core::services::game_detect;
+use crate::core::services::resolver;
 use crate::error::AppError;
 use crate::models::{
     DetectedDir, DetectedGame, DetectionStatus, InstalledMod, InstalledSnapshot, ModsDirStatus,
@@ -712,6 +713,21 @@ pub fn uninstall(dir: &Path, file_name: &str, cache: &ZipInfoCache) -> Result<St
     Ok(name)
 }
 
+/// Installed mods that would be left broken by removing `file_name` (A2):
+/// every other installed mod declaring a required dependency on it. Must be
+/// called BEFORE `uninstall` deletes the zip — the impact is computed from a
+/// scan that still contains the mod. With a warm cache the scan is
+/// metadata-only.
+pub fn uninstall_impact(
+    dir: &Path,
+    file_name: &str,
+    cache: &ZipInfoCache,
+) -> Result<Vec<String>, AppError> {
+    let name = mod_name_of(dir, file_name, cache)?;
+    let snapshot = scan_installed(dir, cache);
+    Ok(resolver::reverse_dependents(&snapshot.mods, &name))
+}
+
 /// Atomically replace mod-list.json's `mods` array with `entries`.
 /// A canonical enabled `base` entry is always kept first; other top-level
 /// keys in the file are preserved. Corrupt files refuse to load (same policy
@@ -1000,5 +1016,32 @@ mod tests {
 
         let err2 = decide_mods_dir(None, None, None).unwrap_err();
         assert_eq!(err2.kind(), "not_found");
+    }
+
+    #[test]
+    fn uninstall_impact_lists_required_dependents_from_zip_info() {
+        let dir = unique_dir("uninstall-impact");
+        write_zip(
+            &dir.join("Lib_1.0.0.zip"),
+            r#"{"name":"Lib","version":"1.0.0","factorio_version":"2.0","dependencies":["base"]}"#,
+        );
+        write_zip(
+            &dir.join("Hard_1.0.0.zip"),
+            r#"{"name":"Hard","version":"1.0.0","factorio_version":"2.0","dependencies":["Lib >= 1.0.0"]}"#,
+        );
+        // Optional dependency: survives the removal, must not be listed.
+        write_zip(
+            &dir.join("Soft_1.0.0.zip"),
+            r#"{"name":"Soft","version":"1.0.0","factorio_version":"2.0","dependencies":["? Lib"]}"#,
+        );
+        let cache = ZipInfoCache::new();
+
+        let impact = uninstall_impact(&dir, "Lib_1.0.0.zip", &cache).unwrap();
+        assert_eq!(impact, vec!["Hard".to_string()]);
+
+        // Missing zip still errors like the uninstall path would.
+        assert!(uninstall_impact(&dir, "Nope_1.0.0.zip", &cache).is_err());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

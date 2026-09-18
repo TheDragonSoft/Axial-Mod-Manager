@@ -157,6 +157,17 @@ pub struct InstalledSnapshot {
     pub mods: Vec<InstalledMod>,
 }
 
+/// Result of uninstalling one mod: its resolved name plus the installed mods
+/// that declared a required dependency on it (A2 reverse-dependency impact).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UninstallResult {
+    pub name: String,
+    /// Dependents left broken by the removal; empty when nothing required it
+    /// or no dependency info was available.
+    pub dependents: Vec<String>,
+}
+
 // ---- Dependency resolution (Phase 7) ----
 
 #[derive(Debug, Clone, Serialize)]

@@ -273,6 +273,38 @@ pub async fn resolve(
     Ok(plan)
 }
 
+/// Reverse-dependency impact (A2): the installed mods that would be left
+/// broken if `name` were removed — every other installed mod whose parsed
+/// dependency strings require it. Only Required / HiddenRequired (`~`) edges
+/// break on removal; optional (`?`) and incompatible (`!`) declarations are
+/// unaffected. A pure reverse-edge computation over already-parsed data, so
+/// dependency cycles need no traversal guard.
+///
+/// Dependency info comes from each installed zip's own info.json (via the
+/// scan), which is authoritative for the release actually on disk — the
+/// mirror enrichment the resolver uses only covers *portal* release lookups.
+/// A mod with no dependency info contributes no edges: unknown impact
+/// degrades to an empty list, same graceful rule as deps_known=false.
+pub fn reverse_dependents(installed: &[InstalledMod], name: &str) -> Vec<String> {
+    use crate::core::services::deps::DepKind;
+
+    let mut dependents: Vec<String> = installed
+        .iter()
+        .filter(|m| m.name != name)
+        .filter(|m| {
+            m.dependencies.iter().any(|raw| {
+                let dep = parse_dependency(raw);
+                matches!(dep.kind, DepKind::Required | DepKind::HiddenRequired) && dep.name == name
+            })
+        })
+        .map(|m| m.name.clone())
+        .collect();
+    // Multiple zips of the same mod (duplicate installs) are one impact entry.
+    dependents.sort();
+    dependents.dedup();
+    dependents
+}
+
 // ---------------------------------------------------------------------------
 // Tests against a mock index
 // ---------------------------------------------------------------------------
@@ -450,6 +482,71 @@ mod tests {
         let names: Vec<&str> = plan.to_install.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, vec!["a", "b"]);
         assert!(plan.to_install.iter().all(|e| e.deps_known));
+    }
+
+    // ---- reverse_dependents (A2 uninstall impact) ----
+
+    fn installed_with_deps(name: &str, deps: &[&str]) -> InstalledMod {
+        let mut m = make_installed(name, "1.0.0", "2.0");
+        m.dependencies = deps.iter().map(|d| d.to_string()).collect();
+        m
+    }
+
+    #[tokio::test]
+    async fn impact_fan_out_lists_all_required_dependents() {
+        let installed = vec![
+            installed_with_deps("lib", &["base"]),
+            installed_with_deps("a", &["lib >= 1.0.0"]),
+            installed_with_deps("b", &["lib"]),
+            installed_with_deps("c", &["~ lib"]),
+            // Optional and incompatible edges survive the removal.
+            installed_with_deps("d", &["? lib", "! other"]),
+            // Dependents of something else entirely.
+            installed_with_deps("e", &["a"]),
+        ];
+        let mut hit = reverse_dependents(&installed, "lib");
+        hit.sort();
+        assert_eq!(hit, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert!(reverse_dependents(&installed, "a").contains(&"e".to_string()));
+        // Only "lib" (its own dependency list) requires base.
+        assert_eq!(reverse_dependents(&installed, "base"), vec!["lib".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn impact_handles_cycles_and_self_edges() {
+        // Mutual requirement: uninstalling either side breaks exactly the other.
+        let installed = vec![
+            installed_with_deps("a", &["b"]),
+            installed_with_deps("b", &["a"]),
+        ];
+        assert_eq!(reverse_dependents(&installed, "a"), vec!["b".to_string()]);
+        assert_eq!(reverse_dependents(&installed, "b"), vec!["a".to_string()]);
+
+        // Duplicate zips of one dependent collapse to a single entry; a mod
+        // depending on itself is not its own impact.
+        let dup = vec![
+            installed_with_deps("lib", &["base"]),
+            installed_with_deps("a", &["lib", "lib >= 2.0.0"]),
+            installed_with_deps("a", &["lib"]), // second version of the same mod
+            installed_with_deps("selfish", &["selfish"]),
+        ];
+        assert_eq!(reverse_dependents(&dup, "lib"), vec!["a".to_string()]);
+        assert!(reverse_dependents(&dup, "selfish").is_empty());
+    }
+
+    #[tokio::test]
+    async fn impact_only_counts_breaking_dependency_kinds() {
+        let installed = vec![
+            installed_with_deps("hidden", &["~ lib"]),
+            installed_with_deps("optional", &["? lib"]),
+            installed_with_deps("hidden_optional", &["(?) lib"]),
+            installed_with_deps("recommended", &["+ lib"]),
+            installed_with_deps("incompatible", &["! lib"]),
+            installed_with_deps("hidden_incompatible", &["(!) lib"]),
+            // No dependency info at all (unreadable zip): no edges, no noise.
+            make_installed("unknown", "1.0.0", "2.0"),
+        ];
+        assert_eq!(reverse_dependents(&installed, "lib"), vec!["hidden".to_string()]);
     }
 
     #[tokio::test]

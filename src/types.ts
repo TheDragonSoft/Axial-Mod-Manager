@@ -133,6 +133,13 @@ export interface InstalledSnapshot {
   mods: InstalledMod[];
 }
 
+/** Result of uninstalling one mod; `dependents` lists the installed mods its
+ * removal leaves broken (reverse-dependency impact). */
+export interface UninstallResult {
+  name: string;
+  dependents: string[];
+}
+
 // ---- Download queue (mocked in Phase 2, fed by Rust events in Phase 5) ----
 
 export type QueueStatus =
