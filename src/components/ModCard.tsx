@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Download, Heart } from "lucide-react";
 import type { ModSummary } from "../types";
 import { formatCount } from "../lib/format";
@@ -19,7 +20,11 @@ interface ModCardProps {
   onInstall?: (mod: ModSummary) => void;
 }
 
-export default function ModCard({
+/**
+ * Memoized ModCard component to prevent unnecessary re-renders of search result cards
+ * when parent components (e.g., BrowsePage) re-render on search input keystrokes.
+ */
+export default memo(function ModCard({
   mod,
   targetVersion = null,
   onOpen,
@@ -120,4 +125,4 @@ export default function ModCard({
       </div>
     </Card>
   );
-}
+});
