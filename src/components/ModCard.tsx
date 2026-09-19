@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Download, Heart } from "lucide-react";
 import type { ModSummary } from "../types";
 import { formatCount } from "../lib/format";
@@ -19,7 +20,7 @@ interface ModCardProps {
   onInstall?: (mod: ModSummary) => void;
 }
 
-export default function ModCard({
+function ModCard({
   mod,
   targetVersion = null,
   onOpen,
@@ -121,3 +122,6 @@ export default function ModCard({
     </Card>
   );
 }
+
+/** Memoized to prevent unnecessary re-renders when parent component state updates or sibling cards change */
+export default memo(ModCard);

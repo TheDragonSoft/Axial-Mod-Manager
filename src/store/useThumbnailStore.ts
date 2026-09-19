@@ -9,5 +9,9 @@ interface ThumbnailState {
 export const useThumbnailStore = create<ThumbnailState>((set) => ({
   urls: {},
   setResolved: (name, url) =>
-    set((s) => ({ urls: { ...s.urls, [name]: url } })),
+    set((s) => {
+      // Skip state update and subscriber re-renders if the URL for this mod hasn't changed
+      if (s.urls[name] === url) return s;
+      return { urls: { ...s.urls, [name]: url } };
+    }),
 }));
