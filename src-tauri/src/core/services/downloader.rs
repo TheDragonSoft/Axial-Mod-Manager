@@ -296,6 +296,31 @@ async fn run_job(
                     item.status = "completed";
                     item.received = total;
                     item.total = total;
+                    // Reference the landed zip in mod-list.json (enabled) so a
+                    // fresh standalone install is not classified as an
+                    // unreferenced orphan before the game next launches. Pack
+                    // activations already wrote their target state, so their
+                    // entries exist and this is a no-op. Best-effort: a corrupt
+                    // mod-list.json must not fail a finished download.
+                    {
+                        let dir = mods_dir.clone();
+                        let name = item.mod_name.clone();
+                        match tauri::async_runtime::spawn_blocking(move || {
+                            crate::core::services::mod_store::ensure_mod_entry(&dir, &name)
+                        })
+                        .await
+                        {
+                            Ok(Ok(())) => {}
+                            Ok(Err(e)) => tracing::warn!(
+                                mod = %item.mod_name,
+                                "could not add mod-list.json entry after download: {e}"
+                            ),
+                            Err(e) => tracing::warn!(
+                                mod = %item.mod_name,
+                                "could not add mod-list.json entry after download: {e}"
+                            ),
+                        }
+                    }
                     let _ = app.emit(
                         "installed-changed",
                         InstalledChangedPayload {

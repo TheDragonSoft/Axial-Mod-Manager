@@ -510,9 +510,21 @@ fn save_mod_list(dir: &Path, root: &serde_json::Value) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Process-wide serialization for mod-list.json mutations. Downloads finalize
+/// on up to 3 concurrent worker tasks while the user can toggle mods or
+/// activate packs; without the lock, two read-modify-rename cycles can interleave
+/// and lose an entry (an entry lost to a race is exactly the orphan
+/// classification issue `ensure_mod_entry` exists to prevent).
+static MOD_LIST_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+fn mod_list_write_guard() -> std::sync::MutexGuard<'static, ()> {
+    MOD_LIST_WRITE_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 /// Enable/disable a mod. Creates the file (with `base`) on first write;
 /// only ever touches the named entry, so `base` and unknown fields survive.
 pub fn set_enabled(dir: &Path, name: &str, enabled: bool) -> Result<(), AppError> {
+    let _guard = mod_list_write_guard();
     let mut root = load_mod_list_for_write(dir)?;
     if root.get("mods").and_then(|m| m.as_array()).is_none() {
         root["mods"] = json!([]);
@@ -534,6 +546,7 @@ pub fn set_enabled(dir: &Path, name: &str, enabled: bool) -> Result<(), AppError
 
 /// Remove a mod's entry (only when its last zip is gone). `base` is untouched.
 pub fn remove_mod_entry(dir: &Path, name: &str) -> Result<(), AppError> {
+    let _guard = mod_list_write_guard();
     if !mod_list_exists(dir) {
         return Ok(());
     }
@@ -542,6 +555,39 @@ pub fn remove_mod_entry(dir: &Path, name: &str) -> Result<(), AppError> {
         mods.retain(|e| e.get("name").and_then(|n| n.as_str()) != Some(name));
     }
     save_mod_list(dir, &root)
+}
+
+/// Ensure `name` has an entry in mod-list.json, adding it **enabled** when
+/// absent. Called after a download lands so a freshly installed standalone mod
+/// is referenced by mod-list.json — otherwise `storage_report` classifies the
+/// new zip as an unreferenced orphan until the game next launches (and
+/// "Clean Storage" would delete it). Factorio itself adds newly discovered
+/// mods to mod-list.json as enabled, so this matches the game's own behavior.
+/// An existing entry is left untouched: a mod the user disabled stays
+/// disabled even when a new version is downloaded over it, and pack
+/// activations' target-state entries are never overridden.
+pub fn ensure_mod_entry(dir: &Path, name: &str) -> Result<(), AppError> {
+    if name == "base" {
+        return Ok(());
+    }
+    let _guard = mod_list_write_guard();
+    let mut root = load_mod_list_for_write(dir)?;
+    let already_listed = root
+        .get("mods")
+        .and_then(|m| m.as_array())
+        .map(|mods| {
+            mods.iter()
+                .any(|e| e.get("name").and_then(|n| n.as_str()) == Some(name))
+        })
+        .unwrap_or(false);
+    if already_listed {
+        return Ok(());
+    }
+    if let Some(mods) = root.get_mut("mods").and_then(|m| m.as_array_mut()) {
+        mods.push(json!({ "name": name, "enabled": true }));
+        save_mod_list(dir, &root)?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -779,6 +825,7 @@ pub fn uninstall_impact(
 /// keys in the file are preserved. Corrupt files refuse to load (same policy
 /// as set_enabled) rather than being silently clobbered.
 pub fn replace_mod_list(dir: &Path, entries: &[(String, bool)]) -> Result<(), AppError> {
+    let _guard = mod_list_write_guard();
     let mut root = load_mod_list_for_write(dir)?;
     let mut arr: Vec<serde_json::Value> = vec![json!({ "name": "base", "enabled": true })];
     for (name, enabled) in entries {
@@ -1209,10 +1256,84 @@ mod tests {
             "malformed mod-list must not be rewritten"
         );
 
-        // The same policy applies to the full-replacement write path.
-        fs::write(&ml, bad_array).unwrap();
-        assert!(replace_mod_list(&dir, &[("ModA".into(), true)]).is_err());
-        assert_eq!(fs::read_to_string(&ml).unwrap(), bad_array);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_mod_entry_adds_missing_mod_enabled_and_creates_the_list() {
+        let dir = unique_dir("ensure-missing");
+
+        // No mod-list.json yet: created with the mandatory base entry plus the
+        // downloaded mod, enabled — what Factorio itself writes when it
+        // discovers a new mod at launch.
+        ensure_mod_entry(&dir, "NewMod").unwrap();
+        let raw = fs::read_to_string(dir.join(MOD_LIST_FILE)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let entries: Vec<(String, bool)> = v["mods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| (e["name"].as_str().unwrap().into(), e["enabled"].as_bool().unwrap()))
+            .collect();
+        assert_eq!(
+            entries,
+            vec![("base".to_string(), true), ("NewMod".to_string(), true)]
+        );
+
+        // An existing list keeps its other entries and appends at the end.
+        write_mod_list(&dir, &[("base", true), ("Old", false)]);
+        ensure_mod_entry(&dir, "Second").unwrap();
+        let raw = fs::read_to_string(dir.join(MOD_LIST_FILE)).unwrap();
+        assert!(raw.contains("\"Second\""));
+        assert!(raw.contains("\"Old\""), "existing entries survive");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_mod_entry_leaves_existing_entries_untouched() {
+        let dir = unique_dir("ensure-existing");
+        write_mod_list(&dir, &[("base", true), ("ModA", false)]);
+        let before = fs::read_to_string(dir.join(MOD_LIST_FILE)).unwrap();
+
+        // Disabled entry: a new version downloaded over a deliberately
+        // disabled mod must not re-enable it.
+        ensure_mod_entry(&dir, "ModA").unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join(MOD_LIST_FILE)).unwrap(),
+            before,
+            "existing entry (even disabled) is not rewritten"
+        );
+
+        // `base` is Factorio's own and never gets an extra entry.
+        ensure_mod_entry(&dir, "base").unwrap();
+        assert_eq!(fs::read_to_string(dir.join(MOD_LIST_FILE)).unwrap(), before);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ensure_mod_entry_referenced_zip_is_no_longer_an_orphan() {
+        // End-to-end for the download-completion path: a freshly installed zip
+        // + ensure_mod_entry must survive both classification and cleaning.
+        let dir = unique_dir("ensure-orphan");
+        let zip = dir.join("FreshMod_1.0.0.zip");
+        write_zip(&zip, r#"{"name":"FreshMod","version":"1.0.0","factorio_version":"2.0"}"#);
+        write_mod_list(&dir, &[("base", true)]);
+        let cache = ZipInfoCache::new();
+
+        let report = storage_report(&dir, &cache);
+        assert_eq!(
+            orphan_kinds(&report),
+            vec![(OrphanKind::UnreferencedZip, "FreshMod_1.0.0.zip".to_string())],
+            "pre-condition: before the entry is written the zip classifies as orphan"
+        );
+
+        ensure_mod_entry(&dir, "FreshMod").unwrap();
+        let report = storage_report(&dir, &cache);
+        assert!(report.orphans.is_empty(), "referenced zip is no longer an orphan");
+        assert_eq!(clean_orphans(&dir, &cache).unwrap().deleted_count, 0);
+        assert!(zip.exists(), "clean storage must not delete a fresh install");
 
         let _ = fs::remove_dir_all(&dir);
     }

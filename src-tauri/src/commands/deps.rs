@@ -18,7 +18,7 @@ pub async fn resolve_install_plan(
         return Err(AppError::NotFound(format!("invalid mod name: {name:?}")));
     }
 
-    let config = state.config.read().expect("config lock poisoned").clone();
+    let config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
     let target = config.target_factorio_version.clone();
     let dir = mod_store::resolve_dir(&config)?;
 
