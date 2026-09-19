@@ -10,19 +10,28 @@ const inFlight = new Set<string>();
  * (backend dedupes/caches the HTTP itself); results arrive progressively.
  * Failures resolve to null so cards keep their letter tiles instead of
  * retrying forever.
+ *
+ * Performance optimization:
+ * Reads `urls` imperatively from `useThumbnailStore.getState()` inside
+ * the effect rather than subscribing `useThumbnails` to `urls` state.
+ * This prevents parent pages (e.g. BrowsePage, InstalledPage) from re-rendering
+ * every time an individual thumbnail resolves. Components that render
+ * thumbnails subscribe fine-grained via `useThumbnailUrl(name)`.
  */
 export function useThumbnails(names: string[]): void {
-  const setResolved = useThumbnailStore((s) => s.setResolved);
-  const urls = useThumbnailStore((s) => s.urls);
   // Stable effect key: callers pass fresh arrays every render.
   const namesKey = names.join("|");
 
   useEffect(() => {
     const list = namesKey ? namesKey.split("|") : [];
+    if (list.length === 0) return;
+
+    const { urls, setResolved } = useThumbnailStore.getState();
     const missing = [...new Set(list)].filter(
       (n) => urls[n] === undefined && !inFlight.has(n),
     );
     if (missing.length === 0) return;
+
     for (const name of missing) {
       inFlight.add(name);
       getModDetails(name)
@@ -30,7 +39,7 @@ export function useThumbnails(names: string[]): void {
         .catch(() => setResolved(name, null))
         .finally(() => inFlight.delete(name));
     }
-  }, [namesKey, urls, setResolved]);
+  }, [namesKey]);
 }
 
 /** Selector for a single mod's thumbnail (undefined = still unknown). */

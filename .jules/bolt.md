@@ -1,0 +1,3 @@
+## 2026-09-18 - Avoiding Reactive Zustand Subscriptions in Batch Trigger Hooks
+**Learning:** React hooks designed solely to trigger async background fetches (like `useThumbnails`) should not subscribe reactively to Zustand store state (`useThumbnailStore((s) => s.urls)`) when individual item updates arrive progressively. Doing so causes the top-level page components invoking the hook (e.g. `BrowsePage`, `InstalledPage`) to re-render for every single thumbnail resolved.
+**Action:** Use imperative state access `store.getState()` inside `useEffect` for triggering async fetches, and leave reactive store subscriptions (`useThumbnailUrl(name)`) to the leaf components (`ModTile`) that actually render the resolved data.
