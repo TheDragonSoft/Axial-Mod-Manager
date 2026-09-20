@@ -10,8 +10,8 @@ import {
   VANILLA_EXPANSION_PACK_ID,
 } from "../../lib/api";
 import { onPackActivated } from "../../lib/events";
+import { handleActivationDiff, type Status } from "../../lib/packs";
 import { useAppStore } from "../../store/useAppStore";
-import { useQueueStore } from "../../store/useQueueStore";
 import Badge from "../ui/Badge";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
@@ -26,8 +26,6 @@ export interface PackModalProps {
   packId: string;
   onClose: () => void;
 }
-
-export type Status = { kind: "ok" | "err"; text: string };
 
 export default function PackModal({ packId, onClose }: PackModalProps) {
   const isVanillaExpansion = packId === VANILLA_EXPANSION_PACK_ID;
@@ -113,21 +111,7 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
       setActivatingPackId(packId);
       try {
         const diff: ActivationDiff = await activatePack(packId);
-        const parts = [
-          `enabled ${diff.toEnable.length}`,
-          `disabled ${diff.toDisable.length}`,
-          diff.toDownload.length > 0 && `downloading ${diff.toDownload.length}`,
-          diff.errors.length > 0 && `${diff.errors.length} error(s)`,
-        ].filter(Boolean);
-        setStatus({
-          kind: "ok",
-          text: `Activating "${diff.packName}": ${parts.join(", ")}`,
-        });
-        if (diff.toDownload.length > 0) useQueueStore.getState().open();
-        if (diff.toDownload.length === 0) setActivatingPackId(null);
-        if (diff.errors.length > 0) {
-          setStatus({ kind: "err", text: diff.errors.join(" · ") });
-        }
+        setStatus(handleActivationDiff(diff));
       } catch (e) {
         setActivatingPackId(null);
         setStatus({ kind: "err", text: toAppError(e).message });

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { activatePack, activateVanilla, deletePack, exportPackBase64, getPack, toAppError } from "../../lib/api";
+import { handleActivationDiff, type Status } from "../../lib/packs";
 import { useAppStore } from "../../store/useAppStore";
-import { useQueueStore } from "../../store/useQueueStore";
 import Badge from "../ui/Badge";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
@@ -11,8 +11,6 @@ import Spinner from "../ui/Spinner";
 import Toggle from "../ui/Toggle";
 import { useConfirm } from "../ui/useConfirm";
 import type { ActivationDiff, Pack, PackMeta } from "../../types";
-
-export type Status = { kind: "ok" | "err"; text: string };
 
 export default function PackCard({
   meta,
@@ -59,24 +57,7 @@ export default function PackCard({
       setActivatingPackId(meta.id);
       try {
         const diff: ActivationDiff = await activatePack(meta.id);
-        const parts = [
-          `enabled ${diff.toEnable.length}`,
-          `disabled ${diff.toDisable.length}`,
-          diff.toDownload.length > 0 && `downloading ${diff.toDownload.length}`,
-          diff.errors.length > 0 && `${diff.errors.length} error(s)`,
-        ].filter(Boolean);
-        onStatus({
-          kind: "ok",
-          text: `Activating "${diff.packName}": ${parts.join(", ")}`,
-        });
-        if (diff.toDownload.length > 0) useQueueStore.getState().open();
-        // activatingPackId is cleared by the pack-activated event in App.tsx;
-        // for immediate activations (no downloads), pack-activated fires
-        // synchronously before this returns.
-        if (diff.toDownload.length === 0) setActivatingPackId(null);
-        if (diff.errors.length > 0) {
-          onStatus({ kind: "err", text: diff.errors.join(" · ") });
-        }
+        onStatus(handleActivationDiff(diff));
       } catch (e) {
         setActivatingPackId(null);
         onStatus({ kind: "err", text: toAppError(e).message });
