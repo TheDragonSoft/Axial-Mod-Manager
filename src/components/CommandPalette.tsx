@@ -32,6 +32,7 @@ import {
   VANILLA_EXPANSION_PACK_ID,
   VANILLA_PACK_ID,
 } from "../lib/api";
+import { handleActivationDiff } from "../lib/packs";
 import { useAppStore } from "../store/useAppStore";
 import { useQueueStore } from "../store/useQueueStore";
 import { useActivityStore } from "../store/useActivityStore";
@@ -297,10 +298,7 @@ export default function CommandPalette() {
           st.setActivatingPackId(p.id);
           try {
             const diff = await activatePack(p.id);
-            // Same hand-off as PackModal: downloads landing finalize the
-            // activation, so surface the queue; otherwise clear busy now.
-            if (diff.toDownload.length > 0) useQueueStore.getState().open();
-            else useAppStore.getState().setActivatingPackId(null);
+            handleActivationDiff(diff);
           } catch (e) {
             useAppStore.getState().setActivatingPackId(null);
             throw e;
