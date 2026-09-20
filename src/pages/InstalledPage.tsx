@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowUpCircle,
@@ -48,7 +48,12 @@ function stopRow(e: React.MouseEvent) {
   e.stopPropagation();
 }
 
-function ModRow({
+/**
+ * ModRow renders an installed mod item with expandable details/changelog.
+ * Memoized with React.memo so expanding, collapsing, or toggling a single row
+ * re-renders only that row instead of every row in the list.
+ */
+const ModRow = memo(function ModRow({
   mod,
   confirming,
   busy,
@@ -280,7 +285,7 @@ function ModRow({
       </div>
     </Card>
   );
-}
+});
 
 /** Green when the mod targets the configured game version (not a hardcoded
  * "2.0" — gray until the real target is loaded). */
@@ -481,21 +486,24 @@ export default function InstalledPage() {
     }
   }
 
-  async function handleUpdate(mod: InstalledMod) {
-    const u = report?.updates.find((x) => x.name === mod.name);
-    if (!u) return;
-    try {
-      await enqueueDownload(u.name, u.availableVersion);
-      setReport((r) =>
-        r ? { ...r, updates: r.updates.filter((x) => x.name !== u.name) } : r,
-      );
-      const remaining = (report?.updates.length ?? 1) - 1;
-      useAppStore.getState().setUpdateCount(remaining > 0 ? remaining : null);
-      useQueueStore.getState().open();
-    } catch (e) {
-      setError(toAppError(e).message);
-    }
-  }
+  const handleUpdate = useCallback(
+    async (mod: InstalledMod) => {
+      const u = report?.updates.find((x) => x.name === mod.name);
+      if (!u) return;
+      try {
+        await enqueueDownload(u.name, u.availableVersion);
+        setReport((r) =>
+          r ? { ...r, updates: r.updates.filter((x) => x.name !== u.name) } : r,
+        );
+        const remaining = (report?.updates.length ?? 1) - 1;
+        useAppStore.getState().setUpdateCount(remaining > 0 ? remaining : null);
+        useQueueStore.getState().open();
+      } catch (e) {
+        setError(toAppError(e).message);
+      }
+    },
+    [report],
+  );
 
   async function updateAll() {
     if (!report) return;
@@ -511,7 +519,7 @@ export default function InstalledPage() {
     useQueueStore.getState().open();
   }
 
-  async function handleToggle(mod: InstalledMod, next: boolean) {
+  const handleToggle = useCallback(async (mod: InstalledMod, next: boolean) => {
     const apply = (enabled: boolean) =>
       setSnapshot((s) =>
         s
@@ -530,48 +538,54 @@ export default function InstalledPage() {
       apply(!next);
       setError(toAppError(e).message);
     }
-  }
+  }, []);
 
-  async function handleUninstall(mod: InstalledMod) {
-    if (confirming !== mod.fileName) {
-      arm(mod.fileName);
-      // Resolve the impact while the confirm is armed so the dependents can
-      // be listed in the confirm step. Best-effort: without it the confirm
-      // still works, just without the warning line.
-      try {
-        const dependents = await uninstallImpact(mod.fileName);
-        setImpactByFile((m) => ({ ...m, [mod.fileName]: dependents }));
-      } catch {
-        // Graceful degradation — empty impact, no error surfaced.
+  const handleUninstall = useCallback(
+    async (mod: InstalledMod) => {
+      if (confirming !== mod.fileName) {
+        arm(mod.fileName);
+        // Resolve the impact while the confirm is armed so the dependents can
+        // be listed in the confirm step. Best-effort: without it the confirm
+        // still works, just without the warning line.
+        try {
+          const dependents = await uninstallImpact(mod.fileName);
+          setImpactByFile((m) => ({ ...m, [mod.fileName]: dependents }));
+        } catch {
+          // Graceful degradation — empty impact, no error surfaced.
+        }
+        return;
       }
-      return;
-    }
-    disarm();
-    setBusyFile(mod.fileName);
-    try {
-      // No manual refresh here: the backend emits installed-changed, which
-      // triggers the (debounced) rescan.
-      await uninstallMod(mod.fileName);
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setBusyFile(null);
-    }
-  }
+      disarm();
+      setBusyFile(mod.fileName);
+      try {
+        // No manual refresh here: the backend emits installed-changed, which
+        // triggers the (debounced) rescan.
+        await uninstallMod(mod.fileName);
+      } catch (e) {
+        setError(toAppError(e).message);
+      } finally {
+        setBusyFile(null);
+      }
+    },
+    [confirming, arm, disarm],
+  );
 
   /** Toggle accordion expansion; exactly one row at a time.
-   * Lazy-fetches the portal summary on first expand (and the changelog
+   * Lazy-fetches the portal summary on expand (and the changelog
    * delta, but only for rows that actually have an update). */
-  function handleToggleExpand(mod: InstalledMod) {
-    const next = expandedName === mod.name ? null : mod.name;
-    setExpandedName(next);
-    if (next) {
-      fetchSummary(mod.name);
-      if (updateByName.get(mod.name)) {
-        fetchChangelog(mod.name);
+  const handleToggleExpand = useCallback(
+    (mod: InstalledMod) => {
+      const isExpanding = expandedName !== mod.name;
+      setExpandedName(isExpanding ? mod.name : null);
+      if (isExpanding) {
+        fetchSummary(mod.name);
+        if (updateByName.get(mod.name)) {
+          fetchChangelog(mod.name);
+        }
       }
-    }
-  }
+    },
+    [expandedName, updateByName],
+  );
 
   return (
     <div>
