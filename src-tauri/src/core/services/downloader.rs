@@ -42,12 +42,15 @@ enum JobFail {
     Error(String, bool),
 }
 
+const SNAPSHOT_TTL: Duration = Duration::from_secs(10);
+
 pub struct DownloadQueue {
     next_id: AtomicU64,
     handles: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     in_flight: Mutex<HashSet<String>>,
     permits: Arc<Semaphore>,
     http: reqwest::Client,
+    dir_snapshot: Mutex<Option<(PathBuf, Instant, Vec<PathBuf>)>>,
 }
 
 impl DownloadQueue {
@@ -58,6 +61,41 @@ impl DownloadQueue {
             in_flight: Mutex::new(HashSet::new()),
             permits: Arc::new(Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             http,
+            dir_snapshot: Mutex::new(None),
+        }
+    }
+
+    /// Get or refresh a cached directory entry snapshot for `dir`.
+    pub fn dir_snapshot(&self, dir: &Path) -> Vec<PathBuf> {
+        let mut guard = self.dir_snapshot.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((cached_dir, cached_at, entries)) = guard.as_ref() {
+            if cached_dir == dir && cached_at.elapsed() < SNAPSHOT_TTL {
+                return entries.clone();
+            }
+        }
+        let entries = match std::fs::read_dir(dir) {
+            Ok(read) => read.flatten().map(|e| e.path()).collect(),
+            Err(_) => Vec::new(),
+        };
+        *guard = Some((dir.to_path_buf(), Instant::now(), entries.clone()));
+        entries
+    }
+
+    /// Update directory snapshot after removing files or renaming a finished download.
+    pub fn update_snapshot_after_removal(&self, dir: &Path, removed: &[PathBuf], added: Option<&Path>) {
+        let mut guard = self.dir_snapshot.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((cached_dir, _cached_at, entries)) = guard.as_mut() {
+            if cached_dir == dir {
+                if !removed.is_empty() {
+                    let removed_set: HashSet<&Path> = removed.iter().map(|p| p.as_path()).collect();
+                    entries.retain(|p| !removed_set.contains(p.as_path()));
+                }
+                if let Some(new_file) = added {
+                    if !entries.contains(&new_file.to_path_buf()) {
+                        entries.push(new_file.to_path_buf());
+                    }
+                }
+            }
         }
     }
 
@@ -271,13 +309,18 @@ async fn run_job(
                 dest_name.clone(),
                 item.mod_name.clone(),
             );
-            let _ = tauri::async_runtime::spawn_blocking(move || {
-                remove_other_versions(&rm.0, &rm.1, &rm.2)
+            let snapshot = queue.dir_snapshot(&rm.0);
+            let (removed, _) = tauri::async_runtime::spawn_blocking(move || {
+                let removed = remove_other_versions_from_snapshot(&rm.0, &rm.1, &rm.2, Some(&snapshot));
+                (removed, rm.0)
             })
-            .await;
+            .await
+            .unwrap_or_default();
+            queue.update_snapshot_after_removal(&mods_dir, &removed, None);
             let dest = mods_dir.join(dest_name);
             match tokio::fs::rename(&part, &dest).await {
                 Ok(()) => {
+                    queue.update_snapshot_after_removal(&mods_dir, &[], Some(&dest));
                     let elapsed = job_start.elapsed();
                     let mbps = if elapsed.as_secs_f64() > 0.0 {
                         (total as f64 / 1_048_576.0) / elapsed.as_secs_f64()
@@ -590,22 +633,72 @@ fn to_hex(bytes: &[u8]) -> String {
     out
 }
 
+#[inline]
+fn is_zip_file(s: &str) -> bool {
+    s.get(s.len().saturating_sub(4)..)
+        .map_or(false, |ext| ext.eq_ignore_ascii_case(".zip"))
+}
+
 /// Delete `{name}_*.zip` files whose filename differs from `keep`.
 /// Best-effort: a locked file (game running) is skipped silently.
-fn remove_other_versions(dir: &Path, keep: &str, mod_name: &str) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)?.flatten() {
-        let fname = entry.file_name();
-        let fname_str = fname.to_string_lossy();
-        if fname_str == keep || !fname_str.to_lowercase().ends_with(".zip") {
-            continue;
+///
+/// If `snapshot` is provided, checks the in-memory slice of paths instead of calling `read_dir`.
+/// Returns the list of successfully deleted file paths.
+fn remove_other_versions_from_snapshot(
+    dir: &Path,
+    keep: &str,
+    mod_name: &str,
+    snapshot: Option<&[PathBuf]>,
+) -> Vec<PathBuf> {
+    let mut removed = Vec::new();
+    match snapshot {
+        Some(entries) => {
+            for path in entries {
+                let fname = path.file_name().unwrap_or_default();
+                let fname_str = fname.to_string_lossy();
+                if fname_str == keep || !is_zip_file(&fname_str) {
+                    continue;
+                }
+                let stem = &fname_str[..fname_str.len() - 4];
+                if let Some((name, _version)) = stem.rsplit_once('_') {
+                    if name == mod_name {
+                        if std::fs::remove_file(path).is_ok() {
+                            removed.push(path.clone());
+                        }
+                    }
+                }
+            }
         }
-        let stem = fname_str.strip_suffix(".zip").unwrap_or(&fname_str);
-        if let Some((name, _version)) = stem.rsplit_once('_') {
-            if name == mod_name {
-                let _ = std::fs::remove_file(entry.path());
+        None => {
+            let Ok(read) = std::fs::read_dir(dir) else {
+                return removed;
+            };
+            for entry in read.flatten() {
+                let fname = entry.file_name();
+                let fname_str = fname.to_string_lossy();
+                if fname_str == keep || !is_zip_file(&fname_str) {
+                    continue;
+                }
+                let stem = &fname_str[..fname_str.len() - 4];
+                if let Some((name, _version)) = stem.rsplit_once('_') {
+                    if name == mod_name {
+                        let path = entry.path();
+                        if std::fs::remove_file(&path).is_ok() {
+                            removed.push(path);
+                        }
+                    }
+                }
             }
         }
     }
+    removed
+}
+
+/// Delete `{name}_*.zip` files whose filename differs from `keep`.
+/// Best-effort: a locked file (game running) is skipped silently.
+#[allow(dead_code)]
+fn remove_other_versions(dir: &Path, keep: &str, mod_name: &str) -> std::io::Result<()> {
+    remove_other_versions_from_snapshot(dir, keep, mod_name, None);
     Ok(())
 }
 
@@ -844,5 +937,104 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn remove_other_versions_from_snapshot_uses_provided_snapshot() {
+        let dir = TempDir::new("snapshot-test");
+        let f1 = dir.path("my_mod_1.0.0.zip");
+        let f2 = dir.path("my_mod_0.9.0.zip");
+        let f3 = dir.path("unrelated_2.0.0.zip");
+
+        std::fs::write(&f1, b"keep").unwrap();
+        std::fs::write(&f2, b"old").unwrap();
+        std::fs::write(&f3, b"unrelated").unwrap();
+
+        let snapshot = vec![f1.clone(), f2.clone(), f3.clone()];
+
+        let removed = remove_other_versions_from_snapshot(&dir.0, "my_mod_1.0.0.zip", "my_mod", Some(&snapshot));
+
+        assert_eq!(removed, vec![f2.clone()]);
+        assert!(f1.exists(), "keep file remains");
+        assert!(!f2.exists(), "old version removed");
+        assert!(f3.exists(), "unrelated mod remains");
+    }
+
+    #[test]
+    fn download_queue_dir_snapshot_and_removal_lifecycle() {
+        let queue = DownloadQueue::new(reqwest::Client::new());
+        let dir = TempDir::new("queue-snapshot");
+
+        let f1 = dir.path("mod_a_1.0.0.zip");
+        let f2 = dir.path("mod_a_0.8.0.zip");
+        std::fs::write(&f1, b"new").unwrap();
+        std::fs::write(&f2, b"old").unwrap();
+
+        let snap1 = queue.dir_snapshot(&dir.0);
+        assert_eq!(snap1.len(), 2);
+
+        // Remove old version
+        let removed = remove_other_versions_from_snapshot(&dir.0, "mod_a_1.0.0.zip", "mod_a", Some(&snap1));
+        assert_eq!(removed, vec![f2.clone()]);
+
+        queue.update_snapshot_after_removal(&dir.0, &removed, None);
+
+        let snap2 = queue.dir_snapshot(&dir.0);
+        assert_eq!(snap2.len(), 1);
+        assert!(!snap2.contains(&f2));
+        assert!(snap2.contains(&f1));
+    }
+
+    #[test]
+    fn bench_remove_other_versions_performance() {
+        let dir = TempDir::new("perf-bench");
+
+        // Create 500 dummy mod zips to simulate a heavy Factorio mods folder
+        let mut snapshot_files = Vec::with_capacity(500);
+        for i in 0..498 {
+            let f = dir.path(&format!("mod_{i}_1.0.0.zip"));
+            std::fs::write(&f, b"dummy").unwrap();
+            snapshot_files.push(f);
+        }
+        let keep_file = dir.path("target_mod_2.0.0.zip");
+        let old_file = dir.path("target_mod_1.0.0.zip");
+        std::fs::write(&keep_file, b"keep").unwrap();
+        std::fs::write(&old_file, b"old").unwrap();
+        snapshot_files.push(keep_file);
+        snapshot_files.push(old_file);
+
+        let iterations = 100;
+
+        // Measure un-cached directory re-listing (simulating baseline for 100 downloads)
+        let start_uncached = Instant::now();
+        for _ in 0..iterations {
+            let _ = remove_other_versions_from_snapshot(&dir.0, "target_mod_2.0.0.zip", "target_mod", None);
+        }
+        let uncached_duration = start_uncached.elapsed();
+
+        // Re-create old file for cached snapshot benchmark
+        let old_file = dir.path("target_mod_1.0.0.zip");
+        if !old_file.exists() {
+            std::fs::write(&old_file, b"old").unwrap();
+        }
+
+        let queue = DownloadQueue::new(reqwest::Client::new());
+
+        // Measure cached snapshot performance
+        let start_cached = Instant::now();
+        for _ in 0..iterations {
+            let snap = queue.dir_snapshot(&dir.0);
+            let removed = remove_other_versions_from_snapshot(&dir.0, "target_mod_2.0.0.zip", "target_mod", Some(&snap));
+            queue.update_snapshot_after_removal(&dir.0, &removed, None);
+        }
+        let cached_duration = start_cached.elapsed();
+
+        println!("\n=== Benchmark Results for 100 Download Cleanups on 500 Mod Files ===");
+        println!("Uncached (baseline): {:?}", uncached_duration);
+        println!("Cached snapshot (optimized): {:?}", cached_duration);
+        if uncached_duration > cached_duration {
+            let speedup = uncached_duration.as_secs_f64() / cached_duration.as_secs_f64();
+            println!("Speedup factor: {:.2}x faster", speedup);
+        }
     }
 }
