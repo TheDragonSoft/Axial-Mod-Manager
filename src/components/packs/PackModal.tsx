@@ -6,12 +6,12 @@ import {
   deletePack,
   exportPackBase64,
   getPack,
+  handlePackActivationDiff,
   toAppError,
   VANILLA_EXPANSION_PACK_ID,
 } from "../../lib/api";
 import { onPackActivated } from "../../lib/events";
 import { useAppStore } from "../../store/useAppStore";
-import { useQueueStore } from "../../store/useQueueStore";
 import Badge from "../ui/Badge";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
@@ -123,8 +123,7 @@ export default function PackModal({ packId, onClose }: PackModalProps) {
           kind: "ok",
           text: `Activating "${diff.packName}": ${parts.join(", ")}`,
         });
-        if (diff.toDownload.length > 0) useQueueStore.getState().open();
-        if (diff.toDownload.length === 0) setActivatingPackId(null);
+        handlePackActivationDiff(diff);
         if (diff.errors.length > 0) {
           setStatus({ kind: "err", text: diff.errors.join(" · ") });
         }

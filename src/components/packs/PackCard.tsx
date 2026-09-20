@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
-import { activatePack, activateVanilla, deletePack, exportPackBase64, getPack, toAppError } from "../../lib/api";
+import { activatePack, activateVanilla, deletePack, exportPackBase64, getPack, handlePackActivationDiff, toAppError } from "../../lib/api";
 import { useAppStore } from "../../store/useAppStore";
-import { useQueueStore } from "../../store/useQueueStore";
 import Badge from "../ui/Badge";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
@@ -69,11 +68,10 @@ export default function PackCard({
           kind: "ok",
           text: `Activating "${diff.packName}": ${parts.join(", ")}`,
         });
-        if (diff.toDownload.length > 0) useQueueStore.getState().open();
         // activatingPackId is cleared by the pack-activated event in App.tsx;
         // for immediate activations (no downloads), pack-activated fires
-        // synchronously before this returns.
-        if (diff.toDownload.length === 0) setActivatingPackId(null);
+        // synchronously before handlePackActivationDiff returns.
+        handlePackActivationDiff(diff);
         if (diff.errors.length > 0) {
           onStatus({ kind: "err", text: diff.errors.join(" · ") });
         }
