@@ -351,19 +351,24 @@ fn steam_library_dirs(steam_root: &Path) -> Vec<PathBuf> {
 fn parse_library_folders_vdf(raw: &str) -> Vec<String> {
     let mut paths = Vec::new();
     for line in raw.lines() {
-        let tokens: Vec<&str> = line.split('"').collect();
-        let Some(i) = tokens.iter().position(|t| *t == "path") else {
+        let mut tokens = line.split('"');
+        if !tokens.any(|t| t == "path") {
             continue;
-        };
+        }
         // Normal layout: "path" <gap> "value" ⇒ value at i+2. A missing gap
         // ("path""value") shifts it to i+1; accept the first usable one.
-        let value = tokens
-            .get(i + 2)
+        let first_after = tokens.next();
+        let second_after = tokens.next();
+
+        let value = second_after
             .filter(|v| !v.trim().is_empty())
-            .or_else(|| tokens.get(i + 1))
-            .filter(|v| !v.trim().is_empty());
+            .or_else(|| first_after.filter(|v| !v.trim().is_empty()));
         if let Some(v) = value {
-            let unescaped = v.replace("\\\\", "\\");
+            let unescaped = if v.contains("\\\\") {
+                v.replace("\\\\", "\\")
+            } else {
+                v.to_string()
+            };
             if !unescaped.is_empty() {
                 paths.push(unescaped);
             }
