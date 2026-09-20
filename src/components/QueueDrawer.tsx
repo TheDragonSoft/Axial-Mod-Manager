@@ -1,5 +1,6 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { enqueueDownload, cancelDownload, toAppError } from "../lib/api";
+import { isTopOverlay, popOverlay, pushOverlay } from "./ui/overlayStack";
 import {
   useQueueStore,
   selectActiveCount,
@@ -207,6 +208,36 @@ export default function QueueDrawer() {
   const activeCount = useQueueStore(selectActiveCount);
   const finishedCount = useQueueStore(selectFinishedCount);
 
+  const drawerRef = useRef<HTMLElement>(null);
+  const token = useRef(Symbol("queue-drawer"));
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const me = token.current;
+    pushOverlay(me);
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const closeBtn = drawerRef.current?.querySelector<HTMLButtonElement>(
+      "button[aria-label='Close downloads queue']",
+    );
+    closeBtn?.focus();
+
+    const onKey = (e: KeyboardEvent) => {
+      if (!isTopOverlay(me)) return;
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    };
+
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      popOverlay(me);
+      previouslyFocused?.focus();
+    };
+  }, [isOpen, close]);
+
   return (
     <>
       {isOpen && (
@@ -216,6 +247,10 @@ export default function QueueDrawer() {
         />
       )}
       <aside
+        ref={drawerRef}
+        role="dialog"
+        aria-modal={isOpen}
+        aria-label="Downloads queue"
         className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ease-out motion-reduce:transition-none ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
