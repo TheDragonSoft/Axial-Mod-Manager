@@ -535,6 +535,54 @@ mod tests {
     }
 
     #[test]
+    fn target_version_of_edge_cases() {
+        // Leading, trailing, or consecutive dots
+        assert_eq!(target_version_of(".1.0"), None);
+        assert_eq!(target_version_of("1..0"), None);
+        assert_eq!(target_version_of("1.0.").as_deref(), Some("1.0"));
+
+        // Non-digit major or minor components
+        assert_eq!(target_version_of("v1.0"), None);
+        assert_eq!(target_version_of("1.0a"), None);
+        assert_eq!(target_version_of("-1.0"), None);
+        assert_eq!(target_version_of("+1.0"), None);
+        assert_eq!(target_version_of("1.-0"), None);
+        assert_eq!(target_version_of("1. 0"), None);
+
+        // Whitespace, single-component, or multi-digit major/minor
+        assert_eq!(target_version_of("   "), None);
+        assert_eq!(target_version_of("10.20.30").as_deref(), Some("10.20"));
+        assert_eq!(target_version_of("2.0.28-rc1").as_deref(), Some("2.0"));
+        assert_eq!(target_version_of("2.0.28.1").as_deref(), Some("2.0"));
+    }
+
+    #[test]
+    fn target_version_from_info_json_edge_cases() {
+        // Untrimmed whitespace inside JSON version string
+        let raw_untrimmed = r#"{ "name": "base", "version": " 2.0.28 " }"#;
+        assert_eq!(target_version_from_info_json(raw_untrimmed).as_deref(), Some("2.0"));
+
+        // Non-string JSON types for version
+        assert_eq!(target_version_from_info_json(r#"{ "version": 2.0 }"#), None);
+        assert_eq!(target_version_from_info_json(r#"{ "version": true }"#), None);
+        assert_eq!(target_version_from_info_json(r#"{ "version": null }"#), None);
+        assert_eq!(target_version_from_info_json(r#"{ "version": ["2.0"] }"#), None);
+        assert_eq!(target_version_from_info_json(r#"{ "version": { "v": "2.0" } }"#), None);
+
+        // Empty version string falling back to factorio_version
+        let raw_empty_version = r#"{ "name": "base", "version": "", "factorio_version": "2.0" }"#;
+        assert_eq!(target_version_from_info_json(raw_empty_version).as_deref(), Some("2.0"));
+
+        // Invalid version string failing target_version_of
+        let raw_invalid_version = r#"{ "name": "base", "version": "invalid_ver" }"#;
+        assert_eq!(target_version_from_info_json(raw_invalid_version), None);
+
+        // Path traversal / malicious string
+        let raw_evil = r#"{ "name": "base", "version": "../evil" }"#;
+        assert_eq!(target_version_from_info_json(raw_evil), None);
+    }
+
+    #[test]
     fn parses_library_folders_vdf() {
         let raw = "
 \"libraryfolders\"
