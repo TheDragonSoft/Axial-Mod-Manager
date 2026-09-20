@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use tokio::sync::Semaphore;
 
 use crate::error::AppError;
@@ -65,6 +66,21 @@ pub trait IndexClient: Send + Sync {
     ) -> Result<SearchResult, AppError>;
 
     async fn mod_details(&self, name: &str) -> Result<ModDetails, AppError>;
+
+    /// Fetch details for multiple mods concurrently.
+    /// Runs up to 8 fetches in parallel and filters out errors,
+    /// returning successful `ModDetails` in requested order.
+    async fn bulk_mod_details(&self, names: &[String]) -> Vec<ModDetails> {
+        if names.is_empty() {
+            return Vec::new();
+        }
+        let owned_names = names.to_vec();
+        let stream = futures_util::stream::iter(owned_names.into_iter().map(|name| async move {
+            self.mod_details(&name).await
+        }));
+        let results: Vec<Result<ModDetails, AppError>> = stream.buffered(8).collect().await;
+        results.into_iter().filter_map(|r| r.ok()).collect()
+    }
 
     /// Per-version changelog entries for a mod, newest first. Default impl:
     /// changelog is a portal-HTML-only feature, so index clients that don't
@@ -176,5 +192,122 @@ impl CachedHttp {
         order.retain(|k| k != &key); // re-inserting refreshes the position
         order.push_back(key.clone());
         map.insert(key, (Instant::now(), body));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct MockIndexClient {
+        active_requests: Arc<AtomicUsize>,
+        max_concurrent: Arc<AtomicUsize>,
+        delay: Duration,
+    }
+
+    impl MockIndexClient {
+        fn new(delay_ms: u64) -> Self {
+            Self {
+                active_requests: Arc::new(AtomicUsize::new(0)),
+                max_concurrent: Arc::new(AtomicUsize::new(0)),
+                delay: Duration::from_millis(delay_ms),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl IndexClient for MockIndexClient {
+        async fn search(&self, _: &str, _: u32, _: SortKey) -> Result<SearchResult, AppError> {
+            unimplemented!()
+        }
+
+        async fn mod_details(&self, name: &str) -> Result<ModDetails, AppError> {
+            if name == "fail" {
+                return Err(AppError::NotFound("mod not found".into()));
+            }
+
+            let current = self.active_requests.fetch_add(1, Ordering::SeqCst) + 1;
+            let mut max = self.max_concurrent.load(Ordering::SeqCst);
+            while current > max {
+                match self.max_concurrent.compare_exchange_weak(
+                    max,
+                    current,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                ) {
+                    Ok(_) => break,
+                    Err(actual) => max = actual,
+                }
+            }
+
+            if self.delay.as_millis() > 0 {
+                tokio::time::sleep(self.delay).await;
+            }
+
+            self.active_requests.fetch_sub(1, Ordering::SeqCst);
+
+            Ok(ModDetails {
+                name: name.to_string(),
+                title: format!("Title {}", name),
+                owner: None,
+                summary: "summary".into(),
+                downloads: Some(100),
+                dependencies: vec![],
+                releases: vec![],
+                thumbnail: None,
+            })
+        }
+
+        async fn health_check(&self) -> Result<IndexHealth, AppError> {
+            unimplemented!()
+        }
+    }
+
+    #[tokio::test]
+    async fn bulk_mod_details_returns_empty_on_empty_input() {
+        let client = MockIndexClient::new(0);
+        let res = client.bulk_mod_details(&[]).await;
+        assert!(res.is_empty());
+    }
+
+    #[tokio::test]
+    async fn bulk_mod_details_preserves_order_and_filters_failures() {
+        let client = MockIndexClient::new(0);
+        let names = vec![
+            "mod_a".to_string(),
+            "fail".to_string(),
+            "mod_b".to_string(),
+            "mod_c".to_string(),
+        ];
+        let res = client.bulk_mod_details(&names).await;
+        assert_eq!(res.len(), 3);
+        assert_eq!(res[0].name, "mod_a");
+        assert_eq!(res[1].name, "mod_b");
+        assert_eq!(res[2].name, "mod_c");
+    }
+
+    #[tokio::test]
+    async fn bulk_mod_details_runs_concurrently() {
+        let client = MockIndexClient::new(20);
+        let names: Vec<String> = (0..10).map(|i| format!("mod_{i}")).collect();
+
+        let start = Instant::now();
+        let res = client.bulk_mod_details(&names).await;
+        let elapsed = start.elapsed();
+
+        assert_eq!(res.len(), 10);
+        // With concurrency 8 and 20ms delay per request, 10 requests finish in ~40ms (2 batches),
+        // whereas sequential execution would take 200ms.
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "bulk_mod_details took {:?}, expected < 150ms due to concurrency",
+            elapsed
+        );
+        assert!(
+            client.max_concurrent.load(Ordering::SeqCst) > 1,
+            "max concurrent requests should be > 1"
+        );
     }
 }

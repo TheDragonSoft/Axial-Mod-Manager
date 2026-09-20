@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { getModDetails } from "./api";
+import { getBulkModDetails } from "./api";
 import { useThumbnailStore } from "../store/useThumbnailStore";
 
 const inFlight = new Set<string>();
@@ -25,11 +25,30 @@ export function useThumbnails(names: string[]): void {
     if (missing.length === 0) return;
     for (const name of missing) {
       inFlight.add(name);
-      getModDetails(name)
-        .then((d) => setResolved(name, d.thumbnail))
-        .catch(() => setResolved(name, null))
-        .finally(() => inFlight.delete(name));
     }
+    getBulkModDetails(missing)
+      .then((detailsList) => {
+        const found = new Set<string>();
+        for (const d of detailsList) {
+          found.add(d.name);
+          setResolved(d.name, d.thumbnail);
+        }
+        for (const name of missing) {
+          if (!found.has(name)) {
+            setResolved(name, null);
+          }
+        }
+      })
+      .catch(() => {
+        for (const name of missing) {
+          setResolved(name, null);
+        }
+      })
+      .finally(() => {
+        for (const name of missing) {
+          inFlight.delete(name);
+        }
+      });
   }, [namesKey, urls, setResolved]);
 }
 

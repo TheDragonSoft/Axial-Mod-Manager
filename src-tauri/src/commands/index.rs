@@ -42,6 +42,19 @@ pub async fn get_mod_details(
     state.index.mod_details(name).await
 }
 
+#[tauri::command]
+pub async fn get_bulk_mod_details(
+    state: State<'_, AppState>,
+    names: Vec<String>,
+) -> Result<Vec<ModDetails>, AppError> {
+    let valid_names: Vec<String> = names
+        .into_iter()
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .collect();
+    Ok(state.index.bulk_mod_details(&valid_names).await)
+}
+
 /// Diagnostics: proves the network layer works end-to-end from the UI.
 #[tauri::command]
 pub async fn index_health_check(state: State<'_, AppState>) -> Result<IndexHealth, AppError> {

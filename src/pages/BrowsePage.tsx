@@ -10,7 +10,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import {
-  getModDetails,
+  getBulkModDetails,
   indexHealthCheck,
   isNetworkOrHttpError,
   searchMods,
@@ -119,13 +119,18 @@ function FavoritesView({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all(favorites.map((n) => getModDetails(n).catch(() => null))).then(
-      (rs) => {
+    getBulkModDetails(favorites)
+      .then((rs) => {
         if (cancelled) return;
-        setDetails(rs.filter((d): d is ModDetails => d !== null));
-        setLoading(false);
-      },
-    );
+        setDetails(rs);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDetails([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
