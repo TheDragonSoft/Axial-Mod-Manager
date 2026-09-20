@@ -24,6 +24,7 @@ import {
   activatePack,
   activateVanilla,
   checkUpdates,
+  handlePackActivationDiff,
   launchGame,
   listInstalled,
   listPacks,
@@ -299,8 +300,7 @@ export default function CommandPalette() {
             const diff = await activatePack(p.id);
             // Same hand-off as PackModal: downloads landing finalize the
             // activation, so surface the queue; otherwise clear busy now.
-            if (diff.toDownload.length > 0) useQueueStore.getState().open();
-            else useAppStore.getState().setActivatingPackId(null);
+            handlePackActivationDiff(diff);
           } catch (e) {
             useAppStore.getState().setActivatingPackId(null);
             throw e;

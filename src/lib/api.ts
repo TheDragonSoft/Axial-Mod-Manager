@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { useAppStore } from "../store/useAppStore";
+import { useQueueStore } from "../store/useQueueStore";
 import type {
   ActivationDiff,
   AppError,
@@ -185,6 +187,18 @@ export async function exportPackBase64(id: string): Promise<string> {
 
 export async function activatePack(id: string): Promise<ActivationDiff> {
   return invoke<ActivationDiff>("activate_pack", { id });
+}
+
+/**
+ * Handle activation diff result: if missing mods need to be downloaded,
+ * open the queue drawer; otherwise clear the activating pack state immediately.
+ */
+export function handlePackActivationDiff(diff: ActivationDiff): void {
+  if (diff.toDownload.length > 0) {
+    useQueueStore.getState().open();
+  } else {
+    useAppStore.getState().setActivatingPackId(null);
+  }
 }
 
 export async function activateVanilla(expansion: boolean = false): Promise<void> {
