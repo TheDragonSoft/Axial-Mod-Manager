@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { useQueueStore } from "../store/useQueueStore";
 import type {
   ActivationDiff,
   AppError,
@@ -185,6 +186,18 @@ export async function exportPackBase64(id: string): Promise<string> {
 
 export async function activatePack(id: string): Promise<ActivationDiff> {
   return invoke<ActivationDiff>("activate_pack", { id });
+}
+
+/** Handles activation diff side-effects: opens queue if downloads are needed, otherwise resets activating state. */
+export function handleActivationDiff(
+  diff: ActivationDiff,
+  setActivatingPackId: (id: string | null) => void,
+): void {
+  if (diff.toDownload.length > 0) {
+    useQueueStore.getState().open();
+  } else {
+    setActivatingPackId(null);
+  }
 }
 
 export async function activateVanilla(expansion: boolean = false): Promise<void> {
