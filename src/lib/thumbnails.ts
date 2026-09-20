@@ -6,19 +6,21 @@ const inFlight = new Set<string>();
 
 /**
  * Pulls portal thumbnails for the given mod names into the shared cache.
- * Each name resolves once per session via the existing details command
- * (backend dedupes/caches the HTTP itself); results arrive progressively.
+ * Each name resolves once per session via a single bulk details command
+ * (backend dedupes/caches the HTTP itself); results arrive in batches.
  * Failures resolve to null so cards keep their letter tiles instead of
  * retrying forever.
  */
 export function useThumbnails(names: string[]): void {
-  const setResolved = useThumbnailStore((s) => s.setResolved);
-  const urls = useThumbnailStore((s) => s.urls);
   // Stable effect key: callers pass fresh arrays every render.
   const namesKey = names.join("|");
 
   useEffect(() => {
     const list = namesKey ? namesKey.split("|") : [];
+    // Read state imperatively via getState() instead of subscribing via selector.
+    // This prevents parent pages (BrowsePage, InstalledPage) from re-rendering
+    // as thumbnail URLs resolve into the store.
+    const { urls, setResolved } = useThumbnailStore.getState();
     const missing = [...new Set(list)].filter(
       (n) => urls[n] === undefined && !inFlight.has(n),
     );
@@ -49,7 +51,7 @@ export function useThumbnails(names: string[]): void {
           inFlight.delete(name);
         }
       });
-  }, [namesKey, urls, setResolved]);
+  }, [namesKey]);
 }
 
 /** Selector for a single mod's thumbnail (undefined = still unknown). */

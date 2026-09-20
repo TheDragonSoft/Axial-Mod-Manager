@@ -582,12 +582,13 @@ fn verify_sha1_sync(path: &Path, expected: &str) -> Result<Sha1Outcome, AppError
 
 fn to_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        out.push(HEX[(b >> 4) as usize] as char);
-        out.push(HEX[(b & 0x0f) as usize] as char);
+    let mut vec = vec![0u8; bytes.len() * 2];
+    for (i, &b) in bytes.iter().enumerate() {
+        vec[i * 2] = HEX[(b >> 4) as usize];
+        vec[i * 2 + 1] = HEX[(b & 0x0f) as usize];
     }
-    out
+    // SAFETY: HEX contains only ASCII bytes '0'-'9', 'a'-'f', which are valid UTF-8.
+    unsafe { String::from_utf8_unchecked(vec) }
 }
 
 /// Delete `{name}_*.zip` files whose filename differs from `keep`.
