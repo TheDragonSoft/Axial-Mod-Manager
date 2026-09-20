@@ -1,13 +1,13 @@
 import { useEffect } from "react";
-import { getModDetails } from "./api";
+import { getBulkModDetails } from "./api";
 import { useThumbnailStore } from "../store/useThumbnailStore";
 
 const inFlight = new Set<string>();
 
 /**
  * Pulls portal thumbnails for the given mod names into the shared cache.
- * Each name resolves once per session via the existing details command
- * (backend dedupes/caches the HTTP itself); results arrive progressively.
+ * Each name resolves once per session via a single bulk details command
+ * (backend dedupes/caches the HTTP itself); results arrive in batches.
  * Failures resolve to null so cards keep their letter tiles instead of
  * retrying forever.
  */
@@ -19,7 +19,7 @@ export function useThumbnails(names: string[]): void {
     const list = namesKey ? namesKey.split("|") : [];
     // Read state imperatively via getState() instead of subscribing via selector.
     // This prevents parent pages (BrowsePage, InstalledPage) from re-rendering
-    // N times as individual thumbnail URLs resolve into the store.
+    // as thumbnail URLs resolve into the store.
     const { urls, setResolved } = useThumbnailStore.getState();
     const missing = [...new Set(list)].filter(
       (n) => urls[n] === undefined && !inFlight.has(n),
@@ -27,11 +27,30 @@ export function useThumbnails(names: string[]): void {
     if (missing.length === 0) return;
     for (const name of missing) {
       inFlight.add(name);
-      getModDetails(name)
-        .then((d) => setResolved(name, d.thumbnail))
-        .catch(() => setResolved(name, null))
-        .finally(() => inFlight.delete(name));
     }
+    getBulkModDetails(missing)
+      .then((detailsList) => {
+        const found = new Set<string>();
+        for (const d of detailsList) {
+          found.add(d.name);
+          setResolved(d.name, d.thumbnail);
+        }
+        for (const name of missing) {
+          if (!found.has(name)) {
+            setResolved(name, null);
+          }
+        }
+      })
+      .catch(() => {
+        for (const name of missing) {
+          setResolved(name, null);
+        }
+      })
+      .finally(() => {
+        for (const name of missing) {
+          inFlight.delete(name);
+        }
+      });
   }, [namesKey]);
 }
 

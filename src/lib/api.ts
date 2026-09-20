@@ -89,6 +89,11 @@ export async function getModDetails(name: string): Promise<ModDetails> {
   return invoke<ModDetails>("get_mod_details", { name });
 }
 
+export async function getBulkModDetails(names: string[]): Promise<ModDetails[]> {
+  if (names.length === 0) return [];
+  return invoke<ModDetails[]>("get_bulk_mod_details", { names });
+}
+
 /** Changelog entries for a mod (portal HTML page parsed backend-side),
  * newest first. Callers degrade to an inline "unavailable" on error. */
 export async function getModChangelog(name: string): Promise<ChangelogEntry[]> {
