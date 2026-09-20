@@ -281,6 +281,8 @@ export default function BrowsePage() {
                 icon={Search}
                 value={queryInput}
                 onChange={(e) => setQueryInput(e.target.value)}
+                onClear={queryInput ? () => setQueryInput("") : undefined}
+                clearLabel="Clear search text"
                 placeholder="Search mods…"
               />
             </div>
