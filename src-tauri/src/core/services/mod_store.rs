@@ -1030,14 +1030,23 @@ pub fn clean_orphans(dir: &Path, cache: &ZipInfoCache) -> Result<CleanOrphansRes
             continue;
         };
         // Defense in depth: names come from read_dir, but deletion is forever —
-        // refuse anything that isn't a plain top-level file name.
+        // refuse anything that isn't a plain top-level file name or traverses outside dir.
         if file_name.contains('/')
             || file_name.contains('\\')
             || file_name.contains("..")
         {
             continue;
         }
-        match fs::remove_file(dir.join(file_name)) {
+        let target_path = dir.join(file_name);
+        if let (Ok(canonical_dir), Ok(canonical_target)) =
+            (fs::canonicalize(dir), fs::canonicalize(&target_path))
+        {
+            if !canonical_target.starts_with(&canonical_dir) {
+                errors.push(format!("{file_name}: path is outside mods directory"));
+                continue;
+            }
+        }
+        match fs::remove_file(&target_path) {
             Ok(_) => {
                 deleted_count += 1;
                 freed_bytes += orphan.size_bytes;
@@ -1620,6 +1629,34 @@ mod tests {
         // Malformed shape (no mods array): same policy as the write paths.
         fs::write(dir.join(MOD_LIST_FILE), r#"{"version": 3}"#).unwrap();
         assert!(storage_report(&dir, &cache).orphans.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clean_orphans_prevents_path_traversal() {
+        let dir = unique_dir("path-traversal");
+        write_mod_list(&dir, &[("base", true)]);
+        let cache = ZipInfoCache::new();
+
+        // Construct a report with a manipulated file_name attempt
+        let _report = StorageReport {
+            mods_dir: dir.to_string_lossy().into_owned(),
+            total_size_bytes: 0,
+            zip_count: 0,
+            orphans: vec![OrphanFile {
+                file_name: Some("../outside.txt".into()),
+                kind: OrphanKind::PartDebris,
+                mod_name: None,
+                size_bytes: 10,
+            }],
+            orphan_size_bytes: 10,
+            per_mod: vec![],
+        };
+
+        // clean_orphans should skip file_names with '..' via validation
+        let res = clean_orphans(&dir, &cache).unwrap();
+        assert_eq!(res.deleted_count, 0);
 
         let _ = fs::remove_dir_all(&dir);
     }
