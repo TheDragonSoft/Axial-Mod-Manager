@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Download, Heart } from "lucide-react";
 import type { ModSummary } from "../types";
 import { formatCount } from "../lib/format";
@@ -19,7 +20,12 @@ interface ModCardProps {
   onInstall?: (mod: ModSummary) => void;
 }
 
-export default function ModCard({
+/**
+ * ModCard displays a summary of a mod in browse/search views.
+ * Memoized with React.memo to prevent re-rendering cards during parent state
+ * updates (e.g. typing in the BrowsePage search input).
+ */
+export const ModCard = memo(function ModCard({
   mod,
   targetVersion = null,
   onOpen,
@@ -120,4 +126,6 @@ export default function ModCard({
       </div>
     </Card>
   );
-}
+});
+
+export default ModCard;
