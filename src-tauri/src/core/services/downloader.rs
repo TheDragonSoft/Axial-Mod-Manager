@@ -165,7 +165,15 @@ impl DownloadQueue {
         let _ = app.emit("download-updated", &base);
 
         tauri::async_runtime::spawn(async move {
-            let done = run_job(&self, &app, &flag, mods_dir, mod_name, version, expected_sha1, id).await;
+            let job = DownloadJob {
+                id,
+                mod_name,
+                version,
+                mods_dir,
+                expected_sha1,
+                cancel: flag,
+            };
+            let done = run_job(&self, &app, job).await;
             self.handles.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
             self.in_flight
                 .lock()
@@ -178,20 +186,24 @@ impl DownloadQueue {
     }
 }
 
+struct DownloadJob {
+    id: u64,
+    mod_name: String,
+    version: String,
+    mods_dir: PathBuf,
+    expected_sha1: Option<String>,
+    cancel: Arc<AtomicBool>,
+}
+
 async fn run_job(
     queue: &DownloadQueue,
     app: &AppHandle,
-    cancel: &AtomicBool,
-    mods_dir: PathBuf,
-    mod_name: String,
-    version: String,
-    expected_sha1: Option<String>,
-    id: u64,
+    job: DownloadJob,
 ) -> DownloadUpdate {
     let mut item = DownloadUpdate {
-        id,
-        mod_name,
-        version,
+        id: job.id,
+        mod_name: job.mod_name,
+        version: job.version,
         status: "downloading",
         received: 0,
         total: 0,
@@ -206,7 +218,7 @@ async fn run_job(
             return item;
         }
     };
-    if cancel.load(Ordering::SeqCst) {
+    if job.cancel.load(Ordering::SeqCst) {
         item.status = "cancelled";
         return item;
     }
@@ -219,12 +231,12 @@ async fn run_job(
         encode_path_component(&item.version),
         anticache_token()
     );
-    let part = mods_dir.join(format!("{}_{}.zip.part", item.mod_name, item.version));
+    let part = job.mods_dir.join(format!("{}_{}.zip.part", item.mod_name, item.version));
 
     // Attempt loop: transient failures retry with exponential backoff.
     let mut outcome: Result<u64, JobFail> = Err(JobFail::Error("no attempt made".into(), false));
     for attempt in 1..=MAX_ATTEMPTS {
-        if cancel.load(Ordering::SeqCst) {
+        if job.cancel.load(Ordering::SeqCst) {
             outcome = Err(JobFail::Cancelled);
             break;
         }
@@ -235,7 +247,7 @@ async fn run_job(
                 &DownloadUpdate { received: 0, total: 0, ..item.clone() },
             );
         }
-        match download_and_verify(&queue.http, cancel, &url, &part, app, &item, expected_sha1.as_deref()).await {
+        match download_and_verify(&queue.http, &job.cancel, &url, &part, app, &item, job.expected_sha1.as_deref()).await {
             Ok(total) => {
                 outcome = Ok(total);
                 break;
@@ -245,17 +257,17 @@ async fn run_job(
                 break;
             }
             Err(JobFail::Error(e, false)) => {
-                tracing::error!(id, mod = %item.mod_name, version = %item.version, "download failed (permanent): {e}");
+                tracing::error!(id = job.id, mod = %item.mod_name, version = %item.version, "download failed (permanent): {e}");
                 outcome = Err(JobFail::Error(e, false));
                 break;
             }
             Err(JobFail::Error(e, true)) if attempt < MAX_ATTEMPTS => {
                 let wait = Duration::from_secs(2u64.saturating_pow(attempt)); // 2s, 4s
-                tracing::warn!(id, attempt, "transient download failure, retrying in {wait:?}: {e}");
+                tracing::warn!(id = job.id, attempt, "transient download failure, retrying in {wait:?}: {e}");
                 tokio::time::sleep(wait).await;
             }
             Err(JobFail::Error(e, true)) => {
-                tracing::error!(id, attempts = MAX_ATTEMPTS, "download failed after {MAX_ATTEMPTS} attempts: {e}");
+                tracing::error!(id = job.id, attempts = MAX_ATTEMPTS, "download failed after {MAX_ATTEMPTS} attempts: {e}");
                 outcome = Err(JobFail::Error(format!("{e} (after {MAX_ATTEMPTS} attempts)"), false));
                 break;
             }
@@ -267,7 +279,7 @@ async fn run_job(
             // One zip per mod name: remove other versions before the rename.
             let dest_name = format!("{}_{}.zip", item.mod_name, item.version);
             let rm = (
-                mods_dir.clone(),
+                job.mods_dir.clone(),
                 dest_name.clone(),
                 item.mod_name.clone(),
             );
@@ -275,7 +287,7 @@ async fn run_job(
                 remove_other_versions(&rm.0, &rm.1, &rm.2)
             })
             .await;
-            let dest = mods_dir.join(dest_name);
+            let dest = job.mods_dir.join(dest_name);
             match tokio::fs::rename(&part, &dest).await {
                 Ok(()) => {
                     let elapsed = job_start.elapsed();
@@ -285,7 +297,7 @@ async fn run_job(
                         0.0
                     };
                     tracing::info!(
-                        id,
+                        id = job.id,
                         mod = %item.mod_name,
                         version = %item.version,
                         bytes = total,
@@ -303,7 +315,7 @@ async fn run_job(
                     // entries exist and this is a no-op. Best-effort: a corrupt
                     // mod-list.json must not fail a finished download.
                     {
-                        let dir = mods_dir.clone();
+                        let dir = job.mods_dir.clone();
                         let name = item.mod_name.clone();
                         match tauri::async_runtime::spawn_blocking(move || {
                             crate::core::services::mod_store::ensure_mod_entry(&dir, &name)
@@ -330,7 +342,7 @@ async fn run_job(
                     crate::core::services::packs::maybe_finalize(app, &item.mod_name).await;
                 }
                 Err(e) => {
-                    tracing::error!(id, "could not finalize install: {e}");
+                    tracing::error!(id = job.id, "could not finalize install: {e}");
                     item.status = "failed";
                     item.error = Some(format!("could not finalize install: {e}"));
                     crate::core::services::packs::maybe_finalize(app, &item.mod_name).await;
@@ -339,7 +351,7 @@ async fn run_job(
         }
         Err(JobFail::Cancelled) => {
             let _ = tokio::fs::remove_file(&part).await;
-            tracing::info!(id, mod = %item.mod_name, "download cancelled");
+            tracing::info!(id = job.id, mod = %item.mod_name, "download cancelled");
             item.status = "cancelled";
             crate::core::services::packs::maybe_finalize(app, &item.mod_name).await;
         }
