@@ -336,6 +336,15 @@ impl CachedZipInfo {
     }
 }
 
+/// Entry payload for storing zip metadata in `ZipInfoCache`.
+#[derive(Debug, Clone)]
+struct ZipCacheEntry {
+    file_name: String,
+    mtime: SystemTime,
+    len: u64,
+    info: CachedZipInfo,
+}
+
 /// In-memory cache of per-zip info.json reads. A full scan opens every zip
 /// (central directory + info.json decompress), which on Windows is
 /// AV-amplified; this makes repeat scans (every installed-changed event, tab
@@ -367,27 +376,11 @@ impl ZipInfoCache {
         (*cached_at == mtime && *cached_len == len).then(|| info.clone())
     }
 
-    fn store(&self, dir: &Path, file_name: &str, mtime: SystemTime, len: u64, info: CachedZipInfo) {
-        let mut dirs = match self.dirs.lock() {
-            Ok(d) => d,
-            Err(_) => return, // poisoned: scans still work, just uncached
-        };
-        if !dirs.contains_key(dir) {
-            if dirs.len() >= CACHE_MAX_DIRS {
-                dirs.clear();
-            }
-            dirs.insert(dir.to_path_buf(), HashMap::new());
-        }
-        if let Some(per_dir) = dirs.get_mut(dir) {
-            per_dir.insert(file_name.to_string(), (mtime, len, info));
-        }
+    fn store(&self, dir: &Path, entry: ZipCacheEntry) {
+        self.store_many(dir, std::iter::once(entry));
     }
 
-    fn store_many(
-        &self,
-        dir: &Path,
-        entries: impl IntoIterator<Item = (String, SystemTime, u64, CachedZipInfo)>,
-    ) {
+    fn store_many(&self, dir: &Path, entries: impl IntoIterator<Item = ZipCacheEntry>) {
         let mut dirs = match self.dirs.lock() {
             Ok(d) => d,
             Err(_) => return, // poisoned: scans still work, just uncached
@@ -399,8 +392,8 @@ impl ZipInfoCache {
             dirs.insert(dir.to_path_buf(), HashMap::new());
         }
         if let Some(per_dir) = dirs.get_mut(dir) {
-            for (file_name, mtime, len, info) in entries {
-                per_dir.insert(file_name, (mtime, len, info));
+            for entry in entries {
+                per_dir.insert(entry.file_name, (entry.mtime, entry.len, entry.info));
             }
         }
     }
@@ -428,7 +421,15 @@ fn zip_info_cached(dir: &Path, cache: &ZipInfoCache, path: &Path, file_name: &st
             return info;
         }
         let info = read_zip_info(path, file_name);
-        cache.store(dir, file_name, mtime, meta.len(), info.clone());
+        cache.store(
+            dir,
+            ZipCacheEntry {
+                file_name: file_name.to_string(),
+                mtime,
+                len: meta.len(),
+                info: info.clone(),
+            },
+        );
         return info;
     }
     read_zip_info(path, file_name)
@@ -753,9 +754,12 @@ fn read_misses(
 
     cache.store_many(
         dir,
-        results
-            .iter()
-            .map(|(_, name, mtime, len, info)| (name.clone(), *mtime, *len, info.clone())),
+        results.iter().map(|(_, name, mtime, len, info)| ZipCacheEntry {
+            file_name: name.clone(),
+            mtime: *mtime,
+            len: *len,
+            info: info.clone(),
+        }),
     );
 
     results.into_iter().map(|(i, _, _, _, info)| (i, info)).collect()
