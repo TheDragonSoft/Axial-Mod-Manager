@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -21,6 +22,9 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 3;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
+/// Maximum allowable decompressed size for info.json inside a mod zip (10 MiB).
+/// Prevents memory exhaustion / zip bomb DoS when verifying downloaded files.
+const MAX_INFO_JSON_SIZE: u64 = 10 * 1024 * 1024;
 
 /// Event payload for "download-updated" — mirrors the frontend QueueItem.
 #[derive(Debug, Clone, Serialize)]
@@ -459,8 +463,11 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            std::io::Read::read_to_string(&mut entry.by_ref().take(MAX_INFO_JSON_SIZE + 1), &mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() as u64 > MAX_INFO_JSON_SIZE {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
@@ -824,6 +831,23 @@ mod tests {
 
         verify_mod_zip_sync(&f, "real_mod", "1.2.3")
             .expect("should match actual info.json, ignoring docs/extra_info.json");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("huge-info");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let huge = vec![b' '; (MAX_INFO_JSON_SIZE + 100) as usize];
+        zip.write_all(&huge).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "real_mod", "1.2.3").expect_err("oversized info.json must fail");
+        assert!(err.to_string().contains("exceeds maximum allowed size"));
     }
 
     #[test]
