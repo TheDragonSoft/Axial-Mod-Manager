@@ -83,11 +83,12 @@ const ModRow = memo(function ModRow({
   const summary = useSummary(mod.name);
   const changelog = useChangelog(mod.name);
   /** Changelog entries newer than the installed version — only meaningful
-   * while `updateTo` is set (up-to-date rows never fetch the changelog). */
-  const changelogDelta =
-    changelog !== undefined && changelog !== null
-      ? changelog.filter((e) => compareVersions(e.version, mod.version) > 0)
-      : null;
+   * while `updateTo` is set (up-to-date rows never fetch the changelog). Memoized
+   * to avoid re-filtering changelog entries on unrelated row re-renders. */
+  const changelogDelta = useMemo(() => {
+    if (changelog === undefined || changelog === null) return null;
+    return changelog.filter((e) => compareVersions(e.version, mod.version) > 0);
+  }, [changelog, mod.version]);
 
   return (
     <Card
