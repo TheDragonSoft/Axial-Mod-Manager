@@ -443,13 +443,14 @@ async fn verify_mod_zip(
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
+    use std::io::Read as _;
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Parse(format!("downloaded file is not a valid zip: {e}")))?;
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,7 +460,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            entry.take(2 * 1024 * 1024).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -824,6 +825,30 @@ mod tests {
 
         verify_mod_zip_sync(&f, "real_mod", "1.2.3")
             .expect("should match actual info.json, ignoring docs/extra_info.json");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-info");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+
+        let mut content = String::from(r#"{"name":"real_mod","version":"1.2.3","padding":""#);
+        content.push_str(&"a".repeat(2 * 1024 * 1024 + 100));
+        content.push_str(r#""}"#);
+
+        zip.write_all(content.as_bytes()).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "real_mod", "1.2.3").unwrap_err();
+        assert!(
+            err.to_string().contains("info.json is not valid JSON"),
+            "Oversized info.json in downloader verify should be truncated and fail JSON parsing: {err}"
+        );
     }
 
     #[test]
