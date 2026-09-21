@@ -66,6 +66,7 @@ export default function Sidebar({
   const activePackId = useAppStore((s) => s.activePackId);
   const activatingPackId = useAppStore((s) => s.activatingPackId);
   const expansionAvailable = useAppStore((s) => s.expansionAvailable);
+  const isQueueOpen = useQueueStore((s) => s.isOpen);
   const queueToggle = useQueueStore((s) => s.toggle);
   const activeDownloads = useQueueStore(selectActiveCount);
   const failedDownloads = useQueueStore(selectFailedCount);
@@ -182,6 +183,8 @@ export default function Sidebar({
         {/* Downloads: opens the queue drawer, not a page. */}
         <button
           onClick={queueToggle}
+          aria-expanded={isQueueOpen}
+          aria-controls="axial-queue-drawer"
           className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <Download className="h-4 w-4 shrink-0" />
