@@ -19,11 +19,26 @@ export function percent(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
+// Module-level cache for parsed version segments to eliminate repeated string splits and allocations during sorting
+const versionCache = new Map<string, number[]>();
+
+function parseVersion(v: string): number[] {
+  let parsed = versionCache.get(v);
+  if (parsed === undefined) {
+    parsed = v.split(".").map((s) => parseInt(s, 10) || 0);
+    if (versionCache.size > 2000) versionCache.clear();
+    versionCache.set(v, parsed);
+  }
+  return parsed;
+}
+
 /** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+  if (a === b) return 0;
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
     const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
     if (diff !== 0) return diff;
   }
