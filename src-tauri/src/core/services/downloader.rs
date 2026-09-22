@@ -18,6 +18,8 @@ use crate::models::{InstalledChangedPayload, InstalledChangedReason};
 /// Third-party mirror serving mod zips (per user's discovery report).
 const STORAGE_BASE: &str = "https://mods-storage.re146.dev";
 const MAX_CONCURRENT_DOWNLOADS: usize = 3;
+/// Maximum allowed decompressed size for info.json (1 MB) to prevent Zip Bomb DoS attacks.
+const MAX_INFO_JSON_SIZE: u64 = 1024 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
@@ -443,13 +445,15 @@ async fn verify_mod_zip(
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
+    use std::io::Read as _;
+
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Parse(format!("downloaded file is not a valid zip: {e}")))?;
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,8 +463,11 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            entry.take(MAX_INFO_JSON_SIZE + 1).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() > MAX_INFO_JSON_SIZE as usize {
+                return Err(AppError::Parse("info.json exceeds size limit of 1MB".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
