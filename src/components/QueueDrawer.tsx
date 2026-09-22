@@ -1,5 +1,6 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { enqueueDownload, cancelDownload, toAppError } from "../lib/api";
+import { isTopOverlay, popOverlay, pushOverlay } from "./ui/overlayStack";
 import {
   useQueueStore,
   selectActiveCount,
@@ -207,6 +208,49 @@ export default function QueueDrawer() {
   const activeCount = useQueueStore(selectActiveCount);
   const finishedCount = useQueueStore(selectFinishedCount);
 
+  const drawerRef = useRef<HTMLElement>(null);
+  const token = useRef(Symbol("queue-drawer"));
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const me = token.current;
+    pushOverlay(me);
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (!isTopOverlay(me)) return;
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+        return;
+      }
+      if (e.key === "Tab" && drawerRef.current) {
+        const focusables = drawerRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", onKey, true);
+    drawerRef.current?.focus();
+
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      popOverlay(me);
+      previouslyFocused?.focus();
+    };
+  }, [isOpen, close]);
+
   return (
     <>
       {isOpen && (
@@ -216,7 +260,12 @@ export default function QueueDrawer() {
         />
       )}
       <aside
-        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ease-out motion-reduce:transition-none ${
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Downloads queue"
+        tabIndex={-1}
+        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ease-out outline-none motion-reduce:transition-none ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
