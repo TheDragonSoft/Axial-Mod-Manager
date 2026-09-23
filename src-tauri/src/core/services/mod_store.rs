@@ -220,6 +220,9 @@ pub struct InfoJson {
     pub dependencies: Vec<String>,
 }
 
+/// Maximum allowed uncompressed size for `info.json` (1 MB) to prevent zip bomb DoS.
+const MAX_INFO_JSON_SIZE: u64 = 1_048_576;
+
 /// Read info.json from inside a mod zip without extracting it.
 /// Prefers root-level info.json; falls back to the first nested one.
 pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
@@ -239,14 +242,20 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            let n = entry.by_ref().take(MAX_INFO_JSON_SIZE + 1).read_to_string(&mut s)?;
+            if n as u64 > MAX_INFO_JSON_SIZE {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size (1 MB)".into()));
+            }
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            let n = entry.by_ref().take(MAX_INFO_JSON_SIZE + 1).read_to_string(&mut s)?;
+            if n as u64 > MAX_INFO_JSON_SIZE {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size (1 MB)".into()));
+            }
             nested = Some(s);
         }
     }
@@ -1752,6 +1761,12 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Oversized info.json (> 1 MB) rejected
+        let large_json = format!(r#"{{"name":"large","version":"1.0.0","extra":"{}"}}"#, "a".repeat(1_048_576));
+        let p_large = make_zip("large_1.0.0.zip", "info.json", large_json.as_bytes());
+        let err_large = read_info_json(&p_large).expect_err("oversized info.json should fail");
+        assert!(err_large.to_string().contains("exceeds maximum allowed size"));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
