@@ -440,6 +440,9 @@ async fn verify_mod_zip(
         .map_err(|e| AppError::Parse(format!("verification task failed: {e}")))?
 }
 
+/// Maximum allowed uncompressed size for `info.json` (1 MB) to prevent zip bomb DoS.
+const MAX_INFO_JSON_SIZE: u64 = 1_048_576;
+
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
@@ -459,8 +462,12 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            use std::io::Read as _;
+            let n = entry.by_ref().take(MAX_INFO_JSON_SIZE + 1).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if n as u64 > MAX_INFO_JSON_SIZE {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size (1 MB)".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
