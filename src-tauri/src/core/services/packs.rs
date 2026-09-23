@@ -226,6 +226,9 @@ pub fn import_pack_base64(profiles_dir: &Path, encoded: &str) -> Result<Pack, Ap
     if trimmed.is_empty() {
         return Err(AppError::Parse("pack code cannot be empty".into()));
     }
+    if trimmed.len() > 1_000_000 {
+        return Err(AppError::Parse("pack code exceeds maximum allowed length".into()));
+    }
     let bytes = BASE64_STANDARD
         .decode(trimmed)
         .map_err(|e| AppError::Parse(format!("invalid base64 encoding: {e}")))?;
@@ -1068,6 +1071,18 @@ mod tests {
         let err = import_pack_base64(&dir, "   \n\t  ").unwrap_err();
         match err {
             AppError::Parse(msg) => assert!(msg.contains("pack code cannot be empty")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_fails_on_oversized_input() {
+        let dir = unique_dir("base64-oversized");
+        let huge_code = "A".repeat(1_000_001);
+        let err = import_pack_base64(&dir, &huge_code).unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("pack code exceeds maximum allowed length")),
             other => panic!("expected AppError::Parse, got {other:?}"),
         }
         let _ = fs::remove_dir_all(&dir);
