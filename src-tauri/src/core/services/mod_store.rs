@@ -762,11 +762,13 @@ fn read_misses(
 }
 
 fn validated_zip_path(dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
+    let p = Path::new(file_name);
     if file_name.is_empty()
         || file_name.contains('/')
         || file_name.contains('\\')
         || file_name.contains("..")
         || !file_name.to_lowercase().ends_with(".zip")
+        || p.file_name() != Some(std::ffi::OsStr::new(file_name))
     {
         return Err(AppError::Config(format!(
             "invalid mod file name: {file_name:?}"
@@ -776,6 +778,13 @@ fn validated_zip_path(dir: &Path, file_name: &str) -> Result<PathBuf, AppError> 
     if !path.is_file() {
         return Err(AppError::NotFound(format!(
             "{file_name} not found in the mods directory"
+        )));
+    }
+    let canonical_dir = fs::canonicalize(dir).map_err(AppError::Io)?;
+    let canonical_path = fs::canonicalize(&path).map_err(AppError::Io)?;
+    if !canonical_path.starts_with(&canonical_dir) {
+        return Err(AppError::Config(format!(
+            "mod file {file_name:?} is outside mods directory"
         )));
     }
     Ok(path)
@@ -1754,5 +1763,23 @@ mod tests {
         assert_eq!(info_nover.version, "?");
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_validated_zip_path_security() {
+        let dir = unique_dir("path-security");
+        let valid_zip = dir.join("ValidMod_1.0.0.zip");
+        write_zip(&valid_zip, r#"{"name":"ValidMod","version":"1.0.0","factorio_version":"2.0"}"#);
+
+        let valid = validated_zip_path(&dir, "ValidMod_1.0.0.zip");
+        assert!(valid.is_ok(), "valid top-level zip file path must succeed");
+
+        assert!(validated_zip_path(&dir, "").is_err(), "empty filename rejected");
+        assert!(validated_zip_path(&dir, "../outside.zip").is_err(), "path traversal rejected");
+        assert!(validated_zip_path(&dir, "sub/mod.zip").is_err(), "sub-directory component rejected");
+        assert!(validated_zip_path(&dir, "ValidMod_1.0.0.txt").is_err(), "non-zip extension rejected");
+        assert!(validated_zip_path(&dir, "Nonexistent_1.0.0.zip").is_err(), "nonexistent file rejected");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
