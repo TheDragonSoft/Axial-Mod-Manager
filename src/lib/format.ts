@@ -21,6 +21,7 @@ export function percent(received: number, total: number): number {
 
 /** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
 export function compareVersions(a: string, b: string): number {
+  if (a === b) return 0;
   const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
   const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
