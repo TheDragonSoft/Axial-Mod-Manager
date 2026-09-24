@@ -43,6 +43,10 @@ import Spinner from "../components/ui/Spinner";
 import { useConfirm } from "../components/ui/useConfirm";
 import type { InstalledMod, UpdatesReport } from "../types";
 
+/** Reused collators for sorting installed mods without repeated Intl.Collator allocations. */
+const baseCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+const defaultCollator = new Intl.Collator();
+
 /** Prevent interactive controls inside the row from toggling expansion. */
 function stopRow(e: React.MouseEvent) {
   e.stopPropagation();
@@ -447,9 +451,10 @@ export default function InstalledPage() {
         disabled.push(m);
       }
     }
+    // Reusing module-level Intl.Collator instances prevents allocating new collator
+    // objects on every element comparison during sort operations.
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
-      a.name.localeCompare(b.name);
+      baseCollator.compare(a.name, b.name) || defaultCollator.compare(a.name, b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
     return { enabledMods: enabled, disabledMods: disabled };
