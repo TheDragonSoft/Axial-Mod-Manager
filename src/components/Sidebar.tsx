@@ -4,6 +4,7 @@ import { clsx } from "clsx";
 import logoSvg from "../assets/logo.svg";
 import {
   Boxes,
+  Command,
   Compass,
   Download,
   Leaf,
@@ -191,6 +192,26 @@ export default function Sidebar({
           ) : (
             activeDownloads > 0 && <Badge count={activeDownloads} tone="green" />
           )}
+        </button>
+        {/* Command Palette: opens the global command palette overlay */}
+        <button
+          onClick={() =>
+            window.dispatchEvent(
+              new CustomEvent("axial-toggle-command-palette"),
+            )
+          }
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          aria-label="Open command palette"
+          title="Open command palette (Ctrl+K or ⌘K)"
+        >
+          <Command className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">Commands</span>
+          <kbd className="rounded border border-line bg-surface-2/80 px-1.5 py-0.5 font-mono text-[10px] text-stone-400 select-none">
+            {typeof navigator !== "undefined" &&
+            /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+              ? "⌘K"
+              : "Ctrl+K"}
+          </kbd>
         </button>
       </nav>
 

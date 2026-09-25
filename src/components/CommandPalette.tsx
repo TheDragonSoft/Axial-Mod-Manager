@@ -114,8 +114,8 @@ export default function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null);
   const token = useRef(Symbol("command-palette"));
 
-  // Global Ctrl+K / Cmd+K toggle. Always attached so it works no matter
-  // which page or overlay has focus.
+  // Global Ctrl+K / Cmd+K toggle & custom UI event toggle. Always attached
+  // so it works no matter which page or overlay has focus.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -123,8 +123,13 @@ export default function CommandPalette() {
         setOpen((v) => !v);
       }
     };
+    const onToggle = () => setOpen((v) => !v);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("axial-toggle-command-palette", onToggle);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("axial-toggle-command-palette", onToggle);
+    };
   }, []);
 
   // Reset per open and refresh the mutable verb sources (installed mods,
