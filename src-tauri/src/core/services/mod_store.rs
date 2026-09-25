@@ -213,6 +213,10 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+/// Maximum allowed decompressed size (1 MiB) for info.json zip entries.
+/// Prevents Zip Bomb / Denial-of-Service attacks via unbounded memory allocation.
+pub const MAX_INFO_JSON_SIZE: u64 = 1_048_576;
+
 pub struct InfoJson {
     pub name: String,
     pub version: String,
@@ -230,7 +234,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +243,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_SIZE).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_SIZE).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1756,11 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Oversized info.json (Zip Bomb / DoS attempt) is capped at MAX_INFO_JSON_SIZE
+        let huge_payload = format!(r#"{{"name":"huge","version":"1.0.0","padding":"{}"}}"#, "a".repeat(MAX_INFO_JSON_SIZE as usize + 50));
+        let p_huge = make_zip("huge_1.0.0.zip", "info.json", huge_payload.as_bytes());
+        assert!(read_info_json(&p_huge).is_err(), "oversized info.json should be truncated and fail JSON parsing");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
