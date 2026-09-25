@@ -49,6 +49,13 @@ function stopRow(e: React.MouseEvent) {
 }
 
 /**
+ * Module-level Intl.Collator instance for case-insensitive mod name comparisons.
+ * Reusing a single instance avoids repeated Intl.Collator allocations on every
+ * comparison during list sorting in InstalledPage.
+ */
+const nameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+/**
  * ModRow renders an installed mod item with expandable details/changelog.
  * Memoized with React.memo so expanding, collapsing, or toggling a single row
  * re-renders only that row instead of every row in the list.
@@ -448,7 +455,7 @@ export default function InstalledPage() {
       }
     }
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+      nameCollator.compare(a.name, b.name) ||
       a.name.localeCompare(b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
