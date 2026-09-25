@@ -43,6 +43,9 @@ import Spinner from "../components/ui/Spinner";
 import { useConfirm } from "../components/ui/useConfirm";
 import type { InstalledMod, UpdatesReport } from "../types";
 
+/** Reusable Intl.Collator instance for case-insensitive mod name sorting without repeated allocations. */
+const modNameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
 /** Prevent interactive controls inside the row from toggling expansion. */
 function stopRow(e: React.MouseEvent) {
   e.stopPropagation();
@@ -447,8 +450,9 @@ export default function InstalledPage() {
         disabled.push(m);
       }
     }
+    // Reusing module-level modNameCollator prevents repeated Intl.Collator allocations during O(N log N) sorting.
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+      modNameCollator.compare(a.name, b.name) ||
       a.name.localeCompare(b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
