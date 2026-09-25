@@ -83,6 +83,11 @@ fn sanitize_name(name: &str) -> Result<String, AppError> {
     Ok(t.to_string())
 }
 
+/// Maximum allowed mods in a single pack (DoS protection).
+const MAX_PACK_MODS: usize = 1000;
+/// Maximum allowed length in bytes for an imported Base64 pack code (1 MB DoS limit).
+const MAX_PACK_CODE_BYTES: usize = 1_048_576;
+
 /// Validate + normalize the mod list of a new pack: plausible names/versions,
 /// no duplicates, `base` filtered out.
 pub fn validate_mods(mods: Vec<PackMod>) -> Result<Vec<PackMod>, AppError> {
@@ -113,6 +118,11 @@ pub fn validate_mods(mods: Vec<PackMod>) -> Result<Vec<PackMod>, AppError> {
     }
     if out.is_empty() {
         return Err(AppError::Config("pack has no mods".into()));
+    }
+    if out.len() > MAX_PACK_MODS {
+        return Err(AppError::Config(format!(
+            "pack cannot contain more than {MAX_PACK_MODS} mods"
+        )));
     }
     Ok(out)
 }
@@ -225,6 +235,11 @@ pub fn import_pack_base64(profiles_dir: &Path, encoded: &str) -> Result<Pack, Ap
     let trimmed = encoded.trim();
     if trimmed.is_empty() {
         return Err(AppError::Parse("pack code cannot be empty".into()));
+    }
+    if trimmed.len() > MAX_PACK_CODE_BYTES {
+        return Err(AppError::Parse(
+            "pack code exceeds maximum allowed size (1 MB)".into(),
+        ));
     }
     let bytes = BASE64_STANDARD
         .decode(trimmed)
@@ -1071,6 +1086,32 @@ mod tests {
             other => panic!("expected AppError::Parse, got {other:?}"),
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_fails_on_oversized_payload() {
+        let dir = unique_dir("base64-oversized");
+        // String of length > MAX_PACK_CODE_BYTES (1,048_576)
+        let oversized = "A".repeat(MAX_PACK_CODE_BYTES + 10);
+        let err = import_pack_base64(&dir, &oversized).unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("exceeds maximum allowed size")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn validate_mods_fails_on_exceeding_max_mod_limit() {
+        let mut mods = Vec::new();
+        for i in 0..=MAX_PACK_MODS {
+            mods.push(pm(&format!("mod-{i}"), "1.0.0", true));
+        }
+        let err = validate_mods(mods).unwrap_err();
+        match err {
+            AppError::Config(msg) => assert!(msg.contains("cannot contain more than")),
+            other => panic!("expected AppError::Config, got {other:?}"),
+        }
     }
 
     #[test]
