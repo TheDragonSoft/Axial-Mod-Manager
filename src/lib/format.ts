@@ -19,11 +19,37 @@ export function percent(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
+/**
+ * Module-level cache for parsed version strings to eliminate repeated string splitting,
+ * array allocations, and integer parsing during sorting and version comparisons.
+ */
+const versionCache = new Map<string, number[]>();
+
+function parseVersion(v: string): number[] {
+  let parsed = versionCache.get(v);
+  if (!parsed) {
+    // Cap cache size to avoid unbounded growth over long app sessions
+    if (versionCache.size > 1000) {
+      versionCache.clear();
+    }
+    const parts = v.split(".");
+    parsed = new Array(parts.length);
+    for (let i = 0; i < parts.length; i++) {
+      parsed[i] = parseInt(parts[i], 10) || 0;
+    }
+    versionCache.set(v, parsed);
+  }
+  return parsed;
+}
+
 /** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+  // Fast path for identical version strings
+  if (a === b) return 0;
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
     const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
     if (diff !== 0) return diff;
   }
