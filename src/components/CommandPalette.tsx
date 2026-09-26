@@ -82,10 +82,11 @@ function noteRecent(id: string) {
 function fuzzyScore(query: string, target: string): number | null {
   if (query.length === 0) return 0;
   const t = target.toLowerCase();
+  const q = query.toLowerCase();
   let score = 0;
   let ti = 0;
   let prev = -2;
-  for (const ch of query.toLowerCase()) {
+  for (const ch of q) {
     const idx = t.indexOf(ch, ti);
     if (idx === -1) return null;
     if (idx === prev + 1) score -= 3;
