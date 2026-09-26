@@ -7,3 +7,9 @@
 **Learning:** In Axial's React frontend, parent components like `BrowsePage` (search inputs) and `InstalledPage` (mod management status updates) re-render frequently. Unmemoized item components (`ModCard` and `ModRow`) re-rendered every item on every keystroke or status change, causing noticeable main-thread overhead for long mod lists.
 
 **Action:** Wrap card and row components in `React.memo` and stabilize event handler functions passed as props using `useCallback`. Ensure side effects (such as data fetching on expand) remain within event handlers rather than state updaters or effects with unstable dependency arrays.
+
+## 2025-05-19 - Memoized Version Parsing and Collator Reuse in Version Comparisons and List Sorting
+
+**Learning:** Version comparison functions (like `compareVersions`) used in array `.sort()` calls for release lists, modal version selectors, and changelog filtering execute string splitting, array allocations, and integer parsing $O(N \log N)$ times per sort. Fast-path identity checks (`a === b`) and caching parsed numeric version arrays in a bounded module-level `Map` eliminates redundant string parsing and memory allocations. Additionally, reusing module-level `Intl.Collator` instances instead of invoking `localeCompare` with options inside list comparator callbacks avoids repeated creation and normalization of internal collators.
+
+**Action:** Memoize parsed version number tuples in version comparison functions and reuse module-level `Intl.Collator` instances for list sorting comparators.
