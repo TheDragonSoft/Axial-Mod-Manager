@@ -17,6 +17,8 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Maximum allowed decompressed size for `info.json` (1 MiB) to guard against zip bomb DoS attacks.
+const MAX_INFO_JSON_SIZE: u64 = 1_048_576;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -213,6 +215,7 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
@@ -230,7 +233,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +242,20 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_SIZE + 1).read_to_string(&mut s)?;
+            if s.len() as u64 > MAX_INFO_JSON_SIZE {
+                return Err(AppError::Parse("info.json exceeds maximum size limit (1 MiB)".into()));
+            }
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_SIZE + 1).read_to_string(&mut s)?;
+            if s.len() as u64 > MAX_INFO_JSON_SIZE {
+                return Err(AppError::Parse("info.json exceeds maximum size limit (1 MiB)".into()));
+            }
             nested = Some(s);
         }
     }
@@ -766,6 +775,7 @@ fn validated_zip_path(dir: &Path, file_name: &str) -> Result<PathBuf, AppError> 
         || file_name.contains('/')
         || file_name.contains('\\')
         || file_name.contains("..")
+        || Path::new(file_name).components().count() != 1
         || !file_name.to_lowercase().ends_with(".zip")
     {
         return Err(AppError::Config(format!(
@@ -1754,5 +1764,35 @@ mod tests {
         assert_eq!(info_nover.version, "?");
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn rejects_oversized_info_json() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-size-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let zip_path = temp_dir.join("huge_1.0.0.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let huge_content = vec![b' '; (MAX_INFO_JSON_SIZE + 10) as usize];
+        zip.write_all(&huge_content).unwrap();
+        zip.finish().unwrap();
+
+        let err = read_info_json(&zip_path).unwrap_err();
+        assert!(err.to_string().contains("exceeds maximum size limit"), "error: {err}");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn validated_zip_path_rejects_invalid_names() {
+        let dir = unique_dir("validated-path");
+        assert!(validated_zip_path(&dir, "valid_1.0.0.zip").is_err()); // file not found
+        assert!(validated_zip_path(&dir, "../outside.zip").is_err());
+        assert!(validated_zip_path(&dir, "sub/dir.zip").is_err());
+        assert!(validated_zip_path(&dir, "notzip.txt").is_err());
+        assert!(validated_zip_path(&dir, "").is_err());
+        let _ = fs::remove_dir_all(&dir);
     }
 }
