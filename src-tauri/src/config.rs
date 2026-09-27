@@ -57,7 +57,19 @@ impl Config {
             return Ok(Self::default());
         }
         let raw = fs::read_to_string(path).map_err(AppError::Io)?;
-        serde_json::from_str(&raw).map_err(|e| AppError::Parse(format!("settings.json: {e}")))
+        let mut cfg: Self = serde_json::from_str(&raw).map_err(|e| AppError::Parse(format!("settings.json: {e}")))?;
+        cfg.sanitize_log_level();
+        Ok(cfg)
+    }
+
+    /// Ensure `log_level` is a valid level (debug | info | warn | error), defaulting to "info".
+    pub fn sanitize_log_level(&mut self) {
+        let level = self.log_level.to_lowercase();
+        if !matches!(level.as_str(), "debug" | "info" | "warn" | "error") {
+            self.log_level = "info".to_string();
+        } else {
+            self.log_level = level;
+        }
     }
 
     /// Persist to disk atomically: write to a temp file, then rename over the target.
@@ -127,6 +139,23 @@ mod tests {
     fn default_target_version_is_2_0() {
         let config = Config::default();
         assert_eq!(config.target_factorio_version, "2.0");
+    }
+
+    #[test]
+    fn sanitizes_invalid_log_level() {
+        let mut config = Config {
+            log_level: "invalid_level".to_string(),
+            ..Config::default()
+        };
+        config.sanitize_log_level();
+        assert_eq!(config.log_level, "info");
+
+        let mut config_upper = Config {
+            log_level: "DEBUG".to_string(),
+            ..Config::default()
+        };
+        config_upper.sanitize_log_level();
+        assert_eq!(config_upper.log_level, "debug");
     }
 
     #[test]
