@@ -213,6 +213,7 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
@@ -239,14 +240,20 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap at 2MB to prevent Zip bomb / DoS memory exhaustion
+            if entry.by_ref().take(2_000_001).read_to_string(&mut s)? > 2_000_000 {
+                return Err(AppError::Parse("info.json exceeds 2MB limit".into()));
+            }
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap at 2MB to prevent Zip bomb / DoS memory exhaustion
+            if entry.by_ref().take(2_000_001).read_to_string(&mut s)? > 2_000_000 {
+                return Err(AppError::Parse("info.json exceeds 2MB limit".into()));
+            }
             nested = Some(s);
         }
     }
@@ -1752,6 +1759,12 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Oversized info.json exceeding 2MB limit
+        let huge_content = vec![b'a'; 2_000_005];
+        let p_huge = make_zip("huge_1.0.0.zip", "info.json", &huge_content);
+        let err_huge = read_info_json(&p_huge).expect_err("info.json > 2MB should be rejected");
+        assert!(err_huge.to_string().contains("exceeds 2MB limit"));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
