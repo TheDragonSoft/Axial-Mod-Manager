@@ -73,6 +73,7 @@ const QueueRow = memo(function QueueRow({ item }: { item: QueueItem }) {
               <ProgressBar
                 value={pct}
                 tone={item.status === "cancelled" ? "white" : "green"}
+                label={`Download progress for ${item.modName}`}
               />
               <div className="mt-1 flex justify-between text-[11px] text-stone-400">
                 <span>
