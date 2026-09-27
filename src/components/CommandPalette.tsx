@@ -164,6 +164,7 @@ export default function CommandPalette() {
   }, [open]);
 
   const actions = useMemo<CommandAction[]>(() => {
+    if (!open) return [];
     const out: CommandAction[] = [];
     const anyActivating = activatingPackId !== null;
 
@@ -325,9 +326,10 @@ export default function CommandPalette() {
     }
 
     return out;
-  }, [activePackId, activatingPackId, expansionAvailable, detectedGame, packs, mods]);
+  }, [open, activePackId, activatingPackId, expansionAvailable, detectedGame, packs, mods]);
 
   const filtered = useMemo<CommandAction[]>(() => {
+    if (!open) return [];
     const q = query.trim();
     if (q.length === 0) {
       // Default view: recency first, then navigation, then the rest.
@@ -362,11 +364,12 @@ export default function CommandPalette() {
     }
     scored.sort((x, y) => x.score - y.score);
     return scored.slice(0, MAX_RESULTS).map((s) => s.a);
-  }, [actions, query]);
+  }, [open, actions, query]);
 
   // Install-by-name verb: pinned last while searching, hands the query off to
   // BrowsePage (which consumes it) and jumps there.
   const searchVerb = useMemo<CommandAction | null>(() => {
+    if (!open) return null;
     const q = query.trim();
     if (q.length === 0) return null;
     return {
@@ -381,7 +384,7 @@ export default function CommandPalette() {
         st.setActiveTab("browse");
       },
     };
-  }, [query]);
+  }, [open, query]);
 
   const items = useMemo(
     () => (searchVerb ? [...filtered, searchVerb] : filtered),
