@@ -80,6 +80,11 @@ fn sanitize_name(name: &str) -> Result<String, AppError> {
             "pack name must be 1–100 characters".into(),
         ));
     }
+    if t.chars().any(|c| c.is_control()) {
+        return Err(AppError::Config(
+            "pack name cannot contain control characters".into(),
+        ));
+    }
     Ok(t.to_string())
 }
 
@@ -984,6 +989,23 @@ mod tests {
         let composed = compose_entries(&pack, &disk, &versions(&[("a", "1.0.0")]));
         assert!(composed.entries.contains(&("a".to_string(), false)));
         assert!(composed.version_mismatch.is_empty(), "pack-disabled mods are off regardless of version");
+    }
+
+    #[test]
+    fn sanitize_name_rejects_control_characters() {
+        let dir = unique_dir("sanitize-name-control");
+        let mods = vec![pm("a", "1.0.0", true)];
+
+        let err_newline = create_pack(&dir, "Pack\nWith\nNewlines", mods.clone()).unwrap_err();
+        assert!(err_newline.to_string().contains("control characters"));
+
+        let err_null = create_pack(&dir, "Pack\0WithNull", mods.clone()).unwrap_err();
+        assert!(err_null.to_string().contains("control characters"));
+
+        let err_tab = create_pack(&dir, "Pack\rWithCR", mods.clone()).unwrap_err();
+        assert!(err_tab.to_string().contains("control characters"));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
