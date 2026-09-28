@@ -216,6 +216,9 @@ export default function QueueDrawer() {
         />
       )}
       <aside
+        role="dialog"
+        aria-label="Downloads queue"
+        aria-hidden={!isOpen}
         className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ease-out motion-reduce:transition-none ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}

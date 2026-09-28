@@ -67,6 +67,7 @@ export default function Sidebar({
   const activatingPackId = useAppStore((s) => s.activatingPackId);
   const expansionAvailable = useAppStore((s) => s.expansionAvailable);
   const queueToggle = useQueueStore((s) => s.toggle);
+  const isQueueOpen = useQueueStore((s) => s.isOpen);
   const activeDownloads = useQueueStore(selectActiveCount);
   const failedDownloads = useQueueStore(selectFailedCount);
 
@@ -163,6 +164,7 @@ export default function Sidebar({
             <button
               key={id}
               onClick={() => setActiveTab(id)}
+              aria-current={isActive ? "page" : undefined}
               className={clsx(
                 "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
@@ -182,6 +184,8 @@ export default function Sidebar({
         {/* Downloads: opens the queue drawer, not a page. */}
         <button
           onClick={queueToggle}
+          aria-expanded={isQueueOpen}
+          aria-label="Downloads queue"
           className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <Download className="h-4 w-4 shrink-0" />
@@ -205,42 +209,54 @@ export default function Sidebar({
           ...(expansionAvailable
             ? [{ id: VANILLA_EXPANSION_PACK_ID, label: "Vanilla: Space Age" }]
             : []),
-        ].map((builtIn) => (
-          <button
-            key={builtIn.id}
-            title={builtIn.label}
-            onClick={() => handleVanillaClick(builtIn.id)}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            <StatusDot
-              tone={
-                activePackId === builtIn.id
-                  ? "green"
-                  : activatingPackId === builtIn.id
-                    ? "amber"
-                    : "zinc"
-              }
-              pulse={activatingPackId === builtIn.id}
-            />
-            <Leaf className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{builtIn.label}</span>
-          </button>
-        ))}
+        ].map((builtIn) => {
+          const isActivePack = activePackId === builtIn.id;
+          const isActivatingPack = activatingPackId === builtIn.id;
+          return (
+            <button
+              key={builtIn.id}
+              title={builtIn.label}
+              onClick={() => handleVanillaClick(builtIn.id)}
+              aria-current={isActivePack ? "true" : undefined}
+              aria-label={`${builtIn.label}${isActivePack ? " (active pack)" : isActivatingPack ? " (activating pack)" : ""}`}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              <StatusDot
+                tone={
+                  isActivePack
+                    ? "green"
+                    : isActivatingPack
+                      ? "amber"
+                      : "zinc"
+                }
+                pulse={isActivatingPack}
+              />
+              <Leaf className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{builtIn.label}</span>
+            </button>
+          );
+        })}
         {/* User packs */}
-        {packs.map((p) => (
-          <button
-            key={p.id}
-            title={p.name}
-            onClick={() => handlePackClick(p)}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          >
-            <StatusDot
-              tone={activePackId === p.id ? "green" : activatingPackId === p.id ? "amber" : "zinc"}
-              pulse={activatingPackId === p.id}
-            />
-            <span className="truncate">{p.name}</span>
-          </button>
-        ))}
+        {packs.map((p) => {
+          const isActivePack = activePackId === p.id;
+          const isActivatingPack = activatingPackId === p.id;
+          return (
+            <button
+              key={p.id}
+              title={p.name}
+              onClick={() => handlePackClick(p)}
+              aria-current={isActivePack ? "true" : undefined}
+              aria-label={`${p.name}${isActivePack ? " (active pack)" : isActivatingPack ? " (activating pack)" : ""}`}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-sm text-stone-400 transition-colors hover:bg-surface-2/60 hover:text-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              <StatusDot
+                tone={isActivePack ? "green" : isActivatingPack ? "amber" : "zinc"}
+                pulse={isActivatingPack}
+              />
+              <span className="truncate">{p.name}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Footer: backend bridge + version */}
