@@ -63,6 +63,18 @@ fn platform_mods_dir() -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 
 pub fn dir_status(path: &str) -> ModsDirStatus {
+    if path.trim().is_empty() {
+        return ModsDirStatus {
+            path: path.to_string(),
+            exists: false,
+            is_dir: false,
+            writable: false,
+            creatable: false,
+            zip_count: 0,
+            has_mod_list: false,
+        };
+    }
+
     let path = Path::new(path);
     let exists = path.exists();
     let is_dir = exists && path.is_dir();
@@ -1075,6 +1087,21 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn dir_status_returns_not_found_for_empty_or_whitespace_path() {
+        for empty_path in ["", "   ", "\t\n"] {
+            let status = dir_status(empty_path);
+            assert_eq!(status.path, empty_path);
+            assert!(!status.exists);
+            assert!(!status.is_dir);
+            assert!(!status.writable);
+            assert!(!status.creatable);
+            assert_eq!(status.zip_count, 0);
+            assert!(!status.has_mod_list);
+        }
+        assert!(!Path::new(".axial_write_probe").exists());
+    }
 
     #[test]
     fn parses_standard_zip_names() {
