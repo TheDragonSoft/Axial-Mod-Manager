@@ -435,6 +435,8 @@ export default function CommandPalette() {
             icon={Search}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onClear={query ? () => setQuery("") : undefined}
+            clearLabel="Clear search query"
             onKeyDown={(e) => {
               if (e.key === "Tab") {
                 // Single-focus surface (aria-activedescendant): keep focus on
@@ -487,6 +489,7 @@ export default function CommandPalette() {
                 className={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 ${
                   isSelected ? "bg-surface-2" : ""
                 } ${a.disabled ? "opacity-50" : ""}`}
+                onMouseEnter={() => setSelected(i)}
                 // preventDefault keeps focus on the search input so the
                 // activedescendant pattern stays intact.
                 onMouseDown={(e) => e.preventDefault()}
