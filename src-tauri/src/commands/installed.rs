@@ -1,5 +1,6 @@
 use tauri::{AppHandle, Emitter, State};
 
+use crate::core::services::portal_client::plausible_name;
 use crate::core::services::{mod_store, updates};
 use crate::error::AppError;
 use crate::models::{
@@ -41,8 +42,8 @@ pub async fn toggle_mod(
     enabled: bool,
 ) -> Result<(), AppError> {
     let name = name.trim().to_string();
-    if name.is_empty() {
-        return Err(AppError::Config("mod name is empty".into()));
+    if !plausible_name(&name) {
+        return Err(AppError::Config(format!("invalid mod name: {name:?}")));
     }
     let config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
     let dir = mod_store::resolve_dir(&config)?;
@@ -105,6 +106,22 @@ pub async fn uninstall_mod(
         },
     );
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toggle_mod_name_validation() {
+        assert!(plausible_name("valid-mod_1.0"));
+        assert!(plausible_name("Flow Control"));
+        assert!(!plausible_name(""));
+        assert!(!plausible_name("   "));
+        assert!(!plausible_name("../etc/passwd"));
+        assert!(!plausible_name("mod/name"));
+        assert!(!plausible_name("mod\\name"));
+    }
 }
 
 /// Dependents that would be left broken by removing `file_name`, for the
