@@ -19,13 +19,25 @@ export function percent(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
-/** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
+/**
+ * Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions.
+ * Uses `indexOf` cursor scanning to avoid `split(".")` array allocations during list sorting.
+ */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    const nextI = a.indexOf(".", i);
+    const endI = nextI === -1 ? a.length : nextI;
+    const numA = i < a.length ? parseInt(a.slice(i, endI), 10) || 0 : 0;
+    i = nextI === -1 ? a.length : nextI + 1;
+
+    const nextJ = b.indexOf(".", j);
+    const endJ = nextJ === -1 ? b.length : nextJ;
+    const numB = j < b.length ? parseInt(b.slice(j, endJ), 10) || 0 : 0;
+    j = nextJ === -1 ? b.length : nextJ + 1;
+
+    if (numA !== numB) return numA - numB;
   }
   return 0;
 }
