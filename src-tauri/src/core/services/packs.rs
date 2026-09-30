@@ -86,6 +86,12 @@ fn sanitize_name(name: &str) -> Result<String, AppError> {
 /// Validate + normalize the mod list of a new pack: plausible names/versions,
 /// no duplicates, `base` filtered out.
 pub fn validate_mods(mods: Vec<PackMod>) -> Result<Vec<PackMod>, AppError> {
+    // Security: Bound maximum mod count per pack to prevent DoS / resource exhaustion
+    if mods.len() > 1000 {
+        return Err(AppError::Config(
+            "pack cannot contain more than 1000 mods".into(),
+        ));
+    }
     let mut seen: HashSet<String> = HashSet::new();
     let mut out = Vec::new();
     for mut m in mods {
@@ -195,6 +201,12 @@ pub fn create_pack(profiles_dir: &Path, name: &str, mods: Vec<PackMod>) -> Resul
 /// Import a shared/exported manifest. `format` and `createdAt` are accepted
 /// for compatibility; a fresh id/timestamp is always generated.
 pub fn import_pack(profiles_dir: &Path, json: &str) -> Result<Pack, AppError> {
+    // Security: Bound maximum JSON string size (1 MB) to prevent memory allocation DoS
+    if json.len() > 1_000_000 {
+        return Err(AppError::Parse(
+            "pack JSON exceeds maximum allowed size".into(),
+        ));
+    }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Imported {
@@ -225,6 +237,12 @@ pub fn import_pack_base64(profiles_dir: &Path, encoded: &str) -> Result<Pack, Ap
     let trimmed = encoded.trim();
     if trimmed.is_empty() {
         return Err(AppError::Parse("pack code cannot be empty".into()));
+    }
+    // Security: Bound maximum Base64 input length (1 MB) to prevent memory allocation DoS
+    if trimmed.len() > 1_000_000 {
+        return Err(AppError::Parse(
+            "pack code exceeds maximum allowed size".into(),
+        ));
     }
     let bytes = BASE64_STANDARD
         .decode(trimmed)
@@ -984,6 +1002,30 @@ mod tests {
         let composed = compose_entries(&pack, &disk, &versions(&[("a", "1.0.0")]));
         assert!(composed.entries.contains(&("a".to_string(), false)));
         assert!(composed.version_mismatch.is_empty(), "pack-disabled mods are off regardless of version");
+    }
+
+    #[test]
+    fn validate_mods_enforces_maximum_limit() {
+        let excessive_mods: Vec<PackMod> = (0..1001)
+            .map(|i| pm(&format!("mod-{i}"), "1.0.0", true))
+            .collect();
+        let err = validate_mods(excessive_mods).unwrap_err();
+        match err {
+            AppError::Config(msg) => assert!(msg.contains("more than 1000 mods")),
+            other => panic!("expected AppError::Config, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn base64_import_fails_on_oversized_input() {
+        let dir = unique_dir("base64-oversized");
+        let oversized = "A".repeat(1_000_001);
+        let err = import_pack_base64(&dir, &oversized).unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("exceeds maximum allowed size")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
