@@ -19,13 +19,59 @@ export function percent(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
-/** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
+/**
+ * Compare "1.2.10" vs "1.2.9" numerically per segment.
+ *
+ * Performance: Single-pass index-based segment parser with zero array or string allocations.
+ * Replaces `.split(".")` and `.map(parseInt)` to eliminate GC overhead during frequent
+ * version sorting (e.g., release lists, changelogs, dependency resolution).
+ */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+  let i = 0;
+  let j = 0;
+  const lenA = a.length;
+  const lenB = b.length;
+
+  while (i < lenA || j < lenB) {
+    let valA = 0;
+    let hasDigitsA = false;
+    let parsingA = true;
+    while (i < lenA) {
+      const code = a.charCodeAt(i);
+      i++;
+      if (code === 46 /* '.' */) break;
+      if (parsingA) {
+        if (code >= 48 && code <= 57 /* '0'-'9' */) {
+          valA = valA * 10 + (code - 48);
+          hasDigitsA = true;
+        } else {
+          parsingA = false;
+        }
+      }
+    }
+
+    let valB = 0;
+    let hasDigitsB = false;
+    let parsingB = true;
+    while (j < lenB) {
+      const code = b.charCodeAt(j);
+      j++;
+      if (code === 46 /* '.' */) break;
+      if (parsingB) {
+        if (code >= 48 && code <= 57 /* '0'-'9' */) {
+          valB = valB * 10 + (code - 48);
+          hasDigitsB = true;
+        } else {
+          parsingB = false;
+        }
+      }
+    }
+
+    const numA = hasDigitsA ? valA : 0;
+    const numB = hasDigitsB ? valB : 0;
+    const diff = numA - numB;
     if (diff !== 0) return diff;
   }
+
   return 0;
 }
