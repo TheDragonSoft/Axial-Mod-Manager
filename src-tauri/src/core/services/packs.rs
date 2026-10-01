@@ -50,8 +50,11 @@ pub struct PendingActivation {
 
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
+        && id.len() <= 64
         && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
         && !id.contains("..")
+        && !id.contains('/')
+        && !id.contains('\\')
 }
 
 fn pack_path(profiles_dir: &Path, id: &str) -> PathBuf {
@@ -127,6 +130,9 @@ pub fn load_pack(profiles_dir: &Path, id: &str) -> Result<Pack, AppError> {
 }
 
 pub fn save_pack(profiles_dir: &Path, pack: &Pack) -> Result<(), AppError> {
+    if !valid_id(&pack.id) {
+        return Err(AppError::Config(format!("invalid pack id {:?}", pack.id)));
+    }
     fs::create_dir_all(profiles_dir)?;
     let json = serde_json::to_string_pretty(pack)
         .map_err(|e| AppError::Parse(format!("serialize pack: {e}")))?;
@@ -984,6 +990,47 @@ mod tests {
         let composed = compose_entries(&pack, &disk, &versions(&[("a", "1.0.0")]));
         assert!(composed.entries.contains(&("a".to_string(), false)));
         assert!(composed.version_mismatch.is_empty(), "pack-disabled mods are off regardless of version");
+    }
+
+    #[test]
+    fn valid_id_prevents_path_traversal_and_invalid_ids() {
+        assert!(valid_id("pack-1234"));
+        assert!(valid_id("my-pack-abc"));
+        assert!(valid_id("a"));
+
+        // Path traversal / illegal characters / empty / oversized
+        assert!(!valid_id(""));
+        assert!(!valid_id("../etc/passwd"));
+        assert!(!valid_id("..\\windows"));
+        assert!(!valid_id("pack/sub"));
+        assert!(!valid_id("pack\\sub"));
+        assert!(!valid_id("../../secret"));
+        assert!(!valid_id("pack..name"));
+        assert!(!valid_id("pack_name")); // underscores not allowed
+        assert!(!valid_id("pack.json"));
+        assert!(!valid_id(&"a".repeat(65))); // exceeding 64 chars
+    }
+
+    #[test]
+    fn load_save_delete_export_reject_invalid_id() {
+        let dir = unique_dir("invalid-id");
+        let invalid_ids = vec!["../traversal", "pack/slash", "..\\win", "", "bad_id"];
+
+        for id in invalid_ids {
+            assert!(load_pack(&dir, id).is_err(), "load_pack failed to reject invalid id {id}");
+            assert!(delete_pack(&dir, id).is_err(), "delete_pack failed to reject invalid id {id}");
+            assert!(export_pack_base64(&dir, id).is_err(), "export_pack_base64 failed to reject invalid id {id}");
+
+            let p = Pack {
+                id: id.to_string(),
+                name: "Bad Pack".to_string(),
+                created_at: 100,
+                mods: vec![pm("flib", "0.1.0", true)],
+            };
+            assert!(save_pack(&dir, &p).is_err(), "save_pack failed to reject invalid id {id}");
+        }
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
