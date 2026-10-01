@@ -127,6 +127,9 @@ pub fn load_pack(profiles_dir: &Path, id: &str) -> Result<Pack, AppError> {
 }
 
 pub fn save_pack(profiles_dir: &Path, pack: &Pack) -> Result<(), AppError> {
+    if !valid_id(&pack.id) {
+        return Err(AppError::NotFound(format!("invalid pack id {:?}", pack.id)));
+    }
     fs::create_dir_all(profiles_dir)?;
     let json = serde_json::to_string_pretty(pack)
         .map_err(|e| AppError::Parse(format!("serialize pack: {e}")))?;
@@ -1239,6 +1242,36 @@ mod tests {
 
         let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
         assert!(guard.is_none());
+    }
+
+    #[test]
+    fn save_pack_rejects_invalid_pack_ids() {
+        let dir = unique_dir("invalid-pack-id");
+        let invalid_ids = vec![
+            "../traversal",
+            "pack/sub",
+            "pack\\win",
+            "pack..id",
+            "",
+            "pack id spaces",
+            "pack!",
+        ];
+
+        for bad_id in invalid_ids {
+            let pack = Pack {
+                id: bad_id.into(),
+                name: "Test Pack".into(),
+                created_at: 100,
+                mods: vec![pm("flib", "0.14.1", true)],
+            };
+            let err = save_pack(&dir, &pack).expect_err("should reject bad pack id");
+            match err {
+                AppError::NotFound(msg) => assert!(msg.contains("invalid pack id")),
+                other => panic!("expected AppError::NotFound, got {other:?}"),
+            }
+        }
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
