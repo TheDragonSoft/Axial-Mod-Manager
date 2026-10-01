@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ChevronLeft,
@@ -136,17 +136,23 @@ function FavoritesView({
     };
   }, [favorites]);
 
-  const toSummary = (d: ModDetails): ModSummary => {
-    const latest = d.releases[0];
-    return {
-      name: d.name,
-      title: d.title,
-      downloads: d.downloads ?? 0,
-      latestVersion: latest?.version ?? "?",
-      factorioVersion: latest?.factorioVersion ?? "",
-      summary: d.summary,
-    };
-  };
+  // Memoize mapped ModSummary objects so ModCard's React.memo receives stable prop references
+  // across re-renders (e.g. when thumbnails stream in).
+  const summaries = useMemo(
+    () =>
+      details.map((d): ModSummary => {
+        const latest = d.releases[0];
+        return {
+          name: d.name,
+          title: d.title,
+          downloads: d.downloads ?? 0,
+          latestVersion: latest?.version ?? "?",
+          factorioVersion: latest?.factorioVersion ?? "",
+          summary: d.summary,
+        };
+      }),
+    [details],
+  );
 
   if (loading) {
     return (
@@ -179,10 +185,10 @@ function FavoritesView({
 
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {details.map((d) => (
+      {summaries.map((s) => (
         <ModCard
-          key={d.name}
-          mod={toSummary(d)}
+          key={s.name}
+          mod={s}
           targetVersion={targetVersion}
           onOpen={onOpen}
           onInstall={onInstall}
