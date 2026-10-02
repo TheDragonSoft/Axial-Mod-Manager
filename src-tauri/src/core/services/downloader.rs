@@ -15,9 +15,13 @@ use crate::core::services::portal_client::{encode_path_component, plausible_name
 use crate::error::AppError;
 use crate::models::{InstalledChangedPayload, InstalledChangedReason};
 
+use std::io::Read;
+
 /// Third-party mirror serving mod zips (per user's discovery report).
 const STORAGE_BASE: &str = "https://mods-storage.re146.dev";
 const MAX_CONCURRENT_DOWNLOADS: usize = 3;
+/// Maximum allowed size (10 MiB) when reading `info.json` from a zip archive to prevent Zip Bomb DoS.
+const MAX_INFO_JSON_SIZE: u64 = 10 * 1024 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
@@ -449,7 +453,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,7 +463,9 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            entry
+                .take(MAX_INFO_JSON_SIZE)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -845,5 +851,26 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_bounds_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized");
+        let f = dir.path("oversized.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(b"{\"name\":\"oversized\",\"version\":\"1.0.0\",\"description\":\"").unwrap();
+        let chunk = vec![b'a'; 1024 * 1024];
+        for _ in 0..11 {
+            zip.write_all(&chunk).unwrap();
+        }
+        zip.write_all(b"\"}").unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "oversized", "1.0.0").unwrap_err();
+        assert!(err.to_string().contains("info.json is not valid JSON"));
     }
 }
