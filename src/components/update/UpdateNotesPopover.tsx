@@ -201,7 +201,7 @@ export default function UpdateNotesPopover({
             )}
             {phase === "downloading" && (
               <span className="w-full">
-                <ProgressBar value={progress} tone="green" />
+                <ProgressBar value={progress} tone="green" label="Update download progress" />
                 <span className="mt-1 block text-center text-[11px] font-normal">
                   Downloading… {progress}%
                 </span>
