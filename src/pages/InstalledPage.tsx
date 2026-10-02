@@ -48,6 +48,9 @@ function stopRow(e: React.MouseEvent) {
   e.stopPropagation();
 }
 
+/** Module-level collator avoids re-allocating Intl.Collator instances on every list sort comparison. */
+const nameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
 /**
  * ModRow renders an installed mod item with expandable details/changelog.
  * Memoized with React.memo so expanding, collapsing, or toggling a single row
@@ -448,8 +451,8 @@ export default function InstalledPage() {
       }
     }
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
-      a.name.localeCompare(b.name);
+      nameCollator.compare(a.name, b.name) ||
+      (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     enabled.sort(cmp);
     disabled.sort(cmp);
     return { enabledMods: enabled, disabledMods: disabled };
