@@ -106,6 +106,7 @@ export const ModCard = memo(function ModCard({
                 e.stopPropagation();
                 onOpen(mod);
               }}
+              aria-label={`View details for ${mod.title}`}
             >
               Details
             </Button>
@@ -118,6 +119,7 @@ export const ModCard = memo(function ModCard({
                 e.stopPropagation();
                 onInstall(mod);
               }}
+              aria-label={`Install ${mod.title}`}
             >
               Install
             </Button>
