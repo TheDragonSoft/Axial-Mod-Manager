@@ -459,8 +459,11 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            std::io::Read::read_to_string(&mut entry.by_ref().take(1_048_577), &mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() > 1_048_576 {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size (1 MB)".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
