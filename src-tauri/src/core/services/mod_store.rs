@@ -239,14 +239,20 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(1_048_577).read_to_string(&mut s)?;
+            if s.len() > 1_048_576 {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size (1 MB)".into()));
+            }
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(1_048_577).read_to_string(&mut s)?;
+            if s.len() > 1_048_576 {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size (1 MB)".into()));
+            }
             nested = Some(s);
         }
     }
@@ -1752,6 +1758,28 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn read_info_json_rejects_oversized_file() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-oversized-info-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let path = temp_dir.join("oversized_1.0.0.zip");
+        let file = fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        // Write 1_048_578 bytes (exceeding 1 MB limit)
+        let large_content = vec![b'a'; 1_048_578];
+        zip.write_all(&large_content).unwrap();
+        zip.finish().unwrap();
+
+        let err = read_info_json(&path).unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("info.json exceeds maximum allowed size")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
