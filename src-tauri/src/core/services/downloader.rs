@@ -21,6 +21,8 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 3;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
+/// Safety limit against zip bombs / decompression bombs when reading info.json.
+const MAX_INFO_JSON_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
 
 /// Event payload for "download-updated" — mirrors the frontend QueueItem.
 #[derive(Debug, Clone, Serialize)]
@@ -449,7 +451,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,7 +461,8 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            use std::io::Read as _;
+            entry.take(MAX_INFO_JSON_SIZE).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -824,6 +827,26 @@ mod tests {
 
         verify_mod_zip_sync(&f, "real_mod", "1.2.3")
             .expect("should match actual info.json, ignoring docs/extra_info.json");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_truncates_oversized_entry() {
+        use std::io::Write as _;
+        let dir = TempDir::new("zipbomb");
+        let f = dir.path("bomb.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+
+        // Write 11 MB of spaces (oversized entry)
+        let padding = vec![b' '; 11 * 1024 * 1024];
+        zip.write_all(&padding).unwrap();
+        zip.finish().unwrap();
+
+        // Truncates at MAX_INFO_JSON_SIZE (10 MB) without allocating unlimited memory.
+        let result = verify_mod_zip_sync(&f, "a-mod", "1.0.0");
+        assert!(result.is_err());
     }
 
     #[test]
