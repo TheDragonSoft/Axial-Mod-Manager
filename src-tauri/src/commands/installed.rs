@@ -1,6 +1,6 @@
 use tauri::{AppHandle, Emitter, State};
 
-use crate::core::services::{mod_store, updates};
+use crate::core::services::{mod_store, portal_client::plausible_name, updates};
 use crate::error::AppError;
 use crate::models::{
     CleanOrphansResult, InstalledChangedPayload, InstalledChangedReason, InstalledSnapshot,
@@ -41,8 +41,8 @@ pub async fn toggle_mod(
     enabled: bool,
 ) -> Result<(), AppError> {
     let name = name.trim().to_string();
-    if name.is_empty() {
-        return Err(AppError::Config("mod name is empty".into()));
+    if !plausible_name(&name) {
+        return Err(AppError::Config(format!("invalid mod name: {name:?}")));
     }
     let config = state.config.read().unwrap_or_else(|p| p.into_inner()).clone();
     let dir = mod_store::resolve_dir(&config)?;
