@@ -239,14 +239,16 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompression size to 10 MB to prevent uncompressed zip bomb DoS
+            entry.take(10 * 1024 * 1024).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompression size to 10 MB to prevent uncompressed zip bomb DoS
+            entry.take(10 * 1024 * 1024).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
