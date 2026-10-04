@@ -43,6 +43,14 @@ import Spinner from "../components/ui/Spinner";
 import { useConfirm } from "../components/ui/useConfirm";
 import type { InstalledMod, UpdatesReport } from "../types";
 
+/**
+ * Shared collators for sorting installed mods by name.
+ * Reusing module-level instances avoids repeated `Intl.Collator` allocation and
+ * options parsing on every string comparison in `Array.prototype.sort`.
+ */
+const baseCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+const exactCollator = new Intl.Collator();
+
 /** Prevent interactive controls inside the row from toggling expansion. */
 function stopRow(e: React.MouseEvent) {
   e.stopPropagation();
@@ -448,8 +456,8 @@ export default function InstalledPage() {
       }
     }
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
-      a.name.localeCompare(b.name);
+      baseCollator.compare(a.name, b.name) ||
+      exactCollator.compare(a.name, b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
     return { enabledMods: enabled, disabledMods: disabled };
