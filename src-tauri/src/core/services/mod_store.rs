@@ -9,6 +9,7 @@ use serde_json::json;
 
 use crate::config::Config;
 use crate::core::services::game_detect;
+use crate::core::services::portal_client::plausible_name;
 use crate::core::services::resolver;
 use crate::error::AppError;
 use crate::models::{
@@ -524,6 +525,9 @@ fn mod_list_write_guard() -> std::sync::MutexGuard<'static, ()> {
 /// Enable/disable a mod. Creates the file (with `base`) on first write;
 /// only ever touches the named entry, so `base` and unknown fields survive.
 pub fn set_enabled(dir: &Path, name: &str, enabled: bool) -> Result<(), AppError> {
+    if !plausible_name(name) {
+        return Err(AppError::Config(format!("invalid mod name: {name:?}")));
+    }
     let _guard = mod_list_write_guard();
     let mut root = load_mod_list_for_write(dir)?;
     if root.get("mods").and_then(|m| m.as_array()).is_none() {
@@ -569,6 +573,9 @@ pub fn remove_mod_entry(dir: &Path, name: &str) -> Result<(), AppError> {
 pub fn ensure_mod_entry(dir: &Path, name: &str) -> Result<(), AppError> {
     if name == "base" {
         return Ok(());
+    }
+    if !plausible_name(name) {
+        return Err(AppError::Config(format!("invalid mod name: {name:?}")));
     }
     let _guard = mod_list_write_guard();
     let mut root = load_mod_list_for_write(dir)?;
@@ -1224,6 +1231,31 @@ mod tests {
             s.mods.iter().map(|m| format!("{m:?}")).collect::<Vec<_>>()
         };
         assert_eq!(debug(&s1), debug(&s2));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn set_enabled_and_ensure_mod_entry_reject_implausible_names() {
+        let dir = unique_dir("invalid-names");
+        write_mod_list(&dir, &[("base", true)]);
+        let ml_before = fs::read_to_string(dir.join(MOD_LIST_FILE)).unwrap();
+
+        let err1 = set_enabled(&dir, "../../etc/passwd", true).unwrap_err();
+        assert_eq!(err1.kind(), "config");
+        assert!(err1.to_string().contains("invalid mod name"));
+
+        let err2 = set_enabled(&dir, "bad\nname", true).unwrap_err();
+        assert_eq!(err2.kind(), "config");
+
+        let err3 = ensure_mod_entry(&dir, "../outside").unwrap_err();
+        assert_eq!(err3.kind(), "config");
+
+        let ml_after = fs::read_to_string(dir.join(MOD_LIST_FILE)).unwrap();
+        assert_eq!(
+            ml_before, ml_after,
+            "mod-list.json must not be modified when validation fails"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
