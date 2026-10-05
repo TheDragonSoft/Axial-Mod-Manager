@@ -18,6 +18,22 @@ use crate::models::{
 
 const MOD_LIST_FILE: &str = "mod-list.json";
 
+/// Maximum allowable decompressed size for an info.json entry (2 MiB).
+/// Protects against zip bomb / memory exhaustion DoS attacks during archive reading.
+pub const MAX_INFO_JSON_SIZE: u64 = 2 * 1024 * 1024;
+
+/// Read up to `MAX_INFO_JSON_SIZE` bytes from a zip entry into a String.
+pub fn read_entry_bounded<R: Read>(mut entry: R) -> Result<String, AppError> {
+    let mut s = String::new();
+    entry.by_ref().take(MAX_INFO_JSON_SIZE + 1).read_to_string(&mut s)?;
+    if s.len() > MAX_INFO_JSON_SIZE as usize {
+        return Err(AppError::Parse(format!(
+            "info.json exceeds maximum size limit of {MAX_INFO_JSON_SIZE} bytes"
+        )));
+    }
+    Ok(s)
+}
+
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
 // ---------------------------------------------------------------------------
@@ -238,15 +254,13 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         }
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
-            let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            let s = read_entry_bounded(&mut entry)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
-            let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            let s = read_entry_bounded(&mut entry)?;
             nested = Some(s);
         }
     }
@@ -1754,5 +1768,16 @@ mod tests {
         assert_eq!(info_nover.version, "?");
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_oversized_info_json_rejected() {
+        let huge_data = vec![b'a'; (MAX_INFO_JSON_SIZE + 100) as usize];
+        let cursor = std::io::Cursor::new(huge_data);
+        let err = read_entry_bounded(cursor).unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds maximum size limit"),
+            "expected size limit error, got: {err}"
+        );
     }
 }
