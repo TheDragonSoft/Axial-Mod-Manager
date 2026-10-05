@@ -44,6 +44,7 @@ export default function Input({
         <button
           type="button"
           onClick={onClear}
+          onMouseDown={(e) => e.preventDefault()}
           aria-label={clearLabel}
           className="absolute top-1/2 right-2.5 -translate-y-1/2 rounded-md p-1 text-stone-400 transition-colors hover:bg-surface-2 hover:text-stone-200 focus-visible:outline-2 focus-visible:outline-accent"
         >
