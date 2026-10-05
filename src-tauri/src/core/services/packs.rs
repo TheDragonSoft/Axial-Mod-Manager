@@ -24,6 +24,8 @@ use crate::state::AppState;
 
 #[allow(dead_code)]
 pub const EXPORT_FORMAT: &str = "axial-pack/1";
+/// Maximum length of a Base64-encoded pack string to prevent DoS via memory exhaustion.
+pub const MAX_PACK_CODE_LEN: usize = 1_024 * 1024;
 
 /// Built-in pseudo-pack ids. `"vanilla"` is persisted in `Config.active_pack_id`;
 /// keep the expansion variant distinct so the UI can mark which flavor is active.
@@ -225,6 +227,9 @@ pub fn import_pack_base64(profiles_dir: &Path, encoded: &str) -> Result<Pack, Ap
     let trimmed = encoded.trim();
     if trimmed.is_empty() {
         return Err(AppError::Parse("pack code cannot be empty".into()));
+    }
+    if trimmed.len() > MAX_PACK_CODE_LEN {
+        return Err(AppError::Parse("pack code is too large".into()));
     }
     let bytes = BASE64_STANDARD
         .decode(trimmed)
@@ -1068,6 +1073,18 @@ mod tests {
         let err = import_pack_base64(&dir, "   \n\t  ").unwrap_err();
         match err {
             AppError::Parse(msg) => assert!(msg.contains("pack code cannot be empty")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_fails_on_oversized_input() {
+        let dir = unique_dir("base64-oversized");
+        let oversized = "A".repeat(MAX_PACK_CODE_LEN + 1);
+        let err = import_pack_base64(&dir, &oversized).unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("pack code is too large")),
             other => panic!("expected AppError::Parse, got {other:?}"),
         }
         let _ = fs::remove_dir_all(&dir);

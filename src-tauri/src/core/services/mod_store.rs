@@ -17,6 +17,8 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Maximum uncompressed bytes read from a zip entry (`info.json`) to prevent zip bomb DoS.
+pub const MAX_INFO_JSON_SIZE: u64 = 2 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -239,14 +241,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_SIZE).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_SIZE).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1754,11 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Bounded reading truncates oversized info.json safely
+        let oversized_content = format!("{{\"name\":\"big\",\"version\":\"1.0.0\",\"extra\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        let p_oversized = make_zip("oversized_1.0.0.zip", "info.json", oversized_content.as_bytes());
+        assert!(read_info_json(&p_oversized).is_err());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
