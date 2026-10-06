@@ -313,6 +313,9 @@ function GameVersionBadge({
   );
 }
 
+/** Reusable module-level collator for case-insensitive mod name sorting without repeated allocations */
+const nameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
 export default function InstalledPage() {
   const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
   const effectiveModsDir = useAppStore((s) => s.effectiveModsDir);
@@ -447,8 +450,9 @@ export default function InstalledPage() {
         disabled.push(m);
       }
     }
+    // Reusing module-level nameCollator avoids repeated Intl.Collator allocations on every comparison
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+      nameCollator.compare(a.name, b.name) ||
       a.name.localeCompare(b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
