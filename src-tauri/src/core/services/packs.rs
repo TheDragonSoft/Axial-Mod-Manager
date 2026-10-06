@@ -127,6 +127,9 @@ pub fn load_pack(profiles_dir: &Path, id: &str) -> Result<Pack, AppError> {
 }
 
 pub fn save_pack(profiles_dir: &Path, pack: &Pack) -> Result<(), AppError> {
+    if !valid_id(&pack.id) {
+        return Err(AppError::Config(format!("invalid pack id {:?}", pack.id)));
+    }
     fs::create_dir_all(profiles_dir)?;
     let json = serde_json::to_string_pretty(pack)
         .map_err(|e| AppError::Parse(format!("serialize pack: {e}")))?;
@@ -1291,5 +1294,30 @@ mod tests {
 
         // Unrelated Extra Mod is disabled
         assert!(composed.entries.iter().any(|(n, e)| n == "Unrelated Extra Mod" && !*e));
+    }
+
+    #[test]
+    fn save_pack_rejects_invalid_pack_id_and_path_traversal() {
+        let dir = unique_dir("save-invalid-id");
+
+        let mut invalid_pack = Pack {
+            id: "../traversal-pack".into(),
+            name: "Traversal Test".into(),
+            created_at: 1000,
+            mods: vec![pm("flib", "0.14.0", true)],
+        };
+
+        assert!(save_pack(&dir, &invalid_pack).is_err(), "path traversal id must be rejected");
+
+        invalid_pack.id = "pack/with/slashes".into();
+        assert!(save_pack(&dir, &invalid_pack).is_err(), "id with slashes must be rejected");
+
+        invalid_pack.id = "".into();
+        assert!(save_pack(&dir, &invalid_pack).is_err(), "empty id must be rejected");
+
+        invalid_pack.id = "valid-pack-123".into();
+        assert!(save_pack(&dir, &invalid_pack).is_ok(), "valid id must be accepted");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
