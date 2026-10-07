@@ -610,10 +610,15 @@ fn remove_other_versions(dir: &Path, keep: &str, mod_name: &str) -> std::io::Res
     Ok(())
 }
 
+/// Version strings must be non-empty, must not equal "." or "..", and must not contain ".." sequences.
 pub(crate) fn plausible_version(s: &str) -> bool {
-    !s.is_empty()
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    let trimmed = s.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." || trimmed.contains("..") {
+        return false;
+    }
+    trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
 fn anticache_token() -> String {
@@ -666,6 +671,18 @@ mod tests {
             .expect("start info.json entry");
         write!(zip, r#"{{"name":"{name}","version":"{version}"}}"#).expect("write info.json");
         zip.finish().expect("finish zip");
+    }
+
+    #[test]
+    fn version_validation() {
+        assert!(!plausible_version(""));
+        assert!(!plausible_version("   "));
+        assert!(!plausible_version("."));
+        assert!(!plausible_version(".."));
+        assert!(!plausible_version("a..b"));
+        assert!(!plausible_version("1.0..0"));
+        assert!(plausible_version("1.0.0"));
+        assert!(plausible_version("0.18.1-alpha_1"));
     }
 
     #[test]
