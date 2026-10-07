@@ -19,7 +19,9 @@ export default function Input({
   /** ARIA label for the clear button. Defaults to "Clear input". */
   clearLabel?: string;
 }) {
-  const hasClear = Boolean(onClear);
+  const hasValue =
+    props.value !== undefined && props.value !== null && String(props.value).length > 0;
+  const hasClear = Boolean(onClear) && hasValue;
   const control = (
     <input
       className={clsx(

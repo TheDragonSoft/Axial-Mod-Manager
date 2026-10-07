@@ -435,6 +435,8 @@ export default function CommandPalette() {
             icon={Search}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onClear={() => setQuery("")}
+            clearLabel="Clear search query"
             onKeyDown={(e) => {
               if (e.key === "Tab") {
                 // Single-focus surface (aria-activedescendant): keep focus on
