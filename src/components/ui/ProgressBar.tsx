@@ -4,19 +4,27 @@ export default function ProgressBar({
   value,
   tone = "green",
   className,
+  label,
 }: {
   /** 0..100 */
   value: number;
   tone?: "green" | "red" | "white";
   className?: string;
+  label?: string;
 }) {
   const fills = {
     green: "bg-accent",
     red: "bg-red-500",
     white: "bg-stone-100",
   } as const;
+  const clampedValue = Math.min(100, Math.max(0, Math.round(value)));
   return (
     <div
+      role="progressbar"
+      aria-valuenow={clampedValue}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={label}
       className={clsx(
         "h-1.5 w-full overflow-hidden rounded-full bg-stone-800",
         className,
@@ -27,7 +35,7 @@ export default function ProgressBar({
           "h-full rounded-full transition-all duration-150 motion-reduce:transition-none",
           fills[tone],
         )}
-        style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+        style={{ width: `${clampedValue}%` }}
       />
     </div>
   );
