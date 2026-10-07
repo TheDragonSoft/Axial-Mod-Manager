@@ -25,6 +25,10 @@ use crate::state::AppState;
 #[allow(dead_code)]
 pub const EXPORT_FORMAT: &str = "axial-pack/1";
 
+/// Maximum allowed byte size for imported pack Base64 code or JSON string (2 MB).
+/// Prevents excessive memory allocation and DoS via oversized input payloads.
+pub const MAX_PACK_CODE_LEN: usize = 2 * 1024 * 1024;
+
 /// Built-in pseudo-pack ids. `"vanilla"` is persisted in `Config.active_pack_id`;
 /// keep the expansion variant distinct so the UI can mark which flavor is active.
 pub const VANILLA_PACK_ID: &str = "vanilla";
@@ -195,6 +199,11 @@ pub fn create_pack(profiles_dir: &Path, name: &str, mods: Vec<PackMod>) -> Resul
 /// Import a shared/exported manifest. `format` and `createdAt` are accepted
 /// for compatibility; a fresh id/timestamp is always generated.
 pub fn import_pack(profiles_dir: &Path, json: &str) -> Result<Pack, AppError> {
+    if json.len() > MAX_PACK_CODE_LEN {
+        return Err(AppError::Parse(
+            "pack manifest JSON exceeds maximum allowed size".into(),
+        ));
+    }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Imported {
@@ -225,6 +234,11 @@ pub fn import_pack_base64(profiles_dir: &Path, encoded: &str) -> Result<Pack, Ap
     let trimmed = encoded.trim();
     if trimmed.is_empty() {
         return Err(AppError::Parse("pack code cannot be empty".into()));
+    }
+    if trimmed.len() > MAX_PACK_CODE_LEN {
+        return Err(AppError::Parse(
+            "pack code exceeds maximum allowed size".into(),
+        ));
     }
     let bytes = BASE64_STANDARD
         .decode(trimmed)
@@ -1068,6 +1082,18 @@ mod tests {
         let err = import_pack_base64(&dir, "   \n\t  ").unwrap_err();
         match err {
             AppError::Parse(msg) => assert!(msg.contains("pack code cannot be empty")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_fails_on_oversized_input() {
+        let dir = unique_dir("base64-oversized");
+        let huge_code = "A".repeat(MAX_PACK_CODE_LEN + 1);
+        let err = import_pack_base64(&dir, &huge_code).unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("exceeds maximum allowed size")),
             other => panic!("expected AppError::Parse, got {other:?}"),
         }
         let _ = fs::remove_dir_all(&dir);
