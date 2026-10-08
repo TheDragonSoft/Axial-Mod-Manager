@@ -437,6 +437,11 @@ export default function InstalledPage() {
 
   const mods = snapshot?.mods ?? [];
 
+  const collator = useMemo(
+    () => new Intl.Collator(undefined, { sensitivity: "base" }),
+    [],
+  );
+
   const { enabledMods, disabledMods } = useMemo(() => {
     const enabled: InstalledMod[] = [];
     const disabled: InstalledMod[] = [];
@@ -447,13 +452,13 @@ export default function InstalledPage() {
         disabled.push(m);
       }
     }
+    // Reusing Intl.Collator instance avoids creating collators repeatedly during sorting
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
-      a.name.localeCompare(b.name);
+      collator.compare(a.name, b.name) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     enabled.sort(cmp);
     disabled.sort(cmp);
     return { enabledMods: enabled, disabledMods: disabled };
-  }, [mods]);
+  }, [mods, collator]);
 
   useThumbnails(mods.map((m) => m.name));
 
