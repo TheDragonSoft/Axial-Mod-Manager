@@ -778,6 +778,17 @@ fn validated_zip_path(dir: &Path, file_name: &str) -> Result<PathBuf, AppError> 
             "{file_name} not found in the mods directory"
         )));
     }
+
+    // Security: canonicalize both target file and parent directory to ensure
+    // path traversal or symlinks cannot target files outside the mods directory.
+    let canonical_path = fs::canonicalize(&path)?;
+    let canonical_dir = fs::canonicalize(dir)?;
+    if !canonical_path.starts_with(&canonical_dir) {
+        return Err(AppError::Config(format!(
+            "mod file {file_name:?} resolves outside mods directory"
+        )));
+    }
+
     Ok(path)
 }
 
@@ -1075,6 +1086,48 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn validated_zip_path_accepts_valid_zip_and_rejects_traversal() {
+        let dir = unique_dir("validated-zip-path");
+        let valid_zip = dir.join("ValidMod_1.0.0.zip");
+        write_zip(&valid_zip, r#"{"name":"ValidMod","version":"1.0.0"}"#);
+
+        // Valid zip inside mods directory must succeed
+        let res = validated_zip_path(&dir, "ValidMod_1.0.0.zip");
+        assert!(res.is_ok());
+
+        // Invalid filenames / traversal characters must fail
+        assert!(validated_zip_path(&dir, "").is_err());
+        assert!(validated_zip_path(&dir, "../outside.zip").is_err());
+        assert!(validated_zip_path(&dir, "sub/mod.zip").is_err());
+        assert!(validated_zip_path(&dir, "sub\\mod.zip").is_err());
+        assert!(validated_zip_path(&dir, "ValidMod_1.0.0.txt").is_err());
+        assert!(validated_zip_path(&dir, "NonExistent_1.0.0.zip").is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validated_zip_path_rejects_symlink_resolving_outside_mods_dir() {
+        let root = unique_dir("validated-zip-symlink-root");
+        let mods_dir = root.join("mods");
+        let outside_dir = root.join("outside");
+        fs::create_dir_all(&mods_dir).unwrap();
+        fs::create_dir_all(&outside_dir).unwrap();
+
+        let outside_zip = outside_dir.join("Outside_1.0.0.zip");
+        write_zip(&outside_zip, r#"{"name":"Outside","version":"1.0.0"}"#);
+
+        let symlink_path = mods_dir.join("SymlinkMod_1.0.0.zip");
+        std::os::unix::fs::symlink(&outside_zip, &symlink_path).unwrap();
+
+        let err = validated_zip_path(&mods_dir, "SymlinkMod_1.0.0.zip").unwrap_err();
+        assert!(err.to_string().contains("resolves outside mods directory"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn parses_standard_zip_names() {
