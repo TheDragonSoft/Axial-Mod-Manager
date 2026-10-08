@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Package,
   Play,
+  Search,
   Settings as SettingsIcon,
 } from "lucide-react";
 import { useAppStore, type Tab } from "../store/useAppStore";
@@ -150,6 +151,28 @@ export default function Sidebar({
           )}
           <span>Launch Factorio</span>
         </Button>
+      </div>
+
+      {/* Search / Command Palette trigger */}
+      <div className="px-3 pb-3">
+        <button
+          onClick={() => {
+            window.dispatchEvent(
+              new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })
+            );
+          }}
+          aria-label="Search commands (Ctrl+K)"
+          aria-keyshortcuts="Control+K Meta+K"
+          className="flex w-full items-center justify-between gap-2 rounded-lg border border-line bg-surface-2/60 px-3 py-1.5 text-xs text-stone-400 transition-colors hover:border-stone-600 hover:text-stone-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <Search className="h-3.5 w-3.5 shrink-0 text-stone-400" />
+            <span className="truncate">Search…</span>
+          </div>
+          <kbd className="shrink-0 rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-[10px] text-stone-400">
+            Ctrl K
+          </kbd>
+        </button>
       </div>
 
       {/* Navigation */}
