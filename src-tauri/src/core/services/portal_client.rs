@@ -261,10 +261,14 @@ fn map_release(r: PortalRelease) -> ModRelease {
 }
 
 /// Portal names are [A-Za-z0-9 _.-] in practice (spaces occur, e.g. "Flow Control").
+/// Reject empty strings, strings containing ".." (path traversal), or leading/trailing dots.
 pub fn plausible_name(s: &str) -> bool {
-    !s.trim().is_empty()
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' '))
+    let trimmed = s.trim();
+    !trimmed.is_empty()
+        && !trimmed.contains("..")
+        && !trimmed.starts_with('.')
+        && !trimmed.ends_with('.')
+        && trimmed.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' '))
 }
 
 /// Percent-encode anything outside the URL-safe set (names may contain spaces).
@@ -797,6 +801,10 @@ mod tests {
         assert!(!plausible_name(""));
         assert!(!plausible_name("   "));
         assert!(!plausible_name("../etc"));
+        assert!(!plausible_name(".."));
+        assert!(!plausible_name(".mod"));
+        assert!(!plausible_name("mod."));
+        assert!(!plausible_name("a..b"));
         assert!(!plausible_name("+ ChangeInserterDropLane"));
         assert!(plausible_name("even-distribution"));
         assert!(plausible_name("Flow Control"));

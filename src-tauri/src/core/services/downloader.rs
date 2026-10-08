@@ -611,9 +611,12 @@ fn remove_other_versions(dir: &Path, keep: &str, mod_name: &str) -> std::io::Res
 }
 
 pub(crate) fn plausible_version(s: &str) -> bool {
-    !s.is_empty()
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    let trimmed = s.trim();
+    !trimmed.is_empty()
+        && !trimmed.contains("..")
+        && !trimmed.starts_with('.')
+        && !trimmed.ends_with('.')
+        && trimmed.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
 fn anticache_token() -> String {
@@ -824,6 +827,19 @@ mod tests {
 
         verify_mod_zip_sync(&f, "real_mod", "1.2.3")
             .expect("should match actual info.json, ignoring docs/extra_info.json");
+    }
+
+    #[test]
+    fn version_validation() {
+        assert!(!plausible_version(""));
+        assert!(!plausible_version("   "));
+        assert!(!plausible_version(".."));
+        assert!(!plausible_version(".1.0"));
+        assert!(!plausible_version("1.0."));
+        assert!(!plausible_version("1..0"));
+        assert!(plausible_version("1.0.0"));
+        assert!(plausible_version("0.18.2"));
+        assert!(plausible_version("2.1.2-alpha"));
     }
 
     #[test]
