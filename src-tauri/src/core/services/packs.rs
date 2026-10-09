@@ -219,12 +219,18 @@ pub fn export_pack_base64(profiles_dir: &Path, id: &str) -> Result<String, AppEr
     Ok(BASE64_STANDARD.encode(json.as_bytes()))
 }
 
+/// Maximum allowed length of a Base64 pack manifest string (1 MiB) to prevent DoS.
+const MAX_PACK_BASE64_LEN: usize = 1_048_576;
+
 /// Import a pack from a standard Base64-encoded JSON manifest string.
 /// Decodes Base64, validates UTF-8, and verifies manifest contents.
 pub fn import_pack_base64(profiles_dir: &Path, encoded: &str) -> Result<Pack, AppError> {
     let trimmed = encoded.trim();
     if trimmed.is_empty() {
         return Err(AppError::Parse("pack code cannot be empty".into()));
+    }
+    if trimmed.len() > MAX_PACK_BASE64_LEN {
+        return Err(AppError::Parse("pack code exceeds maximum length of 1 MiB".into()));
     }
     let bytes = BASE64_STANDARD
         .decode(trimmed)
@@ -1059,6 +1065,19 @@ mod tests {
         assert_eq!(imported.name, "Whitespace Pack");
         assert_eq!(imported.mods.len(), 1);
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base64_import_fails_on_oversized_input() {
+        let dir = unique_dir("base64-oversized");
+        // Create an input string larger than 1 MiB (e.g. 1 MiB + 10 bytes)
+        let oversized = "A".repeat(MAX_PACK_BASE64_LEN + 10);
+        let err = import_pack_base64(&dir, &oversized).unwrap_err();
+        match err {
+            AppError::Parse(msg) => assert!(msg.contains("exceeds maximum length")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 
