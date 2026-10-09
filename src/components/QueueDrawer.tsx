@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { enqueueDownload, cancelDownload, toAppError } from "../lib/api";
 import {
   useQueueStore,
@@ -11,6 +11,7 @@ import Button from "./ui/Button";
 import EmptyState from "./ui/EmptyState";
 import ModTile from "./ui/ModTile";
 import ProgressBar from "./ui/ProgressBar";
+import { isTopOverlay, popOverlay, pushOverlay } from "./ui/overlayStack";
 import { Download, X } from "lucide-react";
 import { formatBytes, percent } from "../lib/format";
 import type { QueueItem, QueueStatus } from "../types";
@@ -206,6 +207,29 @@ export default function QueueDrawer() {
   const clearFinished = useQueueStore((s) => s.clearFinished);
   const activeCount = useQueueStore(selectActiveCount);
   const finishedCount = useQueueStore(selectFinishedCount);
+  const token = useRef(Symbol("queue-drawer"));
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const me = token.current;
+    pushOverlay(me);
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (!isTopOverlay(me)) return;
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    };
+
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      popOverlay(me);
+      previouslyFocused?.focus();
+    };
+  }, [isOpen, close]);
 
   return (
     <>
@@ -216,6 +240,10 @@ export default function QueueDrawer() {
         />
       )}
       <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label="Downloads queue"
+        aria-hidden={!isOpen}
         className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ease-out motion-reduce:transition-none ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
