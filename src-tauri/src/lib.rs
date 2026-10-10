@@ -88,6 +88,8 @@ pub fn run() {
 
             let http = reqwest::Client::builder()
                 .user_agent(USER_AGENT)
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(30))
                 .build()?;
             let index = PortalWithMirrorDeps::new(
                 Box::new(PortalClient::new(http.clone())),
