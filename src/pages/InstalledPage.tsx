@@ -32,6 +32,10 @@ import { useThumbnails, useThumbnailUrl } from "../lib/thumbnails";
 import { fetchSummary, useSummary } from "../lib/summaries";
 import { fetchChangelog, useChangelog } from "../lib/changelog";
 import { compareVersions } from "../lib/format";
+
+/** Module-level collators avoid repeated Intl.Collator allocations on every sort comparison. */
+const baseCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+const defaultCollator = new Intl.Collator();
 import Badge from "../components/ui/Badge";
 import Button from "../components/ui/Button";
 import Card from "../components/ui/Card";
@@ -448,8 +452,8 @@ export default function InstalledPage() {
       }
     }
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
-      a.name.localeCompare(b.name);
+      baseCollator.compare(a.name, b.name) ||
+      defaultCollator.compare(a.name, b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
     return { enabledMods: enabled, disabledMods: disabled };
