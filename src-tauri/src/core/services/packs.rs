@@ -127,6 +127,9 @@ pub fn load_pack(profiles_dir: &Path, id: &str) -> Result<Pack, AppError> {
 }
 
 pub fn save_pack(profiles_dir: &Path, pack: &Pack) -> Result<(), AppError> {
+    if !valid_id(&pack.id) {
+        return Err(AppError::Config(format!("invalid pack id {:?}", pack.id)));
+    }
     fs::create_dir_all(profiles_dir)?;
     let json = serde_json::to_string_pretty(pack)
         .map_err(|e| AppError::Parse(format!("serialize pack: {e}")))?;
@@ -787,6 +790,26 @@ mod tests {
             .iter()
             .map(|(n, v)| (n.to_string(), v.to_string()))
             .collect()
+    }
+
+    #[test]
+    fn save_pack_rejects_invalid_id() {
+        let dir = std::env::temp_dir().join(format!(
+            "axial-pack-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let pack = Pack {
+            id: "../traversal".into(),
+            name: "Test Pack".into(),
+            created_at: 12345,
+            mods: vec![pm("a-mod", "1.0.0", true)],
+        };
+        let err = save_pack(&dir, &pack).expect_err("invalid id must be rejected");
+        assert!(matches!(err, AppError::Config(_)));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
