@@ -524,6 +524,10 @@ fn mod_list_write_guard() -> std::sync::MutexGuard<'static, ()> {
 /// Enable/disable a mod. Creates the file (with `base`) on first write;
 /// only ever touches the named entry, so `base` and unknown fields survive.
 pub fn set_enabled(dir: &Path, name: &str, enabled: bool) -> Result<(), AppError> {
+    let name = name.trim();
+    if !crate::core::services::portal_client::plausible_name(name) {
+        return Err(AppError::Config(format!("invalid mod name: {name:?}")));
+    }
     let _guard = mod_list_write_guard();
     let mut root = load_mod_list_for_write(dir)?;
     if root.get("mods").and_then(|m| m.as_array()).is_none() {
@@ -1075,6 +1079,25 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn set_enabled_validates_mod_names() {
+        let dir = unique_dir("set-enabled-validation");
+
+        // Valid mod names succeed
+        assert!(set_enabled(&dir, "base", true).is_ok());
+        assert!(set_enabled(&dir, "Flow Control", false).is_ok());
+        assert!(set_enabled(&dir, "Krastorio2", true).is_ok());
+
+        // Invalid mod names fail with Config error
+        assert!(set_enabled(&dir, "", true).is_err());
+        assert!(set_enabled(&dir, "   ", true).is_err());
+        assert!(set_enabled(&dir, "../etc/passwd", true).is_err());
+        assert!(set_enabled(&dir, "<script>alert(1)</script>", true).is_err());
+        assert!(set_enabled(&dir, "invalid\nname", true).is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn parses_standard_zip_names() {
