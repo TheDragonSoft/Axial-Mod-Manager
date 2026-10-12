@@ -19,12 +19,37 @@ export function percent(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
-/** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
+/** Parse next numeric segment from version string starting at pos.index. */
+function parseSegment(str: string, pos: { index: number }): number {
+  const len = str.length;
+  let i = pos.index;
+  if (i >= len) return 0;
+  let num = 0;
+  while (i < len && str.charCodeAt(i) !== 46 /* '.' */) {
+    const code = str.charCodeAt(i);
+    if (code >= 48 && code <= 57 /* '0'-'9' */) {
+      num = num * 10 + (code - 48);
+    } else {
+      // Skip non-numeric suffix within segment
+      while (i < len && str.charCodeAt(i) !== 46) i++;
+      break;
+    }
+    i++;
+  }
+  if (i < len && str.charCodeAt(i) === 46) i++;
+  pos.index = i;
+  return num;
+}
+
+/**
+ * Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions.
+ * Single-pass numerical segment parsing eliminates array split and map allocations.
+ */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+  const posA = { index: 0 };
+  const posB = { index: 0 };
+  while (posA.index < a.length || posB.index < b.length) {
+    const diff = parseSegment(a, posA) - parseSegment(b, posB);
     if (diff !== 0) return diff;
   }
   return 0;
