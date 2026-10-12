@@ -313,6 +313,9 @@ function GameVersionBadge({
   );
 }
 
+/** Reused module-level collator to avoid allocating Intl.Collator on every comparison in list sorts. */
+const modCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
 export default function InstalledPage() {
   const isFactorioDetected = useAppStore((s) => s.isFactorioDetected);
   const effectiveModsDir = useAppStore((s) => s.effectiveModsDir);
@@ -448,7 +451,7 @@ export default function InstalledPage() {
       }
     }
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+      modCollator.compare(a.name, b.name) ||
       a.name.localeCompare(b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
