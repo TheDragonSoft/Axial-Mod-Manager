@@ -79,6 +79,13 @@ pub fn find_game_install(config: &Config) -> Option<PathBuf> {
 /// 2. The executable path must exist and be a regular file (`is_file`).
 /// 3. The canonicalized executable path must reside inside the canonicalized installation directory.
 pub fn validate_executable_path(exe: &Path, install_dir: &Path) -> Result<(), AppError> {
+    // Defense-in-depth: Reject paths containing parent directory traversal sequences.
+    if exe.components().any(|c| c == std::path::Component::ParentDir) {
+        return Err(AppError::NotFound(
+            "Executable path contains directory traversal sequences".to_string(),
+        ));
+    }
+
     let file_name = exe
         .file_name()
         .and_then(|n| n.to_str())
@@ -304,5 +311,23 @@ mod tests {
         assert!(err.to_string().contains("outside install directory"));
 
         let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn rejects_path_traversal_in_executable_path() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "axial-launcher-test-traversal-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let exe_path = temp_dir.join("sub").join("..").join("factorio");
+        let err = validate_executable_path(&exe_path, &temp_dir).unwrap_err();
+        assert!(err.to_string().contains("directory traversal sequences"));
+
+        let _ = fs::remove_dir_all(temp_dir);
     }
 }
