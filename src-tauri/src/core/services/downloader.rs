@@ -11,6 +11,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
 
+use std::io::Read;
+
 use crate::core::services::portal_client::{encode_path_component, plausible_name};
 use crate::error::AppError;
 use crate::models::{InstalledChangedPayload, InstalledChangedReason};
@@ -21,6 +23,9 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 3;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
+/// Maximum decompressed size allowed when reading info.json from a zip entry (2 MiB).
+/// Protects against zip bombs / OOM Denial of Service from maliciously crafted zip files.
+const MAX_INFO_JSON_SIZE: u64 = 2 * 1024 * 1024;
 
 /// Event payload for "download-updated" — mirrors the frontend QueueItem.
 #[derive(Debug, Clone, Serialize)]
@@ -459,7 +464,10 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            // Limit decompressed read size to protect against zip bomb DoS attacks
+            entry
+                .take(MAX_INFO_JSON_SIZE)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
