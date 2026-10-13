@@ -440,9 +440,14 @@ async fn verify_mod_zip(
         .map_err(|e| AppError::Parse(format!("verification task failed: {e}")))?
 }
 
+/// Maximum allowed decompressed size (1 MiB) when reading info.json from a zip file
+/// to mitigate potential zip bomb DoS (unbounded memory allocation) vulnerabilities.
+const MAX_INFO_JSON_BYTES: u64 = 1024 * 1024;
+
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
+    use std::io::Read as _;
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Parse(format!("downloaded file is not a valid zip: {e}")))?;
@@ -459,7 +464,9 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            entry
+                .take(MAX_INFO_JSON_BYTES)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -804,6 +811,23 @@ mod tests {
         assert!(f1.exists(), "keep target must remain");
         assert!(!f2.exists(), "older version of same mod must be deleted");
         assert!(f3.exists(), "extended mod name with space must NOT be deleted");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_caps_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let huge_content = format!("{{\"name\":\"big\",\"version\":\"1.0.0\",\"extra\":\"{}\"}}", "y".repeat(1_500_000));
+        write!(zip, "{}", huge_content).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "big", "1.0.0").unwrap_err();
+        assert!(err.to_string().contains("info.json is not valid JSON"));
     }
 
     #[test]
