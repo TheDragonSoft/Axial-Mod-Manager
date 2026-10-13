@@ -119,18 +119,34 @@ fn parse_constraint(s: &str) -> Option<(VersionOp, String)> {
 }
 
 /// "1.1" -> [1, 1]; non-numeric segments count as 0.
+#[allow(dead_code)]
 pub fn parse_version(s: &str) -> Vec<u64> {
     s.split('.').map(|p| p.trim().parse::<u64>().unwrap_or(0)).collect()
 }
 
 /// Numeric, length-padding comparison: "1.1" == "1.1.0", "0.6.128" > "0.6.9".
+/// Compares numeric segments iteratively without allocating vectors on the heap.
 pub fn cmp_versions(a: &str, b: &str) -> Ordering {
-    let mut va = parse_version(a);
-    let mut vb = parse_version(b);
-    let len = va.len().max(vb.len());
-    va.resize(len, 0);
-    vb.resize(len, 0);
-    va.cmp(&vb)
+    let mut it_a = a.split('.').map(|p| p.trim().parse::<u64>().unwrap_or(0));
+    let mut it_b = b.split('.').map(|p| p.trim().parse::<u64>().unwrap_or(0));
+
+    loop {
+        match (it_a.next(), it_b.next()) {
+            (Some(va), Some(vb)) => match va.cmp(&vb) {
+                Ordering::Equal => continue,
+                non_eq => return non_eq,
+            },
+            (Some(va), None) => match va.cmp(&0) {
+                Ordering::Equal => continue,
+                non_eq => return non_eq,
+            },
+            (None, Some(vb)) => match 0.cmp(&vb) {
+                Ordering::Equal => continue,
+                non_eq => return non_eq,
+            },
+            (None, None) => return Ordering::Equal,
+        }
+    }
 }
 
 pub fn satisfies(version: &str, constraint: &(VersionOp, String)) -> bool {
@@ -217,6 +233,24 @@ mod tests {
         assert!(satisfies("1.5.0", &(VersionOp::Gte, "1.2.0".into())));
         assert!(!satisfies("1.1.0", &(VersionOp::Gte, "1.2.0".into())));
         assert!(satisfies("2.0", &(VersionOp::Eq, "2.0.0".into())));
+    }
+
+    #[test]
+    fn version_comparison_edge_cases() {
+        assert_eq!(cmp_versions("1.0.0.0", "1"), Ordering::Equal);
+        assert_eq!(cmp_versions("1", "1.0.0.0"), Ordering::Equal);
+        assert_eq!(cmp_versions("2.0.1", "2.0"), Ordering::Greater);
+        assert_eq!(cmp_versions("2.0", "2.0.1"), Ordering::Less);
+        assert_eq!(cmp_versions("1.02.0", "1.2.0"), Ordering::Equal);
+        assert_eq!(cmp_versions("", ""), Ordering::Equal);
+        assert_eq!(cmp_versions("1.a.2", "1.0.2"), Ordering::Equal);
+    }
+
+    #[test]
+    fn parse_version_splits_numeric_segments() {
+        assert_eq!(parse_version("1.2.3"), vec![1, 2, 3]);
+        assert_eq!(parse_version("1.0"), vec![1, 0]);
+        assert_eq!(parse_version("1.a.2"), vec![1, 0, 2]);
     }
 
     #[test]
