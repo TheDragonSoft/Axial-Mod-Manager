@@ -449,7 +449,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,7 +459,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            std::io::Read::read_to_string(&mut std::io::Read::take(entry, crate::core::services::mod_store::MAX_INFO_JSON_BYTES), &mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -845,5 +845,25 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_caps_oversized_entry() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-zip");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let prefix = b"{\"name\":\"a-mod\",\"version\":\"1.0.0\",\"padding\":\"";
+        zip.write_all(prefix).unwrap();
+        let padding = vec![b'a'; 1_500_000];
+        zip.write_all(&padding).unwrap();
+        zip.write_all(b"\"}").unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "a-mod", "1.0.0").unwrap_err();
+        assert!(err.to_string().contains("info.json is not valid JSON"), "expected parse error due to truncation: {err}");
     }
 }
