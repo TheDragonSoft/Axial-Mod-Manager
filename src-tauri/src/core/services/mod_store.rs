@@ -216,6 +216,7 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 /// Maximum decompressed bytes read from an info.json zip entry (mitigates Zip Bomb / OOM DoS).
 pub const MAX_INFO_JSON_BYTES: u64 = 1_048_576; // 1 MB cap
 
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
