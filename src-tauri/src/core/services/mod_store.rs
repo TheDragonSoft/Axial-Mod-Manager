@@ -17,6 +17,9 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Maximum allowed bytes to read from a decompressed `info.json` zip entry (1 MiB).
+/// Mitigates Zip Bomb / OOM vulnerabilities from untrusted mod zips.
+const MAX_INFO_JSON_BYTES: u64 = 1_048_576;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -239,14 +242,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1755,30 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_read_info_json_oversized_truncated() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-oversized-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let zip_path = temp_dir.join("oversized_1.0.0.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+
+        // Write valid JSON header with padded space exceeding 1 MiB
+        zip.write_all(b"{\"name\":\"oversized\",\"version\":\"1.0.0\"").unwrap();
+        let padding = vec![b' '; 1_100_000];
+        zip.write_all(&padding).unwrap();
+        zip.write_all(b"}").unwrap();
+        zip.finish().unwrap();
+
+        // Because stream is capped at 1 MiB, reading terminates before reaching the closing bracket '}'
+        let res = read_info_json(&zip_path);
+        assert!(res.is_err(), "oversized info.json truncated stream must fail JSON parsing safely without OOM");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
