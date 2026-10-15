@@ -235,7 +235,16 @@ async fn run_job(
                 &DownloadUpdate { received: 0, total: 0, ..item.clone() },
             );
         }
-        match download_and_verify(&queue.http, cancel, &url, &part, app, &item, expected_sha1.as_deref()).await {
+        let params = DownloadAndVerifyParams {
+            http: &queue.http,
+            cancel,
+            url: &url,
+            part: &part,
+            app,
+            item: &item,
+            expected_sha1: expected_sha1.as_deref(),
+        };
+        match download_and_verify(&params).await {
             Ok(total) => {
                 outcome = Ok(total);
                 break;
@@ -353,20 +362,24 @@ async fn run_job(
     item
 }
 
+struct DownloadAndVerifyParams<'a> {
+    http: &'a reqwest::Client,
+    cancel: &'a AtomicBool,
+    url: &'a str,
+    part: &'a Path,
+    app: &'a AppHandle,
+    item: &'a DownloadUpdate,
+    expected_sha1: Option<&'a str>,
+}
+
 async fn download_and_verify(
-    http: &reqwest::Client,
-    cancel: &AtomicBool,
-    url: &str,
-    part: &Path,
-    app: &AppHandle,
-    item: &DownloadUpdate,
-    expected_sha1: Option<&str>,
+    params: &DownloadAndVerifyParams<'_>,
 ) -> Result<u64, JobFail> {
-    if cancel.load(Ordering::SeqCst) {
+    if params.cancel.load(Ordering::SeqCst) {
         return Err(JobFail::Cancelled);
     }
 
-    let response = match http.get(url).send().await {
+    let response = match params.http.get(params.url).send().await {
         Ok(r) => r,
         Err(e) => return Err(JobFail::Error(format!("request failed: {e}"), true)),
     };
@@ -385,7 +398,7 @@ async fn download_and_verify(
     }
     let total = response.content_length().unwrap_or(0);
 
-    let mut file = match tokio::fs::File::create(part).await {
+    let mut file = match tokio::fs::File::create(params.part).await {
         Ok(f) => f,
         Err(e) => return Err(JobFail::Error(format!("could not create part file: {e}"), false)),
     };
@@ -395,7 +408,7 @@ async fn download_and_verify(
     let mut last_emit = Instant::now() - PROGRESS_INTERVAL;
 
     loop {
-        if cancel.load(Ordering::SeqCst) {
+        if params.cancel.load(Ordering::SeqCst) {
             return Err(JobFail::Cancelled);
         }
         let chunk = match stream.next().await {
@@ -408,9 +421,9 @@ async fn download_and_verify(
         }
         received += chunk.len() as u64;
         if last_emit.elapsed() >= PROGRESS_INTERVAL {
-            let _ = app.emit(
+            let _ = params.app.emit(
                 "download-updated",
-                &DownloadUpdate { received, total, ..item.clone() },
+                &DownloadUpdate { received, total, ..params.item.clone() },
             );
             last_emit = Instant::now();
         }
@@ -420,7 +433,13 @@ async fn download_and_verify(
     }
     drop(file);
 
-    verify_downloaded_file(part, &item.mod_name, &item.version, expected_sha1).await?;
+    verify_downloaded_file(
+        params.part,
+        &params.item.mod_name,
+        &params.item.version,
+        params.expected_sha1,
+    )
+    .await?;
 
     Ok(if total == 0 { received } else { total })
 }
