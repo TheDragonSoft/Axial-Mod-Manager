@@ -17,6 +17,8 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Maximum byte limit when decompressing `info.json` from untrusted mod zips (mitigates Zip Bomb / OOM).
+const MAX_INFO_JSON_BYTES: u64 = 10 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -213,6 +215,7 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
@@ -239,14 +242,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1755,26 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_oversized_info_json_is_capped() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-zipbomb-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let zip_path = temp_dir.join("oversized_1.0.0.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        // Write padded spaces beyond MAX_INFO_JSON_BYTES limit so stream truncation cuts before valid JSON ends
+        let huge_data = vec![b' '; (MAX_INFO_JSON_BYTES + 1024) as usize];
+        zip.write_all(&huge_data).unwrap();
+        zip.finish().unwrap();
+
+        let err = read_info_json(&zip_path).expect_err("oversized info.json must be capped and fail JSON parsing");
+        assert!(err.to_string().contains("is not valid JSON"));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
