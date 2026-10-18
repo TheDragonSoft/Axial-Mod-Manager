@@ -19,13 +19,47 @@ export function percent(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
-/** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
+/** Helper for single-pass integer parsing of version segments without string allocations. */
+function parseSegmentInt(str: string, start: number, end: number): number {
+  let idx = start;
+  while (idx < end && str.charCodeAt(idx) === 32) idx++; // skip leading whitespace
+  let hasDigits = false;
+  let num = 0;
+  while (idx < end) {
+    const code = str.charCodeAt(idx);
+    if (code >= 48 && code <= 57) { // '0'-'9'
+      hasDigits = true;
+      num = num * 10 + (code - 48);
+      idx++;
+    } else {
+      break; // parseInt behavior: stop at non-digit
+    }
+  }
+  return hasDigits ? num : 0;
+}
+
+/**
+ * Compare "1.2.10" vs "1.2.9" numerically per segment.
+ * Single-pass segment parsing eliminates string `.split()` and `.map()` array allocations.
+ */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
+  let i = 0;
+  let j = 0;
+  const lenA = a.length;
+  const lenB = b.length;
+
+  while (i < lenA || j < lenB) {
+    let nextI = a.indexOf(".", i);
+    if (nextI === -1) nextI = lenA;
+    const numA = parseSegmentInt(a, i, nextI);
+    i = nextI < lenA ? nextI + 1 : lenA;
+
+    let nextJ = b.indexOf(".", j);
+    if (nextJ === -1) nextJ = lenB;
+    const numB = parseSegmentInt(b, j, nextJ);
+    j = nextJ < lenB ? nextJ + 1 : lenB;
+
+    if (numA !== numB) return numA - numB;
   }
   return 0;
 }
