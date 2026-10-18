@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -21,6 +22,9 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 3;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
+/// Maximum allowed size (10 MiB) when reading decompressed `info.json` from
+/// untrusted zip archive entries to prevent Zip Bomb / OOM DoS vulnerabilities.
+const MAX_INFO_JSON_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Event payload for "download-updated" — mirrors the frontend QueueItem.
 #[derive(Debug, Clone, Serialize)]
@@ -449,7 +453,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,7 +463,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
