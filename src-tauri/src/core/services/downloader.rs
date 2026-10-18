@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -440,6 +441,9 @@ async fn verify_mod_zip(
         .map_err(|e| AppError::Parse(format!("verification task failed: {e}")))?
 }
 
+/// Limit decompressed read size to 10 MiB to prevent Zip Bomb / OOM vulnerabilities.
+const MAX_INFO_JSON_BYTES: u64 = 10 * 1024 * 1024;
+
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
@@ -459,7 +463,9 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            entry
+                .take(MAX_INFO_JSON_BYTES)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -845,5 +851,22 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_oversized_entry_is_capped_and_fails_parse() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-info");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let huge_spaces = vec![b' '; (MAX_INFO_JSON_BYTES + 1024) as usize];
+        zip.write_all(&huge_spaces).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "some_mod", "1.0.0").unwrap_err();
+        assert!(err.to_string().contains("info.json is not valid JSON") || err.to_string().contains("could not read info.json"));
     }
 }
