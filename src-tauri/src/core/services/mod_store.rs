@@ -213,6 +213,9 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+/// Limit decompressed read size to 10 MiB to prevent Zip Bomb / OOM vulnerabilities.
+const MAX_INFO_JSON_BYTES: u64 = 10 * 1024 * 1024;
+
 pub struct InfoJson {
     pub name: String,
     pub version: String,
@@ -239,14 +242,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1755,11 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Oversized entry (exceeding 10 MiB limit) is safely truncated / rejected
+        let huge_spaces = vec![b' '; (MAX_INFO_JSON_BYTES + 1024) as usize];
+        let p_oversized = make_zip("oversized_1.0.0.zip", "info.json", &huge_spaces);
+        assert!(read_info_json(&p_oversized).is_err());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
