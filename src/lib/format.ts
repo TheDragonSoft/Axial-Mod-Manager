@@ -19,13 +19,23 @@ export function percent(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
-/** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
+/**
+ * Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions.
+ *
+ * Performance optimization: Single-pass numerical segment parsing using index pointers
+ * eliminates all string `.split('.')` and array `.map()` allocations during sorting and filtering operations.
+ */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    const nextI = a.indexOf(".", i);
+    const nextJ = b.indexOf(".", j);
+    const segA = parseInt(a.slice(i, nextI === -1 ? undefined : nextI), 10) || 0;
+    const segB = parseInt(b.slice(j, nextJ === -1 ? undefined : nextJ), 10) || 0;
+    if (segA !== segB) return segA - segB;
+    i = nextI === -1 ? a.length : nextI + 1;
+    j = nextJ === -1 ? b.length : nextJ + 1;
   }
   return 0;
 }
