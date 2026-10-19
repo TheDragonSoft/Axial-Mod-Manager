@@ -21,6 +21,9 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 3;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
+/// Maximum bytes allowed when reading info.json from a downloaded mod zip.
+/// Prevents Zip Bomb / OOM denial-of-service vulnerabilities.
+const MAX_INFO_JSON_BYTES: u64 = 1_048_576; // 1 MiB
 
 /// Event payload for "download-updated" — mirrors the frontend QueueItem.
 #[derive(Debug, Clone, Serialize)]
@@ -459,7 +462,10 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            use std::io::Read as _;
+            entry
+                .take(MAX_INFO_JSON_BYTES)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -845,5 +851,24 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_handles_oversized_entry() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-verify");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let padding = vec![b' '; 1_100_000];
+        zip.write_all(b"{\"name\":\"my_mod\",\"version\":\"1.0.0\",\"pad\":\"").unwrap();
+        zip.write_all(&padding).unwrap();
+        zip.write_all(b"\"}").unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "my_mod", "1.0.0").expect_err("oversized entry should fail parsing cleanly");
+        assert!(err.to_string().contains("JSON"));
     }
 }
