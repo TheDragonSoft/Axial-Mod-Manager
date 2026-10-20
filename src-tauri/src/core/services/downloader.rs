@@ -11,9 +11,15 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
 
+use std::io::Read;
+
 use crate::core::services::portal_client::{encode_path_component, plausible_name};
 use crate::error::AppError;
 use crate::models::{InstalledChangedPayload, InstalledChangedReason};
+
+/// Upper bound on decompressed stream reads from zip archive entries (info.json).
+/// Mitigates Zip Bomb / OOM Denial of Service vulnerabilities when processing untrusted archive entries.
+const MAX_INFO_JSON_BYTES: u64 = 1_048_576; // 1 MiB
 
 /// Third-party mirror serving mod zips (per user's discovery report).
 const STORAGE_BASE: &str = "https://mods-storage.re146.dev";
@@ -449,7 +455,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,7 +465,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -845,5 +851,27 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_caps_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("huge-info");
+        let f = dir.path("huge_mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+
+        let mut huge_content = Vec::from(&b"{\"name\":\"huge\",\"version\":\"1.0.0\",\"extra\":\""[..]);
+        huge_content.resize(MAX_INFO_JSON_BYTES as usize + 1024, b'a');
+        zip.write_all(&huge_content).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "huge", "1.0.0").unwrap_err();
+        assert!(
+            err.to_string().contains("info.json is not valid JSON"),
+            "oversized info.json is capped, causing invalid JSON error rather than unbounded memory allocation: {err}"
+        );
     }
 }
