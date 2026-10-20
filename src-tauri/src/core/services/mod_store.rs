@@ -213,12 +213,17 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
     pub factorio_version: String,
     pub dependencies: Vec<String>,
 }
+
+/// Maximum decompressed size limit (2 MB) for reading `info.json` from mod zips
+/// to mitigate Zip Bomb / OOM Denial of Service vulnerabilities from untrusted archives.
+const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
 
 /// Read info.json from inside a mod zip without extracting it.
 /// Prefers root-level info.json; falls back to the first nested one.
@@ -230,7 +235,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +244,16 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompressed read size to protect against zip bomb OOM risks.
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompressed read size to protect against zip bomb OOM risks.
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1759,35 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_read_info_json_exceeds_max_bytes() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-bomb-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let path = temp_dir.join("oversized_info.zip");
+        let file = fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+
+        // Write 2.5 MB of JSON data (exceeds MAX_INFO_JSON_BYTES = 2 MB)
+        let chunk = " ".repeat(1024 * 1024); // 1 MB space padding
+        zip.write_all(b"{\"name\":\"oversized\",\"version\":\"1.0.0\"").unwrap();
+        zip.write_all(chunk.as_bytes()).unwrap();
+        zip.write_all(chunk.as_bytes()).unwrap();
+        zip.write_all(b"}").unwrap();
+        zip.finish().unwrap();
+
+        let result = read_info_json(&path);
+        assert!(result.is_err(), "reading info.json exceeding 2 MB must fail due to truncation");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("info.json is not valid JSON"),
+            "expected JSON parse failure due to truncation, got: {err_msg}"
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
