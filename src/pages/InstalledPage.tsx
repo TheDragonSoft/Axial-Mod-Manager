@@ -287,6 +287,9 @@ const ModRow = memo(function ModRow({
   );
 });
 
+/** Module-level Intl.Collator instance for case-insensitive mod name sorting without allocation overhead. */
+const nameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
 /** Green when the mod targets the configured game version (not a hardcoded
  * "2.0" — gray until the real target is loaded). */
 function GameVersionBadge({
@@ -447,9 +450,11 @@ export default function InstalledPage() {
         disabled.push(m);
       }
     }
+    // Performance optimization: Reuse a module-level Intl.Collator instance
+    // instead of invoking localeCompare with options on every comparison.
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
-      a.name.localeCompare(b.name);
+      nameCollator.compare(a.name, b.name) ||
+      (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     enabled.sort(cmp);
     disabled.sort(cmp);
     return { enabledMods: enabled, disabledMods: disabled };
