@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
 import { activatePack, activateVanilla, deletePack, exportPackBase64, getPack, toAppError } from "../../lib/api";
 import { handleActivationDiff, type Status } from "../../lib/packs";
@@ -12,7 +12,12 @@ import Toggle from "../ui/Toggle";
 import { useConfirm } from "../ui/useConfirm";
 import type { ActivationDiff, Pack, PackMeta } from "../../types";
 
-export default function PackCard({
+/**
+ * PackCard renders a pack card in the Packs view.
+ * Memoized with React.memo to prevent unnecessary re-renders of all pack cards
+ * when activating a single pack or updating status messages.
+ */
+export const PackCard = memo(function PackCard({
   meta,
   onStatus,
   onRefresh,
@@ -204,4 +209,6 @@ export default function PackCard({
       </div>
     </Card>
   );
-}
+});
+
+export default PackCard;
