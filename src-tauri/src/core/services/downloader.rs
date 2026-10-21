@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,6 +19,7 @@ use crate::models::{InstalledChangedPayload, InstalledChangedReason};
 /// Third-party mirror serving mod zips (per user's discovery report).
 const STORAGE_BASE: &str = "https://mods-storage.re146.dev";
 const MAX_CONCURRENT_DOWNLOADS: usize = 3;
+const MAX_INFO_JSON_BYTES: u64 = 1_048_576; // 1 MiB cap on info.json stream reads
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
@@ -459,7 +461,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
