@@ -18,6 +18,8 @@ use crate::models::{InstalledChangedPayload, InstalledChangedReason};
 /// Third-party mirror serving mod zips (per user's discovery report).
 const STORAGE_BASE: &str = "https://mods-storage.re146.dev";
 const MAX_CONCURRENT_DOWNLOADS: usize = 3;
+/// Maximum allowed decompressed size for `info.json` to prevent zip bomb / OOM DoS.
+const MAX_INFO_JSON_BYTES: u64 = 1 * 1024 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
@@ -449,7 +451,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,8 +461,14 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            use std::io::Read as _;
+            entry
+                .take(MAX_INFO_JSON_BYTES + 1)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() > MAX_INFO_JSON_BYTES as usize {
+                return Err(AppError::Parse("info.json exceeds 1 MB size limit".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
@@ -845,5 +853,23 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-info");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let huge_content = vec![b' '; (MAX_INFO_JSON_BYTES + 100) as usize];
+        zip.write_all(&huge_content).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "any_mod", "1.0.0")
+            .expect_err("oversized info.json must be rejected");
+        assert!(err.to_string().contains("exceeds 1 MB size limit"));
     }
 }
