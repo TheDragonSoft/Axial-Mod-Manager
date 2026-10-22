@@ -21,11 +21,33 @@ export function percent(received: number, total: number): number {
 
 /** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+  // Optimization: Single-pass numerical segment parsing eliminates array split and map allocations
+  // during sorting and filtering operations, while allowing early exit on non-matching segments.
+  let i = 0;
+  let j = 0;
+  const lenA = a.length;
+  const lenB = b.length;
+
+  while (i < lenA || j < lenB) {
+    let numA = 0;
+    if (i < lenA) {
+      let endA = a.indexOf(".", i);
+      if (endA === -1) endA = lenA;
+      numA = parseInt(a.slice(i, endA), 10) || 0;
+      i = endA + 1;
+    }
+
+    let numB = 0;
+    if (j < lenB) {
+      let endB = b.indexOf(".", j);
+      if (endB === -1) endB = lenB;
+      numB = parseInt(b.slice(j, endB), 10) || 0;
+      j = endB + 1;
+    }
+
+    const diff = numA - numB;
     if (diff !== 0) return diff;
   }
+
   return 0;
 }
