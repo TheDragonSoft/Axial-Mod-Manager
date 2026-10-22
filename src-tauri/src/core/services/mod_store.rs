@@ -17,6 +17,10 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Upper limit (2 MiB) on decompressed info.json stream reads to prevent
+/// potential Zip Bomb / OOM Denial of Service vulnerabilities when processing
+/// untrusted zip archives.
+const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -230,7 +234,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +243,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1756,25 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn oversized_info_json_entry_is_capped_safely() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-oversized-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let zip_path = temp_dir.join("oversized_1.0.0.zip");
+
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let large_padding = vec![b' '; 3 * 1024 * 1024];
+        zip.write_all(&large_padding).unwrap();
+        zip.finish().unwrap();
+
+        let res = read_info_json(&zip_path);
+        assert!(res.is_err(), "oversized info.json is capped and fails JSON parsing instead of allocating excessive memory");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
