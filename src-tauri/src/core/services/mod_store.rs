@@ -17,6 +17,9 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Maximum allowed decompressed size for an info.json zip entry (2 MiB).
+/// Prevents Zip Bomb / memory exhaustion attacks when scanning untrusted mod zips.
+const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -230,7 +233,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +242,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1755,14 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Oversized entry is truncated to MAX_INFO_JSON_BYTES resulting in parse error
+        let mut huge_content = Vec::new();
+        huge_content.extend_from_slice(b"{\"name\":\"huge\",\"version\":\"1.0.0\",\"pad\":\"");
+        huge_content.resize(3 * 1024 * 1024, b'a');
+        huge_content.extend_from_slice(b"\"}");
+        let p_huge = make_zip("huge_1.0.0.zip", "info.json", &huge_content);
+        assert!(read_info_json(&p_huge).is_err(), "oversized entry read should be capped and fail JSON parsing");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
