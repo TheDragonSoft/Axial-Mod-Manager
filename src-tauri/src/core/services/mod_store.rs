@@ -230,7 +230,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +239,16 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap entry reads to 2 MiB to mitigate Zip Bomb / OOM vulnerabilities from untrusted archives
+            entry.take(2 * 1024 * 1024).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap entry reads to 2 MiB to mitigate Zip Bomb / OOM vulnerabilities from untrusted archives
+            entry.take(2 * 1024 * 1024).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1754,12 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Overly large decompressed entry (Zip bomb protection test)
+        // Entry content > 2 MiB: truncated reading results in invalid JSON / parse failure
+        let huge_content = format!("{{\"name\":\"huge\",\"version\":\"1.0\",\"comment\":\"{}\"}}", "a".repeat(2 * 1024 * 1024 + 100));
+        let p_huge = make_zip("huge_1.0.0.zip", "info.json", huge_content.as_bytes());
+        assert!(read_info_json(&p_huge).is_err(), "entry larger than 2 MiB cap should fail JSON parsing due to truncation");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
