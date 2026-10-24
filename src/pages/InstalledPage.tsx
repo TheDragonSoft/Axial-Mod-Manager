@@ -287,6 +287,9 @@ const ModRow = memo(function ModRow({
   );
 });
 
+/** Module-level collator reused to avoid Intl.Collator re-allocations on every sort comparison. */
+const baseCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
 /** Green when the mod targets the configured game version (not a hardcoded
  * "2.0" — gray until the real target is loaded). */
 function GameVersionBadge({
@@ -448,7 +451,7 @@ export default function InstalledPage() {
       }
     }
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+      baseCollator.compare(a.name, b.name) ||
       a.name.localeCompare(b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
