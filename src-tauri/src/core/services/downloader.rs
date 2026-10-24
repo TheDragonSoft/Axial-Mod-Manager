@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -459,7 +460,8 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            // Cap decompressed stream read to 1 MB to mitigate Zip Bomb / OOM Denial of Service
+            entry.by_ref().take(1_048_576).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
