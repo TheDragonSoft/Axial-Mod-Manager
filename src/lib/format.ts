@@ -19,13 +19,31 @@ export function percent(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
-/** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
+/**
+ * Compare "1.2.10" vs "1.2.9" numerically per segment.
+ * Uses `indexOf` and `slice` to parse version segments on the fly without
+ * creating intermediate arrays via `.split('.')` and `.map()`.
+ */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
+  let startA = 0;
+  let startB = 0;
+  const lenA = a.length;
+  const lenB = b.length;
+
+  while (startA < lenA || startB < lenB) {
+    let endA = a.indexOf(".", startA);
+    if (endA === -1) endA = lenA;
+    const numA = parseInt(a.slice(startA, endA), 10) || 0;
+
+    let endB = b.indexOf(".", startB);
+    if (endB === -1) endB = lenB;
+    const numB = parseInt(b.slice(startB, endB), 10) || 0;
+
+    if (numA !== numB) return numA - numB;
+
+    startA = endA + 1;
+    startB = endB + 1;
   }
+
   return 0;
 }
