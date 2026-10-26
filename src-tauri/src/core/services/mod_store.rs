@@ -239,14 +239,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(1_048_576).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(1_048_576).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1752,12 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Oversized info.json entry is capped at 1MB and fails JSON parse safely without OOM
+        let huge_padding = " ".repeat(1_100_000);
+        let huge_json = format!(r#"{{"name":"hugemod","version":"1.0.0","padding":"{huge_padding}"}}"#);
+        let p_huge = make_zip("huge_1.0.0.zip", "info.json", huge_json.as_bytes());
+        assert!(read_info_json(&p_huge).is_err(), "truncated oversized info.json should fail json parse cleanly");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
