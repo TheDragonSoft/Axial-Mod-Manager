@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ChevronLeft,
@@ -244,7 +244,11 @@ export default function BrowsePage() {
   }, [query, page, sort, reloadKey, favoritesOnly]);
 
   const results = data?.results ?? [];
-  useThumbnails(favoritesOnly ? [] : results.map((m) => m.name));
+  const thumbnailNames = useMemo(
+    () => (favoritesOnly ? [] : results.map((m) => m.name)),
+    [favoritesOnly, results],
+  );
+  useThumbnails(thumbnailNames);
 
   const showSkeletons = !favoritesOnly && data === null && loading;
 
