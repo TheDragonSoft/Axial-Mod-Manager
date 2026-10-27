@@ -425,6 +425,10 @@ async fn download_and_verify(
     Ok(if total == 0 { received } else { total })
 }
 
+/// Maximum decompressed size allowed for info.json reads inside mod zips (10 MiB)
+/// to mitigate Zip Bomb / OOM vulnerabilities.
+const MAX_INFO_JSON_BYTES: u64 = 10 * 1024 * 1024;
+
 /// Sync zip verification moved off the async runtime (TOC parse of a large
 /// zip stalls a tokio worker).
 async fn verify_mod_zip(
@@ -443,6 +447,7 @@ async fn verify_mod_zip(
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
+    use std::io::Read as _;
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Parse(format!("downloaded file is not a valid zip: {e}")))?;
@@ -459,7 +464,8 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            // Cap decompressed stream read to prevent Zip Bomb / OOM DoS
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
