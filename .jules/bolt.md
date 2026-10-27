@@ -7,3 +7,9 @@
 **Learning:** In Axial's React frontend, parent components like `BrowsePage` (search inputs) and `InstalledPage` (mod management status updates) re-render frequently. Unmemoized item components (`ModCard` and `ModRow`) re-rendered every item on every keystroke or status change, causing noticeable main-thread overhead for long mod lists.
 
 **Action:** Wrap card and row components in `React.memo` and stabilize event handler functions passed as props using `useCallback`. Ensure side effects (such as data fetching on expand) remain within event handlers rather than state updaters or effects with unstable dependency arrays.
+
+## 2025-05-19 - Allocation-Free Single-Pass Version Comparison
+
+**Learning:** `compareVersions` is invoked frequently in array sort callbacks across mod details, versions, install, and dependency modals. Using `split(".")` and `.map(parseInt)` allocates arrays and strings on every comparison pass ($O(N \log N)$ allocations during sorting), causing GC pressure and CPU overhead.
+
+**Action:** Implement single-pass character code scanning and index pointers to parse segment numbers directly without allocating intermediate arrays or substrings.
