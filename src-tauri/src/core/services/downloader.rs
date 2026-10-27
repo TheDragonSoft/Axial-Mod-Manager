@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -440,6 +441,10 @@ async fn verify_mod_zip(
         .map_err(|e| AppError::Parse(format!("verification task failed: {e}")))?
 }
 
+/// Maximum decompressed bytes read from info.json inside downloaded mod zip archives (2 MiB).
+/// Mitigates Zip Bomb / OOM Denial of Service vulnerabilities on untrusted archives.
+const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
+
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
@@ -459,7 +464,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            std::io::Read::read_to_string(&mut entry.by_ref().take(MAX_INFO_JSON_BYTES), &mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -845,5 +850,24 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_caps_oversized_entries() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-verify");
+        let f = dir.path("oversized.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let large_padding = vec![b' '; 2_500_000];
+        zip.write_all(b"{\"name\":\"oversized\",\"version\":\"1.0.0\"").unwrap();
+        zip.write_all(&large_padding).unwrap();
+        zip.write_all(b"}").unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "oversized", "1.0.0").unwrap_err();
+        assert!(err.to_string().contains("info.json is not valid JSON"));
     }
 }
