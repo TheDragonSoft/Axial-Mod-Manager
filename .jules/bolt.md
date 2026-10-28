@@ -7,3 +7,9 @@
 **Learning:** In Axial's React frontend, parent components like `BrowsePage` (search inputs) and `InstalledPage` (mod management status updates) re-render frequently. Unmemoized item components (`ModCard` and `ModRow`) re-rendered every item on every keystroke or status change, causing noticeable main-thread overhead for long mod lists.
 
 **Action:** Wrap card and row components in `React.memo` and stabilize event handler functions passed as props using `useCallback`. Ensure side effects (such as data fetching on expand) remain within event handlers rather than state updaters or effects with unstable dependency arrays.
+
+## 2025-05-18 - Single-Pass Segment Parsing in Version Comparison
+
+**Learning:** Utility functions used as comparators in `.sort()` operations (like `compareVersions`) can generate significant memory allocation pressure when splitting strings (`.split('.')`) and mapping parsed numbers on every pair comparison in large list operations (e.g. releases, changelogs, installed mod updates).
+
+**Action:** Parse integer segments in a single character-by-character pass using `charCodeAt` without array allocations or string slicing.
