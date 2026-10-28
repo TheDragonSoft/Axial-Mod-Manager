@@ -19,13 +19,44 @@ export function percent(received: number, total: number): number {
   return Math.min(100, Math.round((received / total) * 100));
 }
 
-/** Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions. */
+/**
+ * Compare "1.2.10" vs "1.2.9" numerically per segment. Good enough for mod versions.
+ * Optimized with single-pass integer parsing to avoid string splits and array allocations during list sorting.
+ */
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
-  const pb = b.split(".").map((s) => parseInt(s, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+  let ia = 0;
+  let ib = 0;
+  const lenA = a.length;
+  const lenB = b.length;
+
+  while (ia < lenA || ib < lenB) {
+    let valA = 0;
+    while (ia < lenA && a.charCodeAt(ia) !== 46 /* '.' */) {
+      const code = a.charCodeAt(ia);
+      if (code >= 48 && code <= 57) {
+        valA = valA * 10 + (code - 48);
+      }
+      ia++;
+    }
+    if (ia < lenA && a.charCodeAt(ia) === 46) {
+      ia++;
+    }
+
+    let valB = 0;
+    while (ib < lenB && b.charCodeAt(ib) !== 46 /* '.' */) {
+      const code = b.charCodeAt(ib);
+      if (code >= 48 && code <= 57) {
+        valB = valB * 10 + (code - 48);
+      }
+      ib++;
+    }
+    if (ib < lenB && b.charCodeAt(ib) === 46) {
+      ib++;
+    }
+
+    const diff = valA - valB;
     if (diff !== 0) return diff;
   }
+
   return 0;
 }
