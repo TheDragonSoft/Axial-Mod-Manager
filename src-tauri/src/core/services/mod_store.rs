@@ -220,6 +220,10 @@ pub struct InfoJson {
     pub dependencies: Vec<String>,
 }
 
+/// Maximum decompressed bytes to read from an untrusted info.json entry (1 MiB cap)
+/// to mitigate Zip Bomb / OOM Denial of Service vulnerabilities.
+const MAX_INFO_JSON_BYTES: u64 = 1_048_576;
+
 /// Read info.json from inside a mod zip without extracting it.
 /// Prefers root-level info.json; falls back to the first nested one.
 pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
@@ -239,14 +243,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1756,30 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_oversized_info_json_is_capped_and_fails_gracefully() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-oversized-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let path = temp_dir.join("oversized_1.0.0.zip");
+        let file = fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        // Write 1.5 MiB of valid JSON padding before closing brace
+        let mut big_data = Vec::new();
+        big_data.extend_from_slice(b"{\"name\":\"oversized\",\"version\":\"1.0.0\",\"pad\":\"");
+        big_data.extend(vec![b'a'; 1_500_000]);
+        big_data.extend_from_slice(b"\"}");
+        zip.write_all(&big_data).unwrap();
+        zip.finish().unwrap();
+
+        // Reading capped info.json (> 1 MiB) stops at 1 MiB, resulting in truncated/invalid JSON
+        let err = read_info_json(&path).expect_err("oversized info.json should fail due to truncation");
+        assert!(err.to_string().contains("is not valid JSON") || err.to_string().contains("parse"));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

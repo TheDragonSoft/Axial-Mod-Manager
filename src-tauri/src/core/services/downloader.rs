@@ -440,6 +440,10 @@ async fn verify_mod_zip(
         .map_err(|e| AppError::Parse(format!("verification task failed: {e}")))?
 }
 
+/// Maximum decompressed bytes to read from an untrusted info.json entry (1 MiB cap)
+/// to mitigate Zip Bomb / OOM Denial of Service vulnerabilities.
+const MAX_INFO_JSON_BYTES: u64 = 1_048_576;
+
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
@@ -459,7 +463,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            std::io::Read::read_to_string(&mut std::io::Read::take(entry, MAX_INFO_JSON_BYTES), &mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -845,5 +849,32 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[tokio::test]
+    async fn verify_downloaded_file_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized");
+        let f = dir.path("mod.zip");
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let mut big_data = Vec::new();
+        big_data.extend_from_slice(b"{\"name\":\"a-mod\",\"version\":\"1.0.0\",\"pad\":\"");
+        big_data.extend(vec![b'a'; 1_500_000]);
+        big_data.extend_from_slice(b"\"}");
+        zip.write_all(&big_data).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_downloaded_file(&f, "a-mod", "1.0.0", None)
+            .await
+            .expect_err("oversized info.json should fail verification due to stream cap");
+        match err {
+            JobFail::Error(msg, transient) => {
+                assert!(!transient);
+                assert!(msg.contains("is not valid JSON") || msg.contains("could not read info.json"));
+            }
+            JobFail::Cancelled => panic!("expected an error, got Cancelled"),
+        }
     }
 }
