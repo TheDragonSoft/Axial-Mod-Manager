@@ -459,7 +459,8 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            // Cap decompressed stream reads to mitigate Zip Bomb / OOM vulnerabilities.
+            std::io::Read::read_to_string(&mut entry.take(10 * 1024 * 1024), &mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -824,6 +825,27 @@ mod tests {
 
         verify_mod_zip_sync(&f, "real_mod", "1.2.3")
             .expect("should match actual info.json, ignoring docs/extra_info.json");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_truncates_large_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("large-info");
+        let f = dir.path("mod_large.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        // Construct a padded json larger than 10 MB
+        write!(zip, r#"{{"name":"test_mod","version":"1.0.0","padding":""#).unwrap();
+        let padding = vec![b'a'; 11 * 1024 * 1024];
+        zip.write_all(&padding).unwrap();
+        write!(zip, r#""}}"#).unwrap();
+        zip.finish().unwrap();
+
+        // Reading truncated JSON (>10MB cap) fails JSON parsing
+        let res = verify_mod_zip_sync(&f, "test_mod", "1.0.0");
+        assert!(res.is_err(), "Truncated JSON due to 10MB read cap must fail parsing");
     }
 
     #[test]
