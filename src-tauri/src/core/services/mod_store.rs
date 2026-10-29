@@ -230,7 +230,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +239,16 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompressed stream reads to mitigate Zip Bomb / OOM vulnerabilities.
+            entry.take(10 * 1024 * 1024).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompressed stream reads to mitigate Zip Bomb / OOM vulnerabilities.
+            entry.take(10 * 1024 * 1024).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1754,21 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Overly large entry truncated by 10MB limit
+        let p_large = {
+            let path = temp_dir.join("large_1.0.0.zip");
+            let file = fs::File::create(&path).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(br#"{"name":"large","version":"1.0.0","padding":""#).unwrap();
+            let padding = vec![b'a'; 11 * 1024 * 1024];
+            zip.write_all(&padding).unwrap();
+            zip.write_all(br#""}"#).unwrap();
+            zip.finish().unwrap();
+            path
+        };
+        assert!(read_info_json(&p_large).is_err(), "Truncated JSON due to 10MB read cap must fail parsing");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
