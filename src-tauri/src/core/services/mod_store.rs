@@ -213,12 +213,17 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
     pub factorio_version: String,
     pub dependencies: Vec<String>,
 }
+
+/// Maximum allowed decompressed size for info.json manifest entries (2 MiB)
+/// to mitigate Zip Bomb / OOM Denial of Service vulnerabilities.
+pub const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
 
 /// Read info.json from inside a mod zip without extracting it.
 /// Prefers root-level info.json; falls back to the first nested one.
@@ -230,7 +235,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +244,20 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES + 1).read_to_string(&mut s)?;
+            if s.len() as u64 > MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size (2 MB)".into()));
+            }
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES + 1).read_to_string(&mut s)?;
+            if s.len() as u64 > MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size (2 MB)".into()));
+            }
             nested = Some(s);
         }
     }
@@ -1752,6 +1763,27 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_read_info_json_oversized_rejected() {
+        let temp_dir = unique_dir("oversized-info");
+        let path = temp_dir.join("oversized_1.0.0.zip");
+        let file = fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        // Write 2 MiB + 100 bytes of padding
+        let oversized_bytes = vec![b' '; (MAX_INFO_JSON_BYTES + 100) as usize];
+        zip.write_all(&oversized_bytes).unwrap();
+        zip.finish().unwrap();
+
+        let err = read_info_json(&path).expect_err("oversized info.json must be rejected");
+        assert!(
+            err.to_string().contains("exceeds maximum allowed size"),
+            "expected size limit error, got: {err}"
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
