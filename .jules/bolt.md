@@ -7,3 +7,8 @@
 **Learning:** In Axial's React frontend, parent components like `BrowsePage` (search inputs) and `InstalledPage` (mod management status updates) re-render frequently. Unmemoized item components (`ModCard` and `ModRow`) re-rendered every item on every keystroke or status change, causing noticeable main-thread overhead for long mod lists.
 
 **Action:** Wrap card and row components in `React.memo` and stabilize event handler functions passed as props using `useCallback`. Ensure side effects (such as data fetching on expand) remain within event handlers rather than state updaters or effects with unstable dependency arrays.
+
+## 2025-05-18 - Reuse Module-Level Intl.Collator Instances for List Sorting
+
+**Learning:** Calling `String.prototype.localeCompare(other, locale, options)` with options inside `Array.prototype.sort()` creates a new `Intl.Collator` instance for every pairwise string comparison, causing massive CPU allocation overhead when sorting mod lists.
+**Action:** Instantiate `Intl.Collator` once at module scope (e.g., `const baseCollator = new Intl.Collator(undefined, { sensitivity: "base" });`) and call `baseCollator.compare(a, b)` inside array sort comparators.
