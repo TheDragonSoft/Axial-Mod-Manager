@@ -449,7 +449,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,7 +459,8 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            // Cap decompressed stream read to 1 MB to prevent Zip Bomb / DoS memory exhaustion
+            std::io::Read::read_to_string(&mut std::io::Read::take(entry, 1_048_576), &mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
