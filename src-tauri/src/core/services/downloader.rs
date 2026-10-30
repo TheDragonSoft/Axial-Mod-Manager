@@ -459,8 +459,16 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
-                .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            std::io::Read::read_to_string(
+                &mut entry.take(crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 1),
+                &mut s,
+            )
+            .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() as u64 > crate::core::services::mod_store::MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse(
+                    "info.json exceeds maximum allowed size (2 MB)".into(),
+                ));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
@@ -845,5 +853,26 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn test_verify_mod_zip_oversized_rejected() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-verify");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let oversized_bytes = vec![b' '; (crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 100) as usize];
+        zip.write_all(&oversized_bytes).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "test-mod", "1.0.0")
+            .expect_err("oversized info.json in downloader verify must be rejected");
+        assert!(
+            err.to_string().contains("exceeds maximum allowed size"),
+            "expected size limit error, got: {err}"
+        );
     }
 }
