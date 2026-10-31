@@ -213,6 +213,11 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+/// Maximum bytes decompressed from an untrusted zip entry when reading `info.json`
+/// (2 MiB). Prevents zip-bomb Denial of Service / OOM.
+pub(crate) const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
+
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
@@ -239,14 +244,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1757,20 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Decompression bomb / oversized info.json capped at MAX_INFO_JSON_BYTES
+        // A maliciously crafted or bloated entry exceeding MAX_INFO_JSON_BYTES is truncated and fails JSON parse
+        let prefix = b"{\"name\":\"bomb\",\"pad\":\"";
+        let suffix = b"\",\"version\":\"1.0.0\"}";
+        let pad_len = (MAX_INFO_JSON_BYTES as usize) + 1024;
+        let mut huge_content = Vec::with_capacity(prefix.len() + pad_len + suffix.len());
+        huge_content.extend_from_slice(prefix);
+        huge_content.resize(prefix.len() + pad_len, b'a');
+        huge_content.extend_from_slice(suffix);
+
+        let p_bomb = make_zip("bomb_1.0.0.zip", "info.json", &huge_content);
+        let err_bomb = read_info_json(&p_bomb).expect_err("oversized info.json should be truncated and fail parsing");
+        assert!(err_bomb.to_string().contains("is not valid JSON"));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
