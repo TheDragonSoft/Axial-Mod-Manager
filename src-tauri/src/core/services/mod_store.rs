@@ -17,6 +17,8 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Security: Cap decompressed read of info.json to 1MB to protect against zip bombs / OOM DoS.
+const MAX_INFO_JSON_BYTES: u64 = 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -239,14 +241,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1754,14 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Excessively large info.json is truncated at MAX_INFO_JSON_BYTES and fails valid JSON parse
+        let mut big_bytes = Vec::with_capacity((MAX_INFO_JSON_BYTES + 1024) as usize);
+        big_bytes.extend_from_slice(b"{\"name\":\"bigmod\",\"version\":\"1.0.0\",\"extra\":\"");
+        big_bytes.resize((MAX_INFO_JSON_BYTES + 1024) as usize, b'a');
+        big_bytes.extend_from_slice(b"\"}");
+        let p_big = make_zip("big_1.0.0.zip", "info.json", &big_bytes);
+        assert!(read_info_json(&p_big).is_err());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

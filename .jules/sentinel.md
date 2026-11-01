@@ -1,0 +1,4 @@
+## 2025-05-18 - Unbounded Decompressed Stream Read in Untrusted Zip Archives
+**Vulnerability:** Untrusted zip archives (mod packages downloaded from mirrors or placed in the Factorio mods directory) were decompressed using `entry.read_to_string(&mut s)` without capping the read stream size. If an entry compressed a very large payload (zip bomb / decompression bomb), this could cause out-of-memory denial of service (DoS) crashes.
+**Learning:** `zip::read::ZipFile` implements `std::io::Read`. Using unbounded read functions like `read_to_string` on archive entries decompresses arbitrarily sized streams into memory even if the raw zip file is small.
+**Prevention:** Always cap stream reads from untrusted archive entries using `.by_ref().take(MAX_BYTES)` before calling `read_to_string()` or `read_to_end()`.
