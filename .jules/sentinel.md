@@ -1,0 +1,4 @@
+## 2025-05-18 - Capped Decompression for Mod Archive Manifests
+**Vulnerability:** Unbounded decompression (`entry.read_to_string(&mut s)`) when reading `info.json` from untrusted mod ZIP archives (in both `mod_store::read_info_json` and `downloader::verify_mod_zip_sync`). A crafted zip bomb or oversized entry could exhaust available system memory, leading to an OOM crash or Denial of Service (DoS).
+**Learning:** Even though archive metadata entries like `info.json` are expected to be small JSON documents, extracting them directly into memory without checking entry size or bounding stream reads leaves the application exposed to decompression bombs from third-party mirrors or user-supplied ZIP files.
+**Prevention:** Always check `entry.size()` against a reasonable maximum threshold (e.g. 4 MB) and cap stream reads using `entry.take(LIMIT + 1)` before calling `read_to_string` on archive entries.

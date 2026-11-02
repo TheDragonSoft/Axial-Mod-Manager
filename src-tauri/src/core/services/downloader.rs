@@ -458,9 +458,21 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
             || entry_name.ends_with("\\info.json");
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
+            if entry.size() > crate::core::services::mod_store::MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum size limit".into()));
+            }
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
-                .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            std::io::Read::read_to_string(
+                &mut std::io::Read::take(
+                    &mut entry,
+                    crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 1,
+                ),
+                &mut s,
+            )
+            .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() as u64 > crate::core::services::mod_store::MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum size limit".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
@@ -824,6 +836,24 @@ mod tests {
 
         verify_mod_zip_sync(&f, "real_mod", "1.2.3")
             .expect("should match actual info.json, ignoring docs/extra_info.json");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-info");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let large_bytes = vec![b' '; (crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 10) as usize];
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(&large_bytes).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "test", "1.0.0")
+            .expect_err("oversized info.json must be rejected");
+        assert!(err.to_string().contains("exceeds maximum size limit"));
     }
 
     #[test]
