@@ -21,6 +21,8 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 3;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
+/// Maximum allowed size for decompressed info.json entries (defense against Zip Bomb / DoS).
+const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024; // 2 MiB
 
 /// Event payload for "download-updated" — mirrors the frontend QueueItem.
 #[derive(Debug, Clone, Serialize)]
@@ -459,7 +461,8 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            // Cap decompression stream to prevent unbounded memory exhaustion / Zip Bomb DoS
+            std::io::Read::read_to_string(&mut std::io::Read::take(&mut entry, MAX_INFO_JSON_BYTES), &mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -804,6 +807,26 @@ mod tests {
         assert!(f1.exists(), "keep target must remain");
         assert!(!f2.exists(), "older version of same mod must be deleted");
         assert!(f3.exists(), "extended mod name with space must NOT be deleted");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-info");
+        let f = dir.path("oversized.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let large_padding = " ".repeat((MAX_INFO_JSON_BYTES + 1024) as usize);
+        let oversized_json = format!(r#"{{"name":"oversized","version":"1.0.0"{large_padding}}}"#);
+        zip.write_all(oversized_json.as_bytes()).unwrap();
+        zip.finish().unwrap();
+
+        assert!(
+            verify_mod_zip_sync(&f, "oversized", "1.0.0").is_err(),
+            "truncated oversized json must fail verification safely"
+        );
     }
 
     #[test]
