@@ -49,6 +49,15 @@ function stopRow(e: React.MouseEvent) {
 }
 
 /**
+ * Reusable collator instances for sorting installed mods.
+ * Calling `localeCompare` with options inside `.sort()` creates a new `Intl.Collator`
+ * instance on every comparison (~O(N log N) allocations). Pre-allocating module-level
+ * collators avoids repeated allocation and option parsing overhead during sort passes.
+ */
+const baseModNameCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+const defaultModNameCollator = new Intl.Collator();
+
+/**
  * ModRow renders an installed mod item with expandable details/changelog.
  * Memoized with React.memo so expanding, collapsing, or toggling a single row
  * re-renders only that row instead of every row in the list.
@@ -448,8 +457,8 @@ export default function InstalledPage() {
       }
     }
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
-      a.name.localeCompare(b.name);
+      baseModNameCollator.compare(a.name, b.name) ||
+      defaultModNameCollator.compare(a.name, b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
     return { enabledMods: enabled, disabledMods: disabled };
