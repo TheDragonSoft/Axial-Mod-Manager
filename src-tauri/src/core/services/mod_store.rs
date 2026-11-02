@@ -17,6 +17,8 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Maximum allowed bytes for uncompressed `info.json` to defend against Zip Bombs / DoS.
+pub const MAX_INFO_JSON_BYTES: u64 = 4 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -238,15 +240,27 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         }
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
+            if entry.size() > MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum size limit".into()));
+            }
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            std::io::Read::take(&mut entry, MAX_INFO_JSON_BYTES + 1).read_to_string(&mut s)?;
+            if s.len() as u64 > MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum size limit".into()));
+            }
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
+            if entry.size() > MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum size limit".into()));
+            }
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            std::io::Read::take(&mut entry, MAX_INFO_JSON_BYTES + 1).read_to_string(&mut s)?;
+            if s.len() as u64 > MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum size limit".into()));
+            }
             nested = Some(s);
         }
     }
@@ -1752,6 +1766,17 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Oversized info.json (Zip Bomb protection)
+        let large_bytes = vec![b' '; (MAX_INFO_JSON_BYTES + 10) as usize];
+        let p_large = make_zip("oversized_1.0.0.zip", "info.json", &large_bytes);
+        let res = read_info_json(&p_large);
+        assert!(res.is_err(), "oversized info.json must be rejected");
+        let err_large = match res {
+            Err(e) => e,
+            Ok(_) => unreachable!(),
+        };
+        assert!(err_large.to_string().contains("exceeds maximum size limit"));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
