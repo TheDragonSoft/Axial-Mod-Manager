@@ -17,6 +17,8 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Maximum allowed size for decompressed info.json entries (defense against Zip Bomb / DoS).
+pub const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024; // 2 MiB
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -230,7 +232,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +241,16 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompression stream to prevent unbounded memory exhaustion / Zip Bomb DoS
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompression stream to prevent unbounded memory exhaustion / Zip Bomb DoS
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1756,13 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Oversized info.json (Zip Bomb defense): stream is capped at MAX_INFO_JSON_BYTES,
+        // resulting in truncated/invalid JSON rather than unbounded memory exhaustion.
+        let large_padding = " ".repeat((MAX_INFO_JSON_BYTES + 1024) as usize);
+        let oversized_json = format!(r#"{{"name":"oversized"{large_padding}}}"#);
+        let p_oversized = make_zip("oversized_1.0.0.zip", "info.json", oversized_json.as_bytes());
+        assert!(read_info_json(&p_oversized).is_err(), "truncated oversized json must fail parsing");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

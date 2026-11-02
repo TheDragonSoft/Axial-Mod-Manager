@@ -1,0 +1,4 @@
+## 2025-05-18 - Cap Decompressed Archive Stream Reads to Mitigate Zip Bomb / OOM DoS
+**Vulnerability:** Reading file entries such as `info.json` from untrusted or user-provided mod zip files via unbounded `.read_to_string(&mut s)` allowed potential Zip Bomb or Out-Of-Memory (OOM) Denial of Service attacks if an entry decompressed into gigabytes of data in memory.
+**Learning:** `zip::ZipArchive` streaming readers expand data on-the-fly. Without an explicit limit on bytes read from the decompression stream, an archive entry with a massive compression ratio can trigger process termination or OOM before JSON parsing or validation logic is reached.
+**Prevention:** Always cap decompression stream reads from untrusted zip archive entries using `.take(MAX_BYTES)` (e.g. 2 MiB for JSON metadata) prior to calling `.read_to_string()` or allocating buffers.
