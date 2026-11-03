@@ -1,0 +1,4 @@
+## 2026-11-03 - Unbounded Stream Decompression in Zip Entry Parsing (Zip Bomb / OOM DoS)
+**Vulnerability:** Reading archive entries directly with `entry.read_to_string(&mut s)` in `mod_store::read_info_json` and `downloader::verify_mod_zip_sync` had no bounds on uncompressed byte length. An attacker or malicious mirror providing a zip bomb with highly compressed repetitive bytes in `info.json` could cause complete process memory exhaustion (OOM DoS).
+**Learning:** Archive decompression streams can unpack gigabytes of data from tiny compressed payloads. Even when verifying file manifests or metadata rather than full archive extraction, stream decompression into unbounded heap memory must be strictly throttled.
+**Prevention:** Always cap decompression stream readers using `.take(MAX_BYTES + 1)` and verify that the uncompressed data does not exceed `MAX_BYTES` before processing.

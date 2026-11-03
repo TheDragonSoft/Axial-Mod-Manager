@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -459,8 +460,12 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            std::io::Read::take(&mut entry, crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 1)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() > crate::core::services::mod_store::MAX_INFO_JSON_BYTES as usize {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
@@ -804,6 +809,29 @@ mod tests {
         assert!(f1.exists(), "keep target must remain");
         assert!(!f2.exists(), "older version of same mod must be deleted");
         assert!(f3.exists(), "extended mod name with space must NOT be deleted");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("bomb");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file(
+            "info.json",
+            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+        let payload = vec![b' '; 3 * 1024 * 1024];
+        zip.write_all(b"{\"name\":\"bomb\",\"version\":\"1.0.0\",\"extra\":\"").unwrap();
+        zip.write_all(&payload).unwrap();
+        zip.write_all(b"\"}").unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "bomb", "1.0.0").unwrap_err();
+        assert!(err.to_string().contains("exceeds maximum allowed size"));
     }
 
     #[test]
