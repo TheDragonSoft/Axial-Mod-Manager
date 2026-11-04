@@ -458,8 +458,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
             || entry_name.ends_with("\\info.json");
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
-            let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            let s = crate::core::services::mod_store::read_entry_to_string_capped(&mut entry)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -804,6 +803,27 @@ mod tests {
         assert!(f1.exists(), "keep target must remain");
         assert!(!f2.exists(), "older version of same mod must be deleted");
         assert!(f3.exists(), "extended mod name with space must NOT be deleted");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("bomb");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file(
+            "info.json",
+            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+        let big = vec![b' '; (crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 1024) as usize];
+        zip.write_all(&big).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "mod", "1.0.0").unwrap_err();
+        assert!(err.to_string().contains("exceeds maximum size limit"));
     }
 
     #[test]
