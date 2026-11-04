@@ -213,12 +213,16 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
     pub factorio_version: String,
     pub dependencies: Vec<String>,
 }
+
+/// Maximum uncompressed bytes to read for info.json (defense in depth against zip bombs).
+pub const MAX_INFO_JSON_BYTES: u64 = 1024 * 1024; // 1 MiB
 
 /// Read info.json from inside a mod zip without extracting it.
 /// Prefers root-level info.json; falls back to the first nested one.
@@ -239,14 +243,20 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            let bytes_read = (&mut entry).take(MAX_INFO_JSON_BYTES + 1).read_to_string(&mut s)?;
+            if bytes_read as u64 > MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size".into()));
+            }
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            let bytes_read = (&mut entry).take(MAX_INFO_JSON_BYTES + 1).read_to_string(&mut s)?;
+            if bytes_read as u64 > MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size".into()));
+            }
             nested = Some(s);
         }
     }
@@ -1754,5 +1764,37 @@ mod tests {
         assert_eq!(info_nover.version, "?");
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn rejects_oversized_info_json_to_prevent_zip_bomb_dos() {
+        let dir = unique_dir("oversized-info");
+        let zip_path = dir.join("BombMod_1.0.0.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        // Construct an info.json entry exceeding MAX_INFO_JSON_BYTES (1 MiB).
+        // Using repetition of spaces before closing brace to exceed limit.
+        let prefix = br#"{"name":"BombMod","version":"1.0.0","factorio_version":"2.0","padding":""#;
+        let suffix = br#""}"#;
+        zip.write_all(prefix).unwrap();
+        let padding_len = (MAX_INFO_JSON_BYTES as usize) + 100 - prefix.len() - suffix.len();
+        let chunk = vec![b'a'; 64 * 1024];
+        let mut written = 0;
+        while written < padding_len {
+            let to_write = (padding_len - written).min(chunk.len());
+            zip.write_all(&chunk[..to_write]).unwrap();
+            written += to_write;
+        }
+        zip.write_all(suffix).unwrap();
+        zip.finish().unwrap();
+
+        let err = read_info_json(&zip_path).expect_err("oversized info.json must be rejected");
+        assert!(
+            err.to_string().contains("exceeds maximum allowed size"),
+            "unexpected error: {err}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
