@@ -443,6 +443,7 @@ async fn verify_mod_zip(
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
+    use std::io::Read as _;
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Parse(format!("downloaded file is not a valid zip: {e}")))?;
@@ -459,8 +460,13 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            let bytes_read = (&mut entry)
+                .take(crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 1)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if bytes_read as u64 > crate::core::services::mod_store::MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
