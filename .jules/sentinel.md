@@ -1,0 +1,4 @@
+## 2026-11-04 - Unbounded Archive Entry Decompression (Zip Bomb / OOM DoS)
+**Vulnerability:** Untrusted mod zips scanned or downloaded into the application had their `info.json` entries decompressed into memory via `Read::read_to_string` without an upper bound on decompressed byte length. A malicious or malformed zip entry (zip bomb) could decompress into gigabytes of data, exhausting system memory and causing an Out-Of-Memory (OOM) denial-of-service crash.
+**Learning:** Archive inspection routines often parse metadata entries before any full file extraction. While the compressed archive itself may be tiny, decompressing directly into a heap-allocated buffer like `String` without stream-level limits exposes the process to decompression bombs.
+**Prevention:** Always cap decompressed stream reads from untrusted archive entries using `.take(MAX_BYTES + 1)` before calling `read_to_string`, and reject entries that exceed the maximum expected threshold.
