@@ -1,10 +1,11 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { enqueueDownload, cancelDownload, toAppError } from "../lib/api";
 import {
   useQueueStore,
   selectActiveCount,
   selectFinishedCount,
 } from "../store/useQueueStore";
+import { isTopOverlay, popOverlay, pushOverlay } from "./ui/overlayStack";
 import { useThumbnailUrl } from "../lib/thumbnails";
 import Badge from "./ui/Badge";
 import Button from "./ui/Button";
@@ -206,6 +207,31 @@ export default function QueueDrawer() {
   const clearFinished = useQueueStore((s) => s.clearFinished);
   const activeCount = useQueueStore(selectActiveCount);
   const finishedCount = useQueueStore(selectFinishedCount);
+  const drawerRef = useRef<HTMLElement>(null);
+  const token = useRef(Symbol("queue-drawer"));
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const me = token.current;
+    pushOverlay(me);
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (!isTopOverlay(me)) return;
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    drawerRef.current?.focus();
+
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      popOverlay(me);
+      previouslyFocused?.focus();
+    };
+  }, [isOpen, close]);
 
   return (
     <>
@@ -213,10 +239,18 @@ export default function QueueDrawer() {
         <div
           className="fixed inset-0 z-40 bg-black/50 animate-fade-in"
           onClick={close}
+          aria-hidden="true"
         />
       )}
       <aside
-        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface transition-transform duration-200 ease-out motion-reduce:transition-none ${
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Downloads"
+        aria-hidden={!isOpen}
+        inert={!isOpen ? true : undefined}
+        tabIndex={-1}
+        className={`fixed inset-y-0 right-0 z-50 flex w-96 transform flex-col border-l border-line bg-surface outline-none transition-transform duration-200 ease-out motion-reduce:transition-none ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
