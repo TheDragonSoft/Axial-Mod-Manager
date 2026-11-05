@@ -213,12 +213,17 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
     pub factorio_version: String,
     pub dependencies: Vec<String>,
 }
+
+/// Safe upper bound for reading decompressed info.json content from zip entries
+/// to mitigate Zip Bomb / OOM denial-of-service risks (10 MiB is well above valid info.json).
+pub const MAX_INFO_JSON_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Read info.json from inside a mod zip without extracting it.
 /// Prefers root-level info.json; falls back to the first nested one.
@@ -239,14 +244,16 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompressed stream read to guard against Zip Bomb / OOM denial-of-service.
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompressed stream read to guard against Zip Bomb / OOM denial-of-service.
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1639,6 +1646,38 @@ mod tests {
         );
         assert_eq!(clean_orphans(&dir, &cache).unwrap().deleted_count, 0);
         assert!(broken.exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_info_json_caps_oversized_entry() {
+        let dir = unique_dir("oversized_info");
+        let zip = dir.join("OversizedMod_1.0.0.zip");
+        // Create an info.json whose decompressed size exceeds MAX_INFO_JSON_BYTES.
+        // It starts with valid JSON prefix but has excessive trailing padding.
+        let f = fs::File::create(&zip).unwrap();
+        let mut w = zip::ZipWriter::new(f);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        w.start_file("info.json", options).unwrap();
+        w.write_all(b"{\"name\":\"OversizedMod\",\"version\":\"1.0.0\",\"factorio_version\":\"2.0\",\"description\":\"").unwrap();
+        // 11 MiB of zeroes compressed will be very small in zip, but expand > MAX_INFO_JSON_BYTES (10 MiB)
+        let chunk = vec![b'a'; 1024 * 1024];
+        for _ in 0..11 {
+            w.write_all(&chunk).unwrap();
+        }
+        w.write_all(b"\"}").unwrap();
+        w.finish().unwrap();
+
+        // Reading info.json must cap stream at MAX_INFO_JSON_BYTES, resulting in truncated invalid JSON error,
+        // rather than reading all 11+ MiB into memory.
+        let res = read_info_json(&zip);
+        assert!(res.is_err(), "oversized entry truncated by MAX_INFO_JSON_BYTES should fail JSON parsing");
+        match res.unwrap_err() {
+            AppError::Parse(msg) => assert!(msg.contains("info.json is not valid JSON")),
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
 
         let _ = fs::remove_dir_all(&dir);
     }
