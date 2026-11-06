@@ -21,6 +21,9 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 3;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(120);
 /// Automatic retries for transient failures (network blips, 429, 5xx).
 const MAX_ATTEMPTS: u32 = 3;
+/// Maximum allowed decompressed size for an `info.json` entry inside a mod archive (1 MiB).
+/// Protects against decompression bombs (Zip Bombs) and unbounded memory allocation.
+pub const MAX_INFO_JSON_BYTES: u64 = 1_048_576;
 
 /// Event payload for "download-updated" — mirrors the frontend QueueItem.
 #[derive(Debug, Clone, Serialize)]
@@ -459,8 +462,14 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            use std::io::Read as _;
+            (&mut entry)
+                .take(MAX_INFO_JSON_BYTES + 1)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() > MAX_INFO_JSON_BYTES as usize {
+                return Err(AppError::Parse("info.json exceeds 1 MiB size limit".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
@@ -845,5 +854,26 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-dl");
+        let f = dir.path("bomb.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let mut oversized = Vec::with_capacity((MAX_INFO_JSON_BYTES + 100) as usize);
+        oversized.extend_from_slice(b"{\"name\":\"bomb\",\"junk\":\"");
+        oversized.resize((MAX_INFO_JSON_BYTES + 90) as usize, b'a');
+        oversized.extend_from_slice(b"\"}\n");
+        zip.write_all(&oversized).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "bomb", "1.0.0")
+            .expect_err("oversized info.json must be rejected during verification");
+        assert!(err.to_string().contains("exceeds 1 MiB size limit"));
     }
 }
