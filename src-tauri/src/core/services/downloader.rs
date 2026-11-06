@@ -458,8 +458,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
             || entry_name.ends_with("\\info.json");
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
-            let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            let s = crate::core::services::mod_store::read_entry_to_string(&mut entry)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
             let is_root = name == "info.json";
             info_json = Some((name, s));
@@ -845,5 +844,23 @@ mod tests {
         // Subsequent calls must not panic
         assert!(queue.has_active_jobs());
         assert!(queue.is_busy("my-mod"));
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-info");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let large_content = vec![b' '; (crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 10) as usize];
+        zip.write_all(&large_content).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "any", "1.0.0")
+            .expect_err("oversized info.json must be rejected during verification");
+        assert!(err.to_string().contains("exceeds maximum size limit"));
     }
 }
