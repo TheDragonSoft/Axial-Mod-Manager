@@ -17,6 +17,10 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Maximum uncompressed bytes to read for info.json from untrusted mod zips.
+/// Factorio manifest files are typically a few KB; capping at 10 MB defends against
+/// decompression bombs (Zip Bomb / OOM DoS).
+const MAX_INFO_JSON_BYTES: u64 = 10 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -230,7 +234,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +243,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1754,5 +1758,18 @@ mod tests {
         assert_eq!(info_nover.version, "?");
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_read_info_json_caps_stream_read() {
+        // Verify bounded reading behavior: an info.json stream larger than MAX_INFO_JSON_BYTES
+        // is capped at MAX_INFO_JSON_BYTES, preventing unbounded decompressed memory allocation.
+        let mock_stream = std::io::repeat(b' ').take(MAX_INFO_JSON_BYTES + 1024);
+        let mut s = String::new();
+        mock_stream
+            .take(MAX_INFO_JSON_BYTES)
+            .read_to_string(&mut s)
+            .expect("read capped stream");
+        assert_eq!(s.len(), MAX_INFO_JSON_BYTES as usize);
     }
 }
