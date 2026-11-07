@@ -18,6 +18,10 @@ use crate::models::{
 
 const MOD_LIST_FILE: &str = "mod-list.json";
 
+/// Maximum bytes allowed to decompress from an `info.json` entry inside a mod archive.
+/// Mitigates zip bomb / OOM Denial of Service from untrusted archives.
+pub const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
+
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
 // ---------------------------------------------------------------------------
@@ -239,14 +243,16 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompressed stream to mitigate zip bombs / memory exhaustion
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            // Cap decompressed stream to mitigate zip bombs / memory exhaustion
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1758,41 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_oversized_info_json_is_capped_or_rejected() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-zipbomb-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let zip_path = temp_dir.join("zipbomb_1.0.0.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file(
+            "info.json",
+            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+
+        // Create a payload that is compressed very tightly (lots of spaces) exceeding MAX_INFO_JSON_BYTES (2 MiB).
+        // If uncompressed without .take(), it would decompress 3 MiB of spaces before closing JSON.
+        // With .take(2 MiB), it truncates the stream, causing a JSON parse error instead of allocating unbounded memory.
+        let prefix = br#"{"name":"zipbomb","version":"1.0.0","padding":""#;
+        zip.write_all(prefix).unwrap();
+        let chunk = [b'a'; 64 * 1024];
+        for _ in 0..48 {
+            // 48 * 64 KiB = 3 MiB
+            zip.write_all(&chunk).unwrap();
+        }
+        zip.write_all(br#""}"#).unwrap();
+        zip.finish().unwrap();
+
+        // read_info_json should fail parsing because the JSON stream is cut off at MAX_INFO_JSON_BYTES,
+        // preventing OOM from unbounded decompression.
+        let res = read_info_json(&zip_path);
+        assert!(res.is_err(), "oversized info.json should be truncated and rejected");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
