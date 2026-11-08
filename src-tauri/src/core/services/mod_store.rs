@@ -213,6 +213,11 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+/// Maximum decompressed size for an info.json entry (2 MiB) to prevent
+/// Zip Bomb / OOM Denial of Service attacks when parsing untrusted mod archives.
+pub const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
+
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
@@ -230,7 +235,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +244,20 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES + 1).read_to_string(&mut s)?;
+            if s.len() > MAX_INFO_JSON_BYTES as usize {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size".into()));
+            }
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES + 1).read_to_string(&mut s)?;
+            if s.len() > MAX_INFO_JSON_BYTES as usize {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size".into()));
+            }
             nested = Some(s);
         }
     }
@@ -1752,6 +1763,12 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        // 11. Oversized entry (decompression bomb protection)
+        let large_content = vec![b' '; (MAX_INFO_JSON_BYTES + 10) as usize];
+        let p_oversized = make_zip("oversized_1.0.0.zip", "info.json", &large_content);
+        let err_oversized = read_info_json(&p_oversized).expect_err("oversized info.json must be rejected");
+        assert!(err_oversized.to_string().contains("exceeds maximum allowed size"));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
