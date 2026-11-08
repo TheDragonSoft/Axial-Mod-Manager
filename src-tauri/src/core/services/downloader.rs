@@ -4,6 +4,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use std::io::Read as _;
+
 use futures_util::StreamExt;
 use sha1::{Digest, Sha1};
 use serde::Serialize;
@@ -449,7 +451,7 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
 
     let mut info_json: Option<(String, String)> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         let entry_name = entry.name();
@@ -459,8 +461,13 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            // Cap decompression to 2 MiB to prevent Zip Bomb / OOM Denial of Service.
+            entry.take(crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 1)
+                .read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() > crate::core::services::mod_store::MAX_INFO_JSON_BYTES as usize {
+                return Err(AppError::Parse("info.json exceeds maximum allowed size".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
@@ -824,6 +831,23 @@ mod tests {
 
         verify_mod_zip_sync(&f, "real_mod", "1.2.3")
             .expect("should match actual info.json, ignoring docs/extra_info.json");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_entry() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-info");
+        let f = dir.path("mod.zip");
+
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        let large_content = vec![b' '; (crate::core::services::mod_store::MAX_INFO_JSON_BYTES + 10) as usize];
+        zip.write_all(&large_content).unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "any", "1.0.0").expect_err("oversized info.json must be rejected");
+        assert!(err.to_string().contains("exceeds maximum allowed size"));
     }
 
     #[test]
