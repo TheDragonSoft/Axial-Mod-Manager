@@ -1,0 +1,4 @@
+## 2026-09-20 - Unbounded Zip Stream Decompression (Zip Bomb / OOM DoS)
+**Vulnerability:** Untrusted zip archives processed by `read_info_json` in `mod_store.rs` and `verify_mod_zip_sync` in `downloader.rs` decompressed `info.json` directly into strings using unbounded `read_to_string`. A malicious archive with high compression ratio (zip bomb) could consume all available system RAM, triggering an Out-Of-Memory panic or DoS.
+**Learning:** `zip::ZipArchive::by_index` provides a decompression reader implementing `std::io::Read`. Without bounding the read stream, `read_to_string()` will allocate memory until the decompressed stream ends or the process runs out of memory.
+**Prevention:** Always cap stream reads from untrusted archive entries using `.take(MAX_BYTES)` prior to `read_to_string()` to enforce safe memory upper limits.
