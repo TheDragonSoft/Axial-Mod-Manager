@@ -17,6 +17,9 @@ use crate::models::{
 };
 
 const MOD_LIST_FILE: &str = "mod-list.json";
+/// Maximum allowed decompressed size for an `info.json` entry (2 MiB).
+/// Protects against zip bomb / decompression bomb memory exhaustion (DoS).
+const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
@@ -239,14 +242,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.by_ref().take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1755,40 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_zip_bomb_info_json_capped() {
+        let temp_dir = std::env::temp_dir().join(format!("axial-bomb-test-{}", std::process::id()));
+        let _ = fs::create_dir_all(&temp_dir);
+        let path = temp_dir.join("bomb_1.0.0.zip");
+        let file = fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+
+        // Compress a 5 MiB repetitive string (> MAX_INFO_JSON_BYTES of 2 MiB)
+        // using Deflated compression so compressed size is tiny, but uncompressed exceeds limit.
+        zip.start_file(
+            "info.json",
+            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+        // A huge JSON array or padded spaces to exceed 2 MiB
+        let prefix = b"{\"name\":\"bomb\",\"version\":\"1.0.0\",\"desc\":\"";
+        zip.write_all(prefix).unwrap();
+        let chunk = [b'A'; 64 * 1024];
+        for _ in 0..80 {
+            // 80 * 64 KiB = 5 MiB of data
+            zip.write_all(&chunk).unwrap();
+        }
+        zip.write_all(b"\"}").unwrap();
+        zip.finish().unwrap();
+
+        // Reading info.json should be capped at 2 MiB, which truncates the stream
+        // and causes JSON parsing to safely fail instead of allocating gigabytes / OOM.
+        let res = read_info_json(&path);
+        assert!(res.is_err(), "overly large entry truncated by take() should fail JSON parsing");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
