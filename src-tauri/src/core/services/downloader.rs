@@ -440,9 +440,13 @@ async fn verify_mod_zip(
         .map_err(|e| AppError::Parse(format!("verification task failed: {e}")))?
 }
 
+/// Maximum decompressed size for info.json (2 MiB) to mitigate zip bombs / OOM DoS.
+const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
+
 /// Open the downloaded zip in-memory and confirm info.json matches what we
 /// asked for. Catches truncation, HTML error pages, and wrong-file responses.
 fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str) -> Result<(), AppError> {
+    use std::io::Read as _;
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| AppError::Parse(format!("downloaded file is not a valid zip: {e}")))?;
@@ -459,8 +463,11 @@ fn verify_mod_zip_sync(path: &Path, expected_name: &str, expected_version: &str)
         if !entry.is_dir() && is_info_json {
             let name = entry_name.to_string();
             let mut s = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut s)
+            entry.by_ref().take(MAX_INFO_JSON_BYTES + 1).read_to_string(&mut s)
                 .map_err(|e| AppError::Parse(format!("could not read info.json: {e}")))?;
+            if s.len() as u64 > MAX_INFO_JSON_BYTES {
+                return Err(AppError::Parse("info.json exceeds maximum size limit (2 MiB)".into()));
+            }
             let is_root = name == "info.json";
             info_json = Some((name, s));
             if is_root {
@@ -824,6 +831,30 @@ mod tests {
 
         verify_mod_zip_sync(&f, "real_mod", "1.2.3")
             .expect("should match actual info.json, ignoring docs/extra_info.json");
+    }
+
+    #[test]
+    fn verify_mod_zip_sync_rejects_oversized_info_json() {
+        use std::io::Write as _;
+        let dir = TempDir::new("oversized-info");
+        let f = dir.path("mod.zip");
+        let file = std::fs::File::create(&f).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file(
+            "info.json",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+
+        zip.write_all(b"{\"name\":\"bomb\",\"version\":\"1.0.0\",\"desc\":\"").unwrap();
+        let filler = vec![b'x'; 2_500_000];
+        zip.write_all(&filler).unwrap();
+        zip.write_all(b"\"}").unwrap();
+        zip.finish().unwrap();
+
+        let err = verify_mod_zip_sync(&f, "bomb", "1.0.0").expect_err("oversized info.json must be rejected");
+        assert!(err.to_string().contains("exceeds maximum size limit"), "{err}");
     }
 
     #[test]
