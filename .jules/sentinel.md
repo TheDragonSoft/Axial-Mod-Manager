@@ -1,0 +1,4 @@
+## 2026-03-31 - Unbounded Decompression in Mod Zip Reading (Zip Bomb / OOM DoS)
+**Vulnerability:** Zip entries for `info.json` in downloaded or locally detected mod archives were decompressed directly into memory via `Read::read_to_string` without size constraints, allowing a malicious archive with high compression ratios (zip bomb) to trigger Out-Of-Memory application crashes.
+**Learning:** Archive inspection routines that read metadata files directly from zip streams into strings or byte buffers must defensively restrict reader throughput even when reading seemingly lightweight metadata files like JSON manifests.
+**Prevention:** Always cap decompressed stream reads from untrusted archive entries using `.take(MAX_BYTES)` prior to `read_to_string()` or `read_to_end()` to mitigate potential Zip Bomb / OOM Denial of Service vulnerabilities.
