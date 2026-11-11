@@ -43,6 +43,15 @@ import Spinner from "../components/ui/Spinner";
 import { useConfirm } from "../components/ui/useConfirm";
 import type { InstalledMod, UpdatesReport } from "../types";
 
+/**
+ * Module-level collators for mod sorting. Reusing Intl.Collator instances avoids
+ * instantiating an internal collator on every single comparator invocation
+ * (which String.prototype.localeCompare does when called with options), significantly
+ * reducing sorting execution time and garbage collection during list updates.
+ */
+const nameBaseCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+const nameExactCollator = new Intl.Collator();
+
 /** Prevent interactive controls inside the row from toggling expansion. */
 function stopRow(e: React.MouseEvent) {
   e.stopPropagation();
@@ -447,9 +456,11 @@ export default function InstalledPage() {
         disabled.push(m);
       }
     }
+    // Case-insensitive primary sort, falling back to exact case sorting on collision.
+    // Uses pre-instantiated collators to avoid O(N log N) collator allocations.
     const cmp = (a: InstalledMod, b: InstalledMod) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
-      a.name.localeCompare(b.name);
+      nameBaseCollator.compare(a.name, b.name) ||
+      nameExactCollator.compare(a.name, b.name);
     enabled.sort(cmp);
     disabled.sort(cmp);
     return { enabledMods: enabled, disabledMods: disabled };
