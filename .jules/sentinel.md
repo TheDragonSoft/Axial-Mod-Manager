@@ -1,0 +1,4 @@
+## 2025-05-18 - Capped Decompression for Untrusted Zip Archive Entries (CWE-409)
+**Vulnerability:** Untrusted zip archives (from third-party download mirrors or user-supplied mods directories) were inspected by calling unbounded `read_to_string` on uncompressed archive entry streams. A maliciously crafted zip bomb or oversized `info.json` could expand to gigabytes in memory, causing Out-Of-Memory (OOM) denial-of-service crashes.
+**Learning:** `zip::read::ZipFile` implements `std::io::Read` without implicit decompressed size caps. Calling `read_to_string()` directly reads until EOF regardless of entry size, leaving applications vulnerable to data amplification attacks even when verifying metadata.
+**Prevention:** Always cap decompressed stream reads from untrusted archive entries using `.take(MAX_BYTES + 1)` and verify that the stream did not exceed the expected maximum length before buffering into memory.
