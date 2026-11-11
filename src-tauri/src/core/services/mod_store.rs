@@ -213,12 +213,17 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
     pub factorio_version: String,
     pub dependencies: Vec<String>,
 }
+
+/// Upper bound on decompressed bytes read from untrusted `info.json` entries inside a zip.
+/// Mitigates zip bomb / OOM denial-of-service attacks.
+pub const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024; // 2 MiB
 
 /// Read info.json from inside a mod zip without extracting it.
 /// Prefers root-level info.json; falls back to the first nested one.
@@ -230,7 +235,7 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
     let mut raw: Option<String> = None;
     let mut nested: Option<String> = None;
     for i in 0..archive.len() {
-        let mut entry = archive
+        let entry = archive
             .by_index(i)
             .map_err(|e| AppError::Parse(format!("zip read error: {e}")))?;
         if entry.is_dir() {
@@ -239,14 +244,14 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             raw = Some(s);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
             let mut s = String::new();
-            entry.read_to_string(&mut s)?;
+            entry.take(MAX_INFO_JSON_BYTES).read_to_string(&mut s)?;
             nested = Some(s);
         }
     }
@@ -1752,6 +1757,39 @@ mod tests {
         let p_nover = make_zip("nover_1.0.0.zip", "info.json", b"{\"name\":\"nover\"}");
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_oversized_info_json_capped() {
+        let temp_dir = unique_dir("oversized-info");
+        let zip_path = temp_dir.join("oversized_1.0.0.zip");
+
+        // Construct an info.json payload that exceeds MAX_INFO_JSON_BYTES (2 MiB)
+        // by padding whitespace/fields. When truncated at 2 MiB, parsing as JSON fails.
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("info.json", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(b"{\"name\":\"oversized\",\"version\":\"1.0.0\",\"extra\":\"").unwrap();
+        // Write ~2.5 MiB of repetitive 'A's
+        let chunk = vec![b'A'; 64 * 1024];
+        for _ in 0..40 {
+            zip.write_all(&chunk).unwrap();
+        }
+        zip.write_all(b"\"}").unwrap();
+        zip.finish().unwrap();
+
+        let err = read_info_json(&zip_path).unwrap_err();
+        match err {
+            AppError::Parse(msg) => {
+                assert!(
+                    msg.contains("not valid JSON"),
+                    "unexpected error message: {msg}"
+                );
+            }
+            other => panic!("expected AppError::Parse, got {other:?}"),
+        }
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
