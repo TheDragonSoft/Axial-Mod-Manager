@@ -18,6 +18,23 @@ use crate::models::{
 
 const MOD_LIST_FILE: &str = "mod-list.json";
 
+/// Maximum decompressed size (2 MiB) allowed when reading `info.json` from untrusted mod zips.
+/// Factorio mod metadata is typically a few KiB; this cap prevents Zip Bomb / OOM DoS (CWE-409).
+pub const MAX_INFO_JSON_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Decompresses an untrusted reader into a string up to `limit` bytes.
+/// Returns an error if the decompressed stream exceeds `limit`, preventing unbounded memory allocation.
+pub fn read_capped_string<R: Read>(mut reader: R, limit: u64) -> Result<String, AppError> {
+    let mut s = String::new();
+    reader.by_ref().take(limit + 1).read_to_string(&mut s)?;
+    if s.len() as u64 > limit {
+        return Err(AppError::Parse(format!(
+            "decompressed content exceeds {limit} bytes limit"
+        )));
+    }
+    Ok(s)
+}
+
 // ---------------------------------------------------------------------------
 // Directory auto-detection (Phase 3)
 // ---------------------------------------------------------------------------
@@ -213,6 +230,7 @@ pub fn resolve_detection_status(config: &Config) -> DetectionStatus {
 // info.json reading (Phase 6)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct InfoJson {
     pub name: String,
     pub version: String,
@@ -238,16 +256,12 @@ pub fn read_info_json(path: &Path) -> Result<InfoJson, AppError> {
         }
         let entry_name = entry.name().to_string();
         if entry_name == "info.json" || entry_name == "./info.json" {
-            let mut s = String::new();
-            entry.read_to_string(&mut s)?;
-            raw = Some(s);
+            raw = Some(read_capped_string(&mut entry, MAX_INFO_JSON_BYTES)?);
             break;
         } else if nested.is_none()
             && (entry_name.ends_with("/info.json") || entry_name.ends_with("\\info.json"))
         {
-            let mut s = String::new();
-            entry.read_to_string(&mut s)?;
-            nested = Some(s);
+            nested = Some(read_capped_string(&mut entry, MAX_INFO_JSON_BYTES)?);
         }
     }
     let raw = raw
@@ -1753,6 +1767,24 @@ mod tests {
         let info_nover = read_info_json(&p_nover).expect("missing version should parse with '?' fallback");
         assert_eq!(info_nover.version, "?");
 
+        // 11. Oversized entry (decompression bomb / DoS defense): rejects exceeding 2 MiB
+        let oversized_content = vec![b' '; (MAX_INFO_JSON_BYTES + 1024) as usize];
+        let p_bomb = make_zip("bomb_1.0.0.zip", "info.json", &oversized_content);
+        let err_bomb = read_info_json(&p_bomb).expect_err("oversized info.json must be rejected");
+        assert!(err_bomb.to_string().contains("decompressed content exceeds"), "error: {err_bomb}");
+
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_read_capped_string_enforces_limit() {
+        let data = b"hello world this is test content";
+        // Capped reader with limit less than total data
+        let err = read_capped_string(&data[..], 5).unwrap_err();
+        assert!(err.to_string().contains("decompressed content exceeds 5 bytes limit"));
+
+        // Capped reader with limit greater than or equal to data
+        let ok = read_capped_string(&data[..], 100).unwrap();
+        assert_eq!(ok, "hello world this is test content");
     }
 }
